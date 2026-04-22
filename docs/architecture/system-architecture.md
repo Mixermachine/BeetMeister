@@ -86,11 +86,11 @@ At device level the controller battery state shall be one of:
 
 At pair level the controller state shall be one of:
 
-- `IDLE`
-- `WAITING_FOR_SLOT`
-- `SANITY_CHECK`
-- `WATERING`
-- `BLOCKED`
-- `FAULT`
+- `IDLE` (`IDLE`)
+- `WAITING_FOR_SLOT` (`WAIT`)
+- `SANITY_CHECK` (`SANI`)
+- `WATERING` (`RUN`)
+- `BLOCKED` (`BLKD`)
+- `FAULT` (`FLT`)
 
 No other externally visible pair state names are allowed in MQTT, BLE, hardware notes, or test plans unless this document is revised first.

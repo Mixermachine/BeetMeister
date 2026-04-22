@@ -1,12 +1,17 @@
 idf_component_register(
     SRCS
         "src/beet_board.c"
+        "src/beet_ble.c"
         "src/beet_controller.c"
         "src/beet_core.c"
         "src/beet_storage.c"
     INCLUDE_DIRS "include"
     REQUIRES
         esp_adc
+        esp_driver_i2c
+        esp_lcd
+        bt
+        esp_app_format
         esp_driver_gpio
         esp_partition
         esp_rom

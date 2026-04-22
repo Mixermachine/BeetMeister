@@ -97,32 +97,32 @@ The remaining automatic watering duration after a successful sanity check is:
 
 The externally visible pair state enum is:
 
-- `IDLE`
-- `WAITING_FOR_SLOT`
-- `SANITY_CHECK`
-- `WATERING`
-- `BLOCKED`
-- `FAULT`
+- `IDLE` (`IDLE`)
+- `WAITING_FOR_SLOT` (`WAIT`)
+- `SANITY_CHECK` (`SANI`)
+- `WATERING` (`RUN`)
+- `BLOCKED` (`BLKD`)
+- `FAULT` (`FLT`)
 
 ### Allowed transitions
 
 | From | To | Condition |
 | --- | --- | --- |
-| `IDLE` | `WAITING_FOR_SLOT` | Accepted manual request or automatic watering request when no slot is free |
-| `IDLE` | `SANITY_CHECK` | Automatic request accepted and slot available |
-| `IDLE` | `WATERING` | Manual request accepted and slot available |
-| `WAITING_FOR_SLOT` | `SANITY_CHECK` | Automatic request receives a free slot |
-| `WAITING_FOR_SLOT` | `WATERING` | Manual request receives a free slot |
-| `WAITING_FOR_SLOT` | `IDLE` | Request times out or is cancelled before pump start |
-| `SANITY_CHECK` | `WATERING` | Automatic sanity check passes and remaining duration is greater than 0 |
-| `SANITY_CHECK` | `IDLE` | Automatic sanity check passes and remaining duration is 0 |
-| `SANITY_CHECK` | `BLOCKED` | Automatic sanity check fails |
-| `SANITY_CHECK` | `FAULT` | Sensor or battery failure makes continuation unsafe |
-| `WATERING` | `IDLE` | Duration completes normally or manual run is stopped cleanly |
-| `WATERING` | `BLOCKED` | Sensor fault during automatic run escalates to a safety block |
-| `WATERING` | `FAULT` | Low battery, relay fault suspicion, or invalid runtime state aborts the run |
-| `BLOCKED` | `IDLE` | Block expires or operator resets the block |
-| `FAULT` | `IDLE` | Operator reset or subsequent valid startup recovers the pair |
+| `IDLE` (`IDLE`) | `WAITING_FOR_SLOT` (`WAIT`) | Accepted manual request or automatic watering request when no slot is free |
+| `IDLE` (`IDLE`) | `SANITY_CHECK` (`SANI`) | Automatic request accepted and slot available |
+| `IDLE` (`IDLE`) | `WATERING` (`RUN`) | Manual request accepted and slot available |
+| `WAITING_FOR_SLOT` (`WAIT`) | `SANITY_CHECK` (`SANI`) | Automatic request receives a free slot |
+| `WAITING_FOR_SLOT` (`WAIT`) | `WATERING` (`RUN`) | Manual request receives a free slot |
+| `WAITING_FOR_SLOT` (`WAIT`) | `IDLE` (`IDLE`) | Request times out or is cancelled before pump start |
+| `SANITY_CHECK` (`SANI`) | `WATERING` (`RUN`) | Automatic sanity check passes and remaining duration is greater than 0 |
+| `SANITY_CHECK` (`SANI`) | `IDLE` (`IDLE`) | Automatic sanity check passes and remaining duration is 0 |
+| `SANITY_CHECK` (`SANI`) | `BLOCKED` (`BLKD`) | Automatic sanity check fails |
+| `SANITY_CHECK` (`SANI`) | `FAULT` (`FLT`) | Sensor or battery failure makes continuation unsafe |
+| `WATERING` (`RUN`) | `IDLE` (`IDLE`) | Duration completes normally or manual run is stopped cleanly |
+| `WATERING` (`RUN`) | `BLOCKED` (`BLKD`) | Sensor fault during automatic run escalates to a safety block |
+| `WATERING` (`RUN`) | `FAULT` (`FLT`) | Low battery, relay fault suspicion, or invalid runtime state aborts the run |
+| `BLOCKED` (`BLKD`) | `IDLE` (`IDLE`) | Block expires or operator resets the block |
+| `FAULT` (`FLT`) | `IDLE` (`IDLE`) | Operator reset or subsequent valid startup recovers the pair |
 
 No other transitions are permitted.
 
@@ -130,6 +130,7 @@ No other transitions are permitted.
 
 - A manual start command shall use the same moisture and battery safety gates as automatic watering except that it shall not perform the 10-second sanity check.
 - Manual watering default duration shall equal the current automatic lookup duration for that pair, with a minimum of 10 seconds when the lookup would otherwise be 0.
+- A manual start command may instead provide an explicit requested duration from 1 through 900 seconds, which shall override the default manual duration for that accepted run only.
 - A manual stop command shall terminate active watering immediately and record stop reason `MANUAL_STOP`.
 - Manual start on a blocked or faulted pair shall be rejected.
 
@@ -177,6 +178,50 @@ Exact meanings:
 - `DEEP_LOW_BATTERY`
 - `OTA_IN_PROGRESS`
 
+### Power-check state machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> ACTIVE: Boot / wake / periodic battery refresh
+
+    ACTIVE --> IDLE_LOW_POWER: battery < 3.30 V<br>and inactivity >= 300 s<br>and no active watering
+    IDLE_LOW_POWER --> ACTIVE: battery >= 3.30 V<br>or accepted activity resumes
+
+    ACTIVE --> DEEP_LOW_BATTERY: battery <= 3.20 V<br>and no active watering
+    IDLE_LOW_POWER --> DEEP_LOW_BATTERY: battery <= 3.20 V
+    DEEP_LOW_BATTERY --> ACTIVE: recovery check > 3.25 V
+
+    ACTIVE --> OTA_IN_PROGRESS: OTA accepted
+    IDLE_LOW_POWER --> OTA_IN_PROGRESS: OTA accepted
+    OTA_IN_PROGRESS --> ACTIVE: OTA finished
+
+    note right of ACTIVE
+        Watering allowed while battery >= 3.10 V<br>
+        Watering aborted or rejected below 3.10 V
+    end note
+```
+
+Power-check interpretation:
+
+- The controller samples battery voltage during boot and during the main control loop.
+- In the current firmware implementation, the main control loop samples battery voltage about once per second.
+- `ACTIVE` is the normal awake state.
+- `IDLE_LOW_POWER` is selected only when battery voltage is below `3.30 V`, inactivity has reached `300 s`, and no watering run is active.
+- `DEEP_LOW_BATTERY` is selected when idle battery voltage is less than or equal to `3.20 V`.
+- Recovery from `DEEP_LOW_BATTERY` requires a later battery check above `3.25 V`.
+- `IDLE_LOW_POWER` uses timer-plus-button light sleep in the current implementation.
+- `DEEP_LOW_BATTERY` uses timer-only deep sleep in the current implementation.
+- Watering is allowed only while battery voltage is at least `3.10 V`; below that level, runs are aborted or new runs are rejected.
+- `OTA_IN_PROGRESS` suppresses scheduler entry and watering regardless of battery state classification.
+
+Current implementation note:
+
+- The firmware already performs battery-state classification using these thresholds.
+- The implemented battery refresh cadence is approximately `1 Hz` while the controller loop is awake.
+- The OLED display follows the controller power state and turns off in `IDLE_LOW_POWER` and `DEEP_LOW_BATTERY`.
+- Wi-Fi and BLE stop/start are centralized at the sleep transition hooks, but remain no-op stubs until those transports are implemented in firmware.
+- `DEEP_LOW_BATTERY` recovery checks use an adaptive interval of 1 hour for the first 3 failed checks, 2 hours for the next 6 failed checks, and 4 hours thereafter until recovery.
+
 ### Thresholds
 
 | Condition | Threshold |
@@ -190,15 +235,15 @@ Exact meanings:
 ### Behavior
 
 - `ACTIVE` permits MQTT and BLE operation, scheduler execution, and watering.
-- `IDLE_LOW_POWER` preserves persisted state and next scheduler deadline but does not guarantee radio availability.
-- `DEEP_LOW_BATTERY` keeps relay outputs off and wakes only for hourly battery checks.
+- `IDLE_LOW_POWER` preserves persisted state and next scheduler deadline, turns the OLED off, and enters light sleep with timer and `GPIO13` button wake.
+- `DEEP_LOW_BATTERY` keeps relay outputs off, turns the OLED off, and enters deep sleep for adaptive timer-based recovery checks.
 - `OTA_IN_PROGRESS` suppresses scheduler entry and rejects manual watering until the OTA attempt finishes.
 
 ## Sleep and wake policy
 
 - The inactivity timer for `IDLE_LOW_POWER` shall reset on any accepted MQTT or BLE write command.
 - Read-only telemetry requests shall not reset the inactivity timer.
-- The controller shall wake for one of: scheduled check deadline, hourly deep-low-battery recovery check, BLE or external wake input if later added, reset, or OTA reboot.
+- The controller shall wake for one of: scheduled check deadline, adaptive deep-low-battery recovery check, `GPIO13` button wake from idle low-power sleep, reset, or OTA reboot.
 - When communications are unavailable after wake, the controller shall still execute scheduler and safety logic.
 - Before entering any sleep mode, the controller shall persist next scheduler deadline and all pair runtime snapshots.
 

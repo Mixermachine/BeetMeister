@@ -32,7 +32,7 @@ Every requirement uses `shall` language and is traceable from the verification s
 
 - `RQ-020` The controller shall measure battery voltage sufficiently to classify battery state using the thresholds in the constraints and firmware specifications.
 - `RQ-021` The controller shall enter deep low-battery behavior when idle battery voltage is at or below 3.20 V.
-- `RQ-022` In deep low-battery behavior the controller shall wake once per hour for a short recovery check and shall resume normal awake behavior only after battery voltage exceeds 3.25 V.
+- `RQ-022` In deep low-battery behavior the controller shall wake for adaptive timer-based recovery checks and shall resume normal awake behavior only after battery voltage exceeds 3.25 V.
 - `RQ-023` The controller shall enter idle low-power sleep when battery voltage is below 3.30 V and the controller has had no external write command for 5 minutes and no active watering is running.
 - `RQ-024` The controller shall permit watering down to 3.10 V while a pump is already active and shall abort or reject watering below that threshold.
 
@@ -67,6 +67,7 @@ The following items are explicitly deferred from v1 and shall not be assumed by 
 
 - application-layer BLE credentials or user accounts
 - physical bond-admit button gating for acceptance of new BLE bonds
+- one-button local UI on `GPIO13`, including short-press menu navigation and long-press select or value change behavior
 - cloud synchronization
 - per-pair current sensing or flow sensing
 - dynamic pump-duration learning

@@ -6,6 +6,10 @@ This document defines the v1 controller-to-app contract.
 The controller is the BLE peripheral.
 The Android app is the BLE central.
 
+Current firmware implementation note:
+- v1 is implemented on top of the ESP-IDF NimBLE stack.
+- The BLE transport is built on the shared transport-neutral controller interface so MQTT can later reuse the same command and state model.
+
 ## BLE role model
 
 - The controller shall advertise when awake and not in deep low-battery sleep.
@@ -31,14 +35,16 @@ v1 does not add an application-layer PIN, token, user account, or exclusive owne
 - The controller shall support multiple bonded phones over time.
 - Clearing BLE bonds shall remove all stored bonds, disconnect any active BLE session, and force re-pairing before further access.
 
-### Planned future bond-admission control
+### Planned future button-based local control and bond admission
 
 The following feature is planned for a later version and is not part of v1:
 
-- The controller may add a dedicated physical push button for admission of new BLE bonds.
+- The controller may add one physical push button on `GPIO13` for local UI and BLE bond admission.
+- Under the planned local UI model, short press moves through menu items and long press selects an option or changes a value.
 - Under that future model, an unbonded phone may initiate a pairing or bonding request, but the controller shall accept the new bond only while the physical button is actively pressed.
 - Existing bonded phones shall continue to reconnect normally without requiring the button.
 - Rejected new-bond attempts caused by the button not being pressed shall not clear or disturb existing bonds.
+- The final button specification shall define how bond-admit handling overrides or coexists with the local menu so the button meaning is unambiguous.
 - The Android app shall treat this future condition as `pairing_requested_waiting_for_button` rather than a generic controller-offline state.
 
 ## GATT service layout
@@ -126,9 +132,14 @@ After that, the controller shall notify only changed frames.
 ```json
 {
   "cmd": "manual_start",
-  "pair": 3
+  "pair": 3,
+  "duration_s": 120
 }
 ```
+
+`duration_s` is optional.
+If omitted, the controller shall use its default manual duration for the current pair state.
+If provided, it shall override the default manual duration for that accepted run only.
 
 ### Manual stop
 
@@ -200,6 +211,7 @@ Accepted commands that take time to complete, such as calibration or OTA start, 
 - Commands shall be idempotent where meaningful.
 - `manual_stop` on a non-watering pair shall return `accepted` with reason `already_stopped`.
 - `reset_block` on an unblocked pair shall return `accepted` with reason `not_blocked`.
+- `manual_start` shall reject `duration_s` values below 1 second or above 900 seconds.
 - `store_calibration` shall reject invalid dry or wet values and dry values that are not greater than wet values.
 - Commands shall be rejected while the controller is in `DEEP_LOW_BATTERY`.
 - Commands that would violate controller safety rules shall be rejected rather than queued indefinitely.

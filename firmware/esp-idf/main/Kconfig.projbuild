@@ -30,6 +30,16 @@ menu "BeetMeister Configuration"
         help
             Number of ADC oneshot samples averaged for each sensor and battery reading.
 
+    config BEET_BATTERY_SAMPLE_OVERLAY_COUNT
+        int "Battery measurements overlaid per refresh"
+        range 1 16
+        default 4
+        help
+            Number of full battery measurements overlaid into one battery refresh result.
+            Each overlaid measurement already averages CONFIG_BEET_SENSOR_SAMPLE_COUNT raw ADC
+            conversions, so increasing this value trades latency for a calmer battery reading and
+            more stable sleep-state transitions.
+
     config BEET_BATTERY_DIVIDER_SCALE_PERMILLE
         int "Battery divider scale in permille"
         range 1000 4000
@@ -49,6 +59,48 @@ menu "BeetMeister Configuration"
             1030 comes from the current USB-powered bench calibration, where GPIO2 plus ADC curve
             fitting and the measured divider values read about 3.296 V when the multimeter reads
             3.326 V.
+
+    config BEET_MOISTURE_SENSOR_SUPPLY_KNEE_MV
+        int "Moisture sensor supply knee in millivolts"
+        range 2500 3600
+        default 3332
+        help
+            Capacitive moisture sensors on this board are not fully supply-independent. Bench data
+            shows that above roughly 3.332 V supply the dry output stays flat, but below that point
+            the sensor loses output headroom almost 1:1 with the battery rail. The firmware adds
+            back the missing headroom below this knee before applying the dry/wet calibration so
+            default calibration stays usable across the supported battery range.
+
+    config BEET_ENABLE_OLED_DISPLAY
+        bool "Enable SSD1306 OLED status display"
+        default y
+        help
+            Enables a small SSD1306 I2C status display used for local controller state during
+            bring-up and standalone operation.
+
+    config BEET_OLED_SDA_GPIO
+        int "OLED SDA GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 11
+        depends on BEET_ENABLE_OLED_DISPLAY
+        help
+            GPIO used for the SSD1306 I2C data line.
+
+    config BEET_OLED_SCL_GPIO
+        int "OLED SCL GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 12
+        depends on BEET_ENABLE_OLED_DISPLAY
+        help
+            GPIO used for the SSD1306 I2C clock line.
+
+    config BEET_OLED_I2C_ADDRESS
+        hex "OLED I2C address"
+        range 0x3C 0x3D
+        default 0x3C
+        depends on BEET_ENABLE_OLED_DISPLAY
+        help
+            SSD1306 I2C address. Most 128x64 modules use 0x3C.
 
     config BEET_ENABLE_PUMP_OUTPUTS
         bool "Enable live pump output actuation"

@@ -91,6 +91,11 @@ esp_err_t beet_storage_save_snapshot(const beet_pair_runtime_snapshot_t *snapsho
     return beet_save_blob("appcfg", "snap", key, snapshot, sizeof(*snapshot));
 }
 
+esp_err_t beet_storage_save_power_state(const beet_power_runtime_state_t *state)
+{
+    return beet_save_blob("appcfg", "pwr", "state", state, sizeof(*state));
+}
+
 static esp_err_t beet_load_config(beet_app_config_t *config, bool *was_initialized)
 {
     nvs_handle_t handle = 0;
@@ -157,14 +162,41 @@ static esp_err_t beet_load_pair_records(
     return ESP_OK;
 }
 
+static esp_err_t beet_load_power_state(beet_power_runtime_state_t *state)
+{
+    nvs_handle_t handle = 0;
+    ESP_RETURN_ON_ERROR(beet_open_namespace("appcfg", "pwr", NVS_READWRITE, &handle), TAG, "power namespace open failed");
+
+    size_t required_size = sizeof(*state);
+    esp_err_t err = nvs_get_blob(handle, "state", state, &required_size);
+    if (err == ESP_ERR_NVS_NOT_FOUND ||
+        required_size != sizeof(*state) ||
+        state->schema_version != BEET_SCHEMA_VERSION ||
+        !beet_is_valid_sleep_mode(state->last_sleep_mode)) {
+        beet_default_power_runtime_state(state);
+        ESP_RETURN_ON_ERROR(
+            nvs_set_blob(handle, "state", state, sizeof(*state)),
+            TAG,
+            "default power state write failed");
+        ESP_RETURN_ON_ERROR(nvs_commit(handle), TAG, "power commit failed");
+        nvs_close(handle);
+        return ESP_OK;
+    }
+
+    nvs_close(handle);
+    return ESP_OK;
+}
+
 esp_err_t beet_storage_load_or_init(
     beet_app_config_t *config,
     beet_pair_calibration_t calibrations[BEET_PAIR_COUNT],
-    beet_pair_runtime_snapshot_t snapshots[BEET_PAIR_COUNT])
+    beet_pair_runtime_snapshot_t snapshots[BEET_PAIR_COUNT],
+    beet_power_runtime_state_t *power_state)
 {
     bool initialized_defaults = false;
     ESP_RETURN_ON_ERROR(beet_load_config(config, &initialized_defaults), TAG, "config load failed");
     ESP_RETURN_ON_ERROR(beet_load_pair_records(calibrations, snapshots), TAG, "pair records load failed");
+    ESP_RETURN_ON_ERROR(beet_load_power_state(power_state), TAG, "power state load failed");
 
     if (initialized_defaults) {
         ESP_LOGI(TAG, "initialized default BeetMeister configuration");
@@ -241,4 +273,32 @@ esp_err_t beet_storage_append_event(beet_event_ring_state_t *state, beet_event_r
     state->highest_valid_seq_no = next_seq;
     state->next_write_slot = (uint16_t)((next_seq + 1U) % BEET_EVENT_RING_CAPACITY);
     return ESP_OK;
+}
+
+esp_err_t beet_storage_read_event_by_seq_no(uint64_t seq_no, beet_event_record_t *record)
+{
+    nvs_handle_t handle = 0;
+
+    ESP_RETURN_ON_FALSE(record != NULL, ESP_ERR_INVALID_ARG, TAG, "record is null");
+    ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
+
+    for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
+        beet_event_record_t candidate;
+        size_t required_size = sizeof(candidate);
+        char key[8];
+
+        beet_event_key(key, sizeof(key), slot);
+        esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+        if (err != ESP_OK || required_size != sizeof(candidate) || !beet_validate_event_record(&candidate)) {
+            continue;
+        }
+        if (candidate.seq_no == seq_no) {
+            *record = candidate;
+            nvs_close(handle);
+            return ESP_OK;
+        }
+    }
+
+    nvs_close(handle);
+    return ESP_ERR_NOT_FOUND;
 }

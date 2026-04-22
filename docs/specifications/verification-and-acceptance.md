@@ -34,7 +34,7 @@ This document turns the baseline requirements into verifiable activities and rel
 | `RQ-019` | `VT-013` host queue fairness test, `VT-035` bench three-pump concurrency test |
 | `RQ-020` | `VT-026` target ADC battery classification test |
 | `RQ-021` | `VT-014` host deep-low-battery transition test, `VT-036` bench 3.20 V idle test |
-| `RQ-022` | `VT-015` host hourly recovery-check test, `VT-027` target wake-timer test |
+| `RQ-022` | `VT-015` host adaptive recovery-check cadence test, `VT-027` target wake-timer test |
 | `RQ-023` | `VT-016` host idle-sleep inactivity test, `VT-037` bench low-power-entry test |
 | `RQ-024` | `VT-017` host low-battery-abort test, `VT-038` bench watering sag-abort test |
 | `RQ-025` | `VT-018` host calibration persistence test, `VT-028` target NVS calibration test |

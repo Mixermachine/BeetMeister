@@ -1,6 +1,7 @@
 #include "beet_types.h"
 
 #include <string.h>
+#include "sdkconfig.h"
 #include "esp_rom_crc.h"
 
 _Static_assert(sizeof(beet_event_record_t) == 64U, "event record size must be 64 bytes");
@@ -38,6 +39,13 @@ void beet_default_snapshot(uint8_t pair_index, beet_pair_runtime_snapshot_t *sna
     snapshot->active_run_source = BEET_RUN_SOURCE_NONE;
 }
 
+void beet_default_power_runtime_state(beet_power_runtime_state_t *state)
+{
+    memset(state, 0, sizeof(*state));
+    state->schema_version = BEET_SCHEMA_VERSION;
+    state->last_sleep_mode = BEET_SLEEP_MODE_NONE;
+}
+
 bool beet_is_valid_pair_index(uint8_t pair_index)
 {
     return pair_index >= 1U && pair_index <= BEET_PAIR_COUNT;
@@ -68,18 +76,47 @@ bool beet_is_valid_stop_reason(beet_stop_reason_t reason)
     return reason >= BEET_STOP_REASON_COMPLETED && reason <= BEET_STOP_REASON_SYSTEM_ABORT;
 }
 
-bool beet_is_sensor_mv_plausible(uint16_t sensor_mv)
+bool beet_is_valid_sleep_mode(beet_sleep_mode_t mode)
 {
-    return sensor_mv >= BEET_SENSOR_MIN_PLAUSIBLE_MV && sensor_mv <= BEET_SENSOR_MAX_PLAUSIBLE_MV;
+    return mode >= BEET_SLEEP_MODE_NONE && mode <= BEET_SLEEP_MODE_DEEP_LOW_BATTERY;
+}
+
+uint16_t beet_correct_moisture_sensor_mv(uint16_t sensor_mv, uint16_t battery_mv)
+{
+    // These capacitive sensors keep a stable dry output until the sensor supply drops below a
+    // measured knee. Below that point the output loses headroom almost 1:1 with the battery rail,
+    // so add the missing headroom back before applying the dry/wet calibration defaults.
+    if (battery_mv >= CONFIG_BEET_MOISTURE_SENSOR_SUPPLY_KNEE_MV) {
+        return sensor_mv;
+    }
+
+    uint32_t corrected_mv = sensor_mv + (CONFIG_BEET_MOISTURE_SENSOR_SUPPLY_KNEE_MV - battery_mv);
+    return corrected_mv > UINT16_MAX ? UINT16_MAX : (uint16_t)corrected_mv;
+}
+
+bool beet_is_sensor_mv_plausible(uint16_t corrected_sensor_mv, uint16_t dry_mv, uint16_t wet_mv)
+{
+    uint16_t min_valid_mv = (wet_mv > BEET_SENSOR_INVALID_LOW_MARGIN_MV) ?
+        (uint16_t)(wet_mv - BEET_SENSOR_INVALID_LOW_MARGIN_MV) :
+        0U;
+    uint16_t max_valid_mv = (dry_mv <= (UINT16_MAX - BEET_SENSOR_INVALID_HIGH_MARGIN_MV)) ?
+        (uint16_t)(dry_mv + BEET_SENSOR_INVALID_HIGH_MARGIN_MV) :
+        UINT16_MAX;
+
+    return corrected_sensor_mv >= min_valid_mv && corrected_sensor_mv <= max_valid_mv;
 }
 
 uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sensor_mv)
 {
+    uint16_t dry_clamp_mv = (dry_mv <= (UINT16_MAX - BEET_SENSOR_DRY_CLAMP_HEADROOM_MV)) ?
+        (uint16_t)(dry_mv + BEET_SENSOR_DRY_CLAMP_HEADROOM_MV) :
+        UINT16_MAX;
+
     if (dry_mv <= wet_mv) {
         return 0U;
     }
 
-    if (sensor_mv >= dry_mv) {
+    if (sensor_mv >= dry_clamp_mv) {
         return 0U;
     }
 
@@ -98,6 +135,55 @@ uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sen
         return 100U;
     }
     return (uint8_t)pct;
+}
+
+uint8_t beet_battery_pct_from_mv(uint16_t battery_mv)
+{
+    // Coarse single-cell LiFePO4 estimate for display only.
+    // LiFePO4 has a long voltage plateau, so pack voltage alone is not a precise SOC measurement.
+    // This table intentionally uses broad 10% bands and should not be treated as a true coulomb-counted SOC.
+    if (battery_mv >= 3600U) {
+        return 100U;
+    }
+    if (battery_mv >= 3500U) {
+        return 90U;
+    }
+    if (battery_mv >= 3450U) {
+        return 80U;
+    }
+    if (battery_mv >= 3400U) {
+        return 70U;
+    }
+    if (battery_mv >= 3370U) {
+        return 60U;
+    }
+    if (battery_mv >= 3340U) {
+        return 50U;
+    }
+    if (battery_mv >= 3310U) {
+        return 40U;
+    }
+    if (battery_mv >= 3280U) {
+        return 30U;
+    }
+    if (battery_mv >= 3250U) {
+        return 20U;
+    }
+    if (battery_mv >= 3220U) {
+        return 10U;
+    }
+    return 0U;
+}
+
+uint32_t beet_deep_low_recovery_interval_s(uint8_t failure_count)
+{
+    if (failure_count < 3U) {
+        return 3600U;
+    }
+    if (failure_count < 9U) {
+        return 7200U;
+    }
+    return 14400U;
 }
 
 uint16_t beet_automatic_duration_s(uint8_t moisture_pct)

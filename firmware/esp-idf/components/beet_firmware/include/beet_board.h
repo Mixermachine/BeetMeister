@@ -2,6 +2,7 @@
 #define BEET_BOARD_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
 
@@ -34,6 +35,8 @@ esp_err_t beet_board_read_moisture_mv(uint8_t pair_index, uint16_t *out_mv);
 esp_err_t beet_board_read_battery_sample(beet_board_battery_sample_t *sample);
 esp_err_t beet_board_read_battery_mv(uint16_t *out_mv);
 esp_err_t beet_board_set_indicator(beet_board_indicator_t indicator);
+esp_err_t beet_board_set_display_enabled(bool enabled);
+esp_err_t beet_board_update_display(const char *const *lines, size_t line_count);
 int beet_board_relay_gpio(uint8_t pair_index);
 int beet_board_moisture_gpio(uint8_t pair_index);
 

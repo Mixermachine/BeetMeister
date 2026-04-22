@@ -33,7 +33,8 @@ The planned baseline allocation is:
 
 - moisture sensors on `GPIO10`, `GPIO9`, `GPIO8`, `GPIO7`, `GPIO6`, `GPIO5`, `GPIO4`, and `GPIO1`
 - battery sense on `GPIO2`
-- future bond-admit button on `GPIO13`
+- optional `SSD1306` OLED on `GPIO11` (`SDA`) and `GPIO12` (`SCL`)
+- future single-button local control and bond-admit input on `GPIO13`
 - relay outputs on `GPIO14`, `GPIO21`, `GPIO47`, `GPIO38`, `GPIO39`, `GPIO40`, `GPIO41`, and `GPIO42`
 
 Rationale:
@@ -46,10 +47,8 @@ Rationale:
 
 ## Currently free non-problematic GPIOs
 
-After the baseline allocation, the cleanest currently free GPIOs are:
+After the baseline allocation plus the optional OLED display, the cleanest currently free GPIOs are:
 
-- `GPIO11`
-- `GPIO12`
 - `GPIO15`
 - `GPIO16`
 - `GPIO17`
@@ -100,13 +99,18 @@ These are preferred for later expansion because they are not strapping pins, are
 - GPIOs with unsafe boot strap implications shall be avoided for relay control in the baseline map.
 - No pump or relay shall energize because of controller reset, boot ROM behavior, OTA reboot, or deep-sleep wake.
 
-## Planned future bond-admit button
+## Planned future single-button local control
 
-- GPIO13 is reserved as the preferred future input for a BLE bond-admit push button.
-- The planned button is a security-hardening feature for later, not a v1 dependency.
-- The planned electrical model is a normally open momentary push button read as a digital input with a stable default inactive state through pull-up or pull-down design chosen in the final schematic.
-- When implemented, the controller shall accept a new BLE bond only if a bond request is pending and the button is currently pressed.
+- `GPIO13` is reserved as the preferred future input for one normally open momentary push button.
+- The planned button is a later feature, not a v1 dependency.
+- The planned electrical model is a digital input with a stable default inactive state through pull-up or pull-down design chosen in the final schematic.
+- The intended later UI model is:
+- short press moves through local menu items
+- long press selects an option or changes a value
+- The same physical button may also be used for BLE bond admission in a later security-hardening phase.
+- When bond-admit behavior is implemented, the controller shall accept a new BLE bond only if a bond request is pending and the button is currently pressed.
 - Existing bonded phones shall not require the button for reconnect.
+- The final UI specification shall define how bond-admit handling overrides or coexists with the normal local menu flow so the meanings do not conflict.
 
 ## Required electrical deliverables
 

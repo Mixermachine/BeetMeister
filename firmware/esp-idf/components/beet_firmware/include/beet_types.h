@@ -25,13 +25,15 @@
 #define BEET_DEEP_SLEEP_RESUME_MV 3250U
 #define BEET_WATERING_ABORT_THRESHOLD_MV 3100U
 #define BEET_INACTIVITY_SLEEP_TIMEOUT_S 300U
-#define BEET_DEFAULT_DRY_MV 2450U
+#define BEET_DEFAULT_DRY_MV 2765U
 #define BEET_DEFAULT_WET_MV 900U
-#define BEET_SENSOR_MIN_PLAUSIBLE_MV 700U
-#define BEET_SENSOR_MAX_PLAUSIBLE_MV 2700U
+#define BEET_SENSOR_DRY_CLAMP_HEADROOM_MV 100U
+#define BEET_SENSOR_INVALID_LOW_MARGIN_MV 400U
+#define BEET_SENSOR_INVALID_HIGH_MARGIN_MV 200U
 #define BEET_BATTERY_FILTER_WINDOW 4U
 #define BEET_BATTERY_SPIKE_REJECT_MV 400U
 #define BEET_BATTERY_OUTLIER_ACCEPT_COUNT 3U
+#define BEET_WAKE_INDICATOR_PULSE_MS 120U
 
 typedef enum {
     BEET_PAIR_STATE_IDLE = 0,
@@ -48,6 +50,12 @@ typedef enum {
     BEET_BATTERY_STATE_DEEP_LOW_BATTERY = 2,
     BEET_BATTERY_STATE_OTA_IN_PROGRESS = 3,
 } beet_battery_state_t;
+
+typedef enum {
+    BEET_SLEEP_MODE_NONE = 0,
+    BEET_SLEEP_MODE_LIGHT_IDLE = 1,
+    BEET_SLEEP_MODE_DEEP_LOW_BATTERY = 2,
+} beet_sleep_mode_t;
 
 typedef enum {
     BEET_RUN_SOURCE_NONE = 0,
@@ -148,17 +156,30 @@ typedef struct {
     uint16_t next_write_slot;
 } beet_event_ring_state_t;
 
+typedef struct {
+    uint16_t schema_version;
+    beet_sleep_mode_t last_sleep_mode;
+    uint8_t deep_low_recovery_failures;
+    uint8_t reserved0;
+    uint32_t reserved1;
+} beet_power_runtime_state_t;
+
 void beet_default_app_config(beet_app_config_t *config);
 void beet_default_calibration(uint8_t pair_index, beet_pair_calibration_t *calibration);
 void beet_default_snapshot(uint8_t pair_index, beet_pair_runtime_snapshot_t *snapshot);
+void beet_default_power_runtime_state(beet_power_runtime_state_t *state);
 bool beet_is_valid_pair_index(uint8_t pair_index);
 bool beet_is_valid_pair_state(beet_pair_state_t state);
 bool beet_is_valid_battery_state(beet_battery_state_t state);
 bool beet_is_valid_run_source(beet_run_source_t source);
 bool beet_is_valid_block_reason(beet_block_reason_t reason);
 bool beet_is_valid_stop_reason(beet_stop_reason_t reason);
-bool beet_is_sensor_mv_plausible(uint16_t sensor_mv);
+bool beet_is_valid_sleep_mode(beet_sleep_mode_t mode);
+uint16_t beet_correct_moisture_sensor_mv(uint16_t sensor_mv, uint16_t battery_mv);
+bool beet_is_sensor_mv_plausible(uint16_t corrected_sensor_mv, uint16_t dry_mv, uint16_t wet_mv);
 uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sensor_mv);
+uint8_t beet_battery_pct_from_mv(uint16_t battery_mv);
+uint32_t beet_deep_low_recovery_interval_s(uint8_t failure_count);
 uint16_t beet_automatic_duration_s(uint8_t moisture_pct);
 uint16_t beet_manual_duration_s(uint8_t moisture_pct);
 bool beet_sanity_check_passed(uint8_t pre_run_pct, uint8_t post_run_pct);

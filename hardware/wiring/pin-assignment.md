@@ -40,18 +40,19 @@ Right side, top to bottom (`J3`):
 
 ## Free expansion GPIOs
 
-These GPIOs are currently unassigned after the baseline plan is applied.
+These GPIOs are currently unassigned after the baseline plan is applied, excluding the optional OLED display add-on.
 
 | GPIOs | Recommended status | Why |
 | --- | --- | --- |
-| `GPIO11`, `GPIO12`, `GPIO15` to `GPIO18` | Preferred free expansion pins | Left-header pins, not strapping pins, not USB pins, not PSRAM pins, and still available after the ADC1-only moisture plus ADC1-battery baseline mapping |
+| `GPIO15` to `GPIO18` | Preferred free expansion pins | Left-header pins, not strapping pins, not USB pins, not PSRAM pins, and still available after the baseline mapping plus the optional OLED display |
 
 Use notes:
 
-- `GPIO11`, `GPIO12`, and `GPIO15` to `GPIO18` are the cleanest currently free pins for future expansion after the ADC1-only moisture plus ADC1-battery plan is applied.
+- `GPIO11` and `GPIO12` are now the preferred `SSD1306` OLED lines, with `GPIO11` as `SDA` and `GPIO12` as `SCL`.
+- `GPIO15` to `GPIO18` are the cleanest currently free pins for future expansion after the baseline plan plus the optional OLED display is applied.
 - `GPIO14` is intentionally not listed as free because it carries the one relay output moved to the left header.
-- `GPIO12` is intentionally not listed as a preferred button pin because `GPIO13` is the planned future BLE bond-admit button input.
-- `GPIO11`, `GPIO12`, and `GPIO15` to `GPIO18` are `ADC2`-capable and also usable as digital I/O if later needed.
+- `GPIO12` is intentionally not listed as a preferred button pin because `GPIO13` is the planned future single-button local control and BLE bond-admit input.
+- `GPIO15` to `GPIO18` are `ADC2`-capable and also usable as digital I/O if later needed.
 
 ## Detailed planned assignment
 
@@ -112,7 +113,9 @@ Each pair number binds the relay and moisture pin at the same position in those 
 | Moisture sensor pair 7 | GPIO4 | Left header, ADC1, paired with relay on `GPIO41` |
 | Moisture sensor pair 8 | GPIO1 | Right header, ADC1, paired with relay on `GPIO42` |
 | Battery sense | GPIO2 | Right header, ADC1 input through divider |
-| Future BLE bond-admit button | GPIO13 | Left header, reserved digital input |
+| OLED SDA | GPIO11 | Left header, reserved for `SSD1306` I2C data |
+| OLED SCL | GPIO12 | Left header, reserved for `SSD1306` I2C clock |
+| Future local UI / BLE bond-admit button | GPIO13 | Left header, reserved digital input for later short-press and long-press controls plus bond admission |
 | Relay pair 1 | GPIO14 | Left header, digital output, external pull-down, paired with moisture on `GPIO10` |
 | Relay pair 2 | GPIO21 | Right header, digital output, external pull-down, paired with moisture on `GPIO9` |
 | Relay pair 3 | GPIO47 | Right header, digital output, external pull-down, paired with moisture on `GPIO8` |
@@ -137,5 +140,6 @@ Each pair number binds the relay and moisture pin at the same position in those 
 - Pair numbering shall follow the physical bottom-up wiring order, not raw GPIO number order.
 - The preferred relay order by pair number is `GPIO14`, `GPIO21`, `GPIO47`, `GPIO38`, `GPIO39`, `GPIO40`, `GPIO41`, `GPIO42`.
 - The preferred moisture-sensor order by pair number is `GPIO10`, `GPIO9`, `GPIO8`, `GPIO7`, `GPIO6`, `GPIO5`, `GPIO4`, `GPIO1`, keeping all moisture sensing on `ADC1`.
-- `GPIO13` is reserved as the preferred future BLE bond-admit button input.
-- The preferred currently free expansion pins are `GPIO11`, `GPIO12`, and `GPIO15` through `GPIO18`.
+- The preferred OLED mapping is `GPIO11` for `SDA` and `GPIO12` for `SCL`.
+- `GPIO13` is reserved as the preferred future single-button local control and BLE bond-admit input.
+- The preferred currently free expansion pins are `GPIO15` through `GPIO18`.

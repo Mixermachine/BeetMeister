@@ -14,9 +14,27 @@ It now contains the first real controller foundation rather than the temporary b
 - 1000-entry event ring with CRC validation and sequence reconstruction
 - controller task with battery refresh, moisture refresh, block countdown, scheduler deadline, and status LED updates
 - automatic run state machine scaffolding with queueing, sanity-check flow, and event creation
+- NimBLE-based BLE transport with the documented custom service and shared-interface-backed commands
 - bench diagnostics that log parseable raw ADC, millivolt, and pair-state data
 - automatic recovery from sensor-invalid faults when a valid reading returns
 - optional relay self-test mode that cycles one relay at a time for bench validation
+
+## BLE transport status
+
+- BLE uses NimBLE, not Bluedroid.
+- The firmware now advertises the documented BeetMeister custom service while awake and not in deep low-battery sleep.
+- Implemented BLE characteristics:
+  - `controller_info`
+  - `state_stream`
+  - `control_point`
+  - `command_result`
+- Implemented BLE commands:
+  - `manual_start`
+  - `manual_stop`
+  - `reset_block`
+  - `store_calibration`
+- `manual_start` accepts an optional per-command `duration_s` override in the range `1..900`.
+- The transport is built on the shared internal interface layer so the same command and state model can later be reused for MQTT.
 
 ## Safety defaults
 
@@ -27,12 +45,19 @@ It now contains the first real controller foundation rather than the temporary b
 ## Bench bring-up behavior
 
 - Battery reads are filtered and large one-shot spikes are rejected before state transitions.
+- Each battery refresh now overlays multiple complete battery measurements before the controller
+  applies spike rejection and filtering, which makes sleep-state transitions less sensitive to
+  single noisy loop samples.
 - Battery scaling uses a clean two-stage model:
   - measured divider factor on `GPIO2`
   - battery-path calibration factor
 - Bench diagnostics are enabled by default and emit lines such as:
   - `bench battery raw=... sensed_mv=... divider_mv=... scaled_mv=... filtered_mv=...`
-  - `bench pair=... relay_gpio=... moisture_gpio=... raw=... mv=... pct=...`
+  - `bench pair=... relay_gpio=... moisture_gpio=... raw=... mv=... corrected_mv=... pct=...`
+- Moisture conversion uses a sane default calibration for every pair even before app-side calibration exists.
+- Moisture readings are corrected below the configured `moisture_sensor_supply_knee_mv` because these capacitive
+  sensors lose output headroom as the battery rail drops; the corrected value is what the controller uses for
+  percentage conversion and validity checks.
 - If a pair faults because of an invalid sensor reading and later receives a valid reading again, the controller returns that pair to `IDLE` automatically.
 
 ## Build and flash

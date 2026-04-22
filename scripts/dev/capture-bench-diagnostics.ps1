@@ -79,7 +79,7 @@ if ($NoSummary) {
 }
 
 $batteryRegex = [regex]'bench battery raw=(?<raw>-?\d+) sensed_mv=(?<sensed>\d+) divider_mv=(?<divider>\d+) scaled_mv=(?<scaled>\d+) filtered_mv=(?<filtered>\d+) battery_state=(?<state>\S+) active_pumps=(?<pumps>\d+)'
-$pairRegex = [regex]'bench pair=(?<pair>\d+) relay_gpio=(?<relay>\d+) moisture_gpio=(?<moist>\d+) raw=(?<raw>-?\d+) mv=(?<mv>\d+) pct=(?<pct>\d+) sample_ok=(?<sample>\d) sensor_valid=(?<valid>\d) state=(?<state>\S+) block=(?<block>\S+)'
+$pairRegex = [regex]'bench pair=(?<pair>\d+) relay_gpio=(?<relay>\d+) moisture_gpio=(?<moist>\d+) raw=(?<raw>-?\d+) mv=(?<mv>\d+) corrected_mv=(?<corrected>\d+) pct=(?<pct>\d+) sample_ok=(?<sample>\d) sensor_valid=(?<valid>\d) state=(?<state>\S+) block=(?<block>\S+)'
 
 $latestBattery = $null
 $latestPairs = @{}
@@ -107,7 +107,8 @@ foreach ($line in $allLines) {
             RelayGpio = [int]$pairMatch.Groups["relay"].Value
             MoistureGpio = [int]$pairMatch.Groups["moist"].Value
             Raw = [int]$pairMatch.Groups["raw"].Value
-            Millivolts = [int]$pairMatch.Groups["mv"].Value
+            RawMillivolts = [int]$pairMatch.Groups["mv"].Value
+            CorrectedMv = [int]$pairMatch.Groups["corrected"].Value
             MoisturePct = [int]$pairMatch.Groups["pct"].Value
             SampleOk = [int]$pairMatch.Groups["sample"].Value
             SensorValid = [int]$pairMatch.Groups["valid"].Value
@@ -136,7 +137,7 @@ if ($latestBattery -ne $null) {
 if ($latestPairs.Count -gt 0) {
     $latestPairs.Values |
         Sort-Object Pair |
-        Format-Table Pair, RelayGpio, MoistureGpio, Raw, Millivolts, MoisturePct, SampleOk, SensorValid, State, Block
+        Format-Table Pair, RelayGpio, MoistureGpio, Raw, RawMillivolts, CorrectedMv, MoisturePct, SampleOk, SensorValid, State, Block
 } else {
     Write-Output "pairs no bench pair lines captured"
 }

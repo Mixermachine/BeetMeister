@@ -41,7 +41,7 @@ All automatic watering, manual watering, telemetry, history, and fault handling 
 | Connected Wi-Fi | Controller is awake and MQTT-capable. | Wi-Fi and MQTT are available while battery policy allows awake operation. | Inactivity sleep, low battery, or connectivity loss. |
 | Connected BLE | Android app is actively connected over BLE. | App connects while controller is awake. | App disconnects or controller sleeps. |
 | Idle Low Power | Controller suspends radio activity but preserves runtime state and next scheduler wakeup. | Battery below 3.30 V and no active watering and no external write command for 5 minutes. | External wake or scheduled check. |
-| Deep Low Battery | Controller stays in deep sleep and performs hourly recovery checks only. | Idle battery at or below 3.20 V. | Battery recovery above 3.25 V on a wake check. |
+| Deep Low Battery | Controller stays in deep sleep and performs adaptive timer-based recovery checks only. | Idle battery at or below 3.20 V. | Battery recovery above 3.25 V on a wake check. |
 | OTA Maintenance | Controller downloads and applies a new firmware image. | Explicit OTA request with battery and activity prerequisites met. | OTA success, OTA failure, or abort. |
 
 ## Externally visible functions
@@ -71,7 +71,7 @@ All automatic watering, manual watering, telemetry, history, and fault handling 
 | Runtime snapshot | Persisted per-pair state needed to restore behavior after reset, sleep, or OTA. |
 | Event ring | The persistent 1000-entry watering-event buffer stored in a dedicated NVS partition. |
 | Idle Low Power | Sleep policy entered below 3.30 V when the controller is inactive. |
-| Deep Low Battery | Hourly recovery-check deep sleep entered at or below 3.20 V idle battery voltage. |
+| Deep Low Battery | Adaptive recovery-check deep sleep entered at or below 3.20 V idle battery voltage. |
 | Manual watering | A user-initiated watering action that bypasses scheduler timing but not safety rules. |
 | Availability | The controller online or offline indication exposed to MQTT consumers. |
 | Wall-clock time | UTC Unix time when the controller has a valid time source. |

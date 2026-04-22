@@ -10,6 +10,7 @@
 | `M3` Connectivity | Implement MQTT discovery plus BLE protocol and Android app skeleton | Home Assistant and BLE control paths operate against target hardware |
 | `M4` OTA and release candidate | Implement OTA, rollback behavior, and release gating | OTA, persistence, and soak tests pass |
 | `M5` Security hardening | Add optional physical bond-admit button flow for new BLE bonds | New bonds require a pending bond request plus button press, while existing bonds still reconnect normally |
+| `M6` Local single-button UI | Add deferred one-button local control flow on `GPIO13` | Short press moves through local menu items, long press selects an item or changes a value, and bond-admit behavior is integrated without conflicting with the local UI |
 
 ## Sequencing rules
 

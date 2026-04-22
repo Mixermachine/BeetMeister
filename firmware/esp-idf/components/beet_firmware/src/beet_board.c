@@ -1,12 +1,18 @@
 #include "beet_board.h"
 
+#include <ctype.h>
 #include <string.h>
 
+#include "driver/i2c_master.h"
 #include "driver/gpio.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_check.h"
+#include "esp_lcd_io_i2c.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
 #include "led_strip.h"
 #include "sdkconfig.h"
@@ -37,7 +43,176 @@ static adc_oneshot_unit_handle_t s_adc_handle;
 static adc_cali_handle_t s_adc_cali_handle;
 static bool s_adc_cali_enabled;
 static led_strip_handle_t s_led_strip;
+static i2c_master_bus_handle_t s_oled_i2c_bus;
+static esp_lcd_panel_io_handle_t s_oled_io_handle;
+static esp_lcd_panel_handle_t s_oled_panel_handle;
+static bool s_oled_ready;
+static bool s_oled_enabled;
+static uint8_t s_oled_buffer[128 * 64 / 8];
 static bool s_initialized;
+
+#define BEET_OLED_WIDTH 128
+#define BEET_OLED_HEIGHT 64
+#define BEET_OLED_LINE_HEIGHT 8
+#define BEET_OLED_CHAR_WIDTH 6
+#define BEET_OLED_MAX_LINES (BEET_OLED_HEIGHT / BEET_OLED_LINE_HEIGHT)
+#define BEET_OLED_MAX_CHARS_PER_LINE (BEET_OLED_WIDTH / BEET_OLED_CHAR_WIDTH)
+#define BEET_OLED_COLUMN2_X 69
+
+static const uint8_t *beet_oled_glyph(char c)
+{
+    static const uint8_t blank[5] = { 0, 0, 0, 0, 0 };
+    switch (toupper((unsigned char)c)) {
+    case '0': { static const uint8_t g[5] = { 0x3E, 0x51, 0x49, 0x45, 0x3E }; return g; }
+    case '1': { static const uint8_t g[5] = { 0x00, 0x42, 0x7F, 0x40, 0x00 }; return g; }
+    case '2': { static const uint8_t g[5] = { 0x42, 0x61, 0x51, 0x49, 0x46 }; return g; }
+    case '3': { static const uint8_t g[5] = { 0x21, 0x41, 0x45, 0x4B, 0x31 }; return g; }
+    case '4': { static const uint8_t g[5] = { 0x18, 0x14, 0x12, 0x7F, 0x10 }; return g; }
+    case '5': { static const uint8_t g[5] = { 0x27, 0x45, 0x45, 0x45, 0x39 }; return g; }
+    case '6': { static const uint8_t g[5] = { 0x3C, 0x4A, 0x49, 0x49, 0x30 }; return g; }
+    case '7': { static const uint8_t g[5] = { 0x01, 0x71, 0x09, 0x05, 0x03 }; return g; }
+    case '8': { static const uint8_t g[5] = { 0x36, 0x49, 0x49, 0x49, 0x36 }; return g; }
+    case '9': { static const uint8_t g[5] = { 0x06, 0x49, 0x49, 0x29, 0x1E }; return g; }
+    case 'A': { static const uint8_t g[5] = { 0x7E, 0x11, 0x11, 0x11, 0x7E }; return g; }
+    case 'B': { static const uint8_t g[5] = { 0x7F, 0x49, 0x49, 0x49, 0x36 }; return g; }
+    case 'C': { static const uint8_t g[5] = { 0x3E, 0x41, 0x41, 0x41, 0x22 }; return g; }
+    case 'D': { static const uint8_t g[5] = { 0x7F, 0x41, 0x41, 0x22, 0x1C }; return g; }
+    case 'E': { static const uint8_t g[5] = { 0x7F, 0x49, 0x49, 0x49, 0x41 }; return g; }
+    case 'F': { static const uint8_t g[5] = { 0x7F, 0x09, 0x09, 0x09, 0x01 }; return g; }
+    case 'G': { static const uint8_t g[5] = { 0x3E, 0x41, 0x49, 0x49, 0x7A }; return g; }
+    case 'H': { static const uint8_t g[5] = { 0x7F, 0x08, 0x08, 0x08, 0x7F }; return g; }
+    case 'I': { static const uint8_t g[5] = { 0x00, 0x41, 0x7F, 0x41, 0x00 }; return g; }
+    case 'J': { static const uint8_t g[5] = { 0x20, 0x40, 0x41, 0x3F, 0x01 }; return g; }
+    case 'K': { static const uint8_t g[5] = { 0x7F, 0x08, 0x14, 0x22, 0x41 }; return g; }
+    case 'L': { static const uint8_t g[5] = { 0x7F, 0x40, 0x40, 0x40, 0x40 }; return g; }
+    case 'M': { static const uint8_t g[5] = { 0x7F, 0x02, 0x0C, 0x02, 0x7F }; return g; }
+    case 'N': { static const uint8_t g[5] = { 0x7F, 0x04, 0x08, 0x10, 0x7F }; return g; }
+    case 'O': { static const uint8_t g[5] = { 0x3E, 0x41, 0x41, 0x41, 0x3E }; return g; }
+    case 'P': { static const uint8_t g[5] = { 0x7F, 0x09, 0x09, 0x09, 0x06 }; return g; }
+    case 'Q': { static const uint8_t g[5] = { 0x3E, 0x41, 0x51, 0x21, 0x5E }; return g; }
+    case 'R': { static const uint8_t g[5] = { 0x7F, 0x09, 0x19, 0x29, 0x46 }; return g; }
+    case 'S': { static const uint8_t g[5] = { 0x46, 0x49, 0x49, 0x49, 0x31 }; return g; }
+    case 'T': { static const uint8_t g[5] = { 0x01, 0x01, 0x7F, 0x01, 0x01 }; return g; }
+    case 'U': { static const uint8_t g[5] = { 0x3F, 0x40, 0x40, 0x40, 0x3F }; return g; }
+    case 'V': { static const uint8_t g[5] = { 0x1F, 0x20, 0x40, 0x20, 0x1F }; return g; }
+    case 'W': { static const uint8_t g[5] = { 0x3F, 0x40, 0x38, 0x40, 0x3F }; return g; }
+    case 'X': { static const uint8_t g[5] = { 0x63, 0x14, 0x08, 0x14, 0x63 }; return g; }
+    case 'Y': { static const uint8_t g[5] = { 0x07, 0x08, 0x70, 0x08, 0x07 }; return g; }
+    case 'Z': { static const uint8_t g[5] = { 0x61, 0x51, 0x49, 0x45, 0x43 }; return g; }
+    case ':': { static const uint8_t g[5] = { 0x00, 0x36, 0x36, 0x00, 0x00 }; return g; }
+    case '-': { static const uint8_t g[5] = { 0x08, 0x08, 0x08, 0x08, 0x08 }; return g; }
+    case '.': { static const uint8_t g[5] = { 0x00, 0x60, 0x60, 0x00, 0x00 }; return g; }
+    case '%': { static const uint8_t g[5] = { 0x63, 0x13, 0x08, 0x64, 0x63 }; return g; }
+    case '/': { static const uint8_t g[5] = { 0x20, 0x10, 0x08, 0x04, 0x02 }; return g; }
+    case ' ': return blank;
+    default: { static const uint8_t g[5] = { 0x7F, 0x41, 0x5D, 0x41, 0x7F }; return g; }
+    }
+}
+
+static void beet_oled_set_pixel(int x, int y, bool on)
+{
+    if (x < 0 || x >= BEET_OLED_WIDTH || y < 0 || y >= BEET_OLED_HEIGHT) {
+        return;
+    }
+
+    size_t index = (size_t)x + ((size_t)(y / 8) * BEET_OLED_WIDTH);
+    uint8_t mask = (uint8_t)(1U << (y % 8));
+    if (on) {
+        s_oled_buffer[index] |= mask;
+    } else {
+        s_oled_buffer[index] &= (uint8_t)~mask;
+    }
+}
+
+static void beet_oled_draw_char(int x, int y, char c)
+{
+    const uint8_t *glyph = beet_oled_glyph(c);
+    for (int col = 0; col < 5; ++col) {
+        uint8_t bits = glyph[col];
+        for (int row = 0; row < 7; ++row) {
+            beet_oled_set_pixel(x + col, y + row, (bits & (1U << row)) != 0U);
+        }
+    }
+}
+
+static void beet_oled_draw_text_line(int line_index, const char *text)
+{
+    int y = line_index * BEET_OLED_LINE_HEIGHT;
+    int x = 0;
+    for (int i = 0; text != NULL && text[i] != '\0'; ++i) {
+        if (text[i] == '\t') {
+            x = BEET_OLED_COLUMN2_X;
+            continue;
+        }
+        if (x > (BEET_OLED_WIDTH - 5)) {
+            break;
+        }
+        beet_oled_draw_char(x, y, text[i]);
+        x += BEET_OLED_CHAR_WIDTH;
+    }
+}
+
+static esp_err_t beet_board_init_oled(void)
+{
+#if CONFIG_BEET_ENABLE_OLED_DISPLAY
+    i2c_master_bus_config_t bus_config = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .i2c_port = I2C_NUM_0,
+        .sda_io_num = CONFIG_BEET_OLED_SDA_GPIO,
+        .scl_io_num = CONFIG_BEET_OLED_SCL_GPIO,
+        .flags.enable_internal_pullup = true,
+    };
+    esp_err_t err = i2c_new_master_bus(&bus_config, &s_oled_i2c_bus);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "oled i2c bus init failed: %s", esp_err_to_name(err));
+        return ESP_OK;
+    }
+
+    esp_lcd_panel_io_i2c_config_t io_config = {
+        .dev_addr = CONFIG_BEET_OLED_I2C_ADDRESS,
+        .scl_speed_hz = 400000,
+        .control_phase_bytes = 1,
+        .dc_bit_offset = 6,
+        .lcd_cmd_bits = 8,
+        .lcd_param_bits = 8,
+    };
+    err = esp_lcd_new_panel_io_i2c(s_oled_i2c_bus, &io_config, &s_oled_io_handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "oled io init failed: %s", esp_err_to_name(err));
+        return ESP_OK;
+    }
+
+    esp_lcd_panel_ssd1306_config_t ssd1306_config = {
+        .height = BEET_OLED_HEIGHT,
+    };
+    esp_lcd_panel_dev_config_t panel_config = {
+        .bits_per_pixel = 1,
+        .reset_gpio_num = -1,
+        .vendor_config = &ssd1306_config,
+    };
+    err = esp_lcd_new_panel_ssd1306(s_oled_io_handle, &panel_config, &s_oled_panel_handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "oled panel init failed: %s", esp_err_to_name(err));
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_oled_panel_handle), TAG, "oled reset failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_oled_panel_handle), TAG, "oled panel init failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_oled_panel_handle, true), TAG, "oled display enable failed");
+
+    memset(s_oled_buffer, 0, sizeof(s_oled_buffer));
+    ESP_RETURN_ON_ERROR(
+        esp_lcd_panel_draw_bitmap(s_oled_panel_handle, 0, 0, BEET_OLED_WIDTH, BEET_OLED_HEIGHT, s_oled_buffer),
+        TAG,
+        "oled clear failed");
+    s_oled_ready = true;
+    s_oled_enabled = true;
+    return ESP_OK;
+#else
+    return ESP_OK;
+#endif
+}
 
 static uint16_t beet_scale_permille(uint16_t value_mv, uint32_t permille)
 {
@@ -178,6 +353,7 @@ esp_err_t beet_board_init(void)
     ESP_RETURN_ON_ERROR(beet_board_init_relays(), TAG, "relay init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_adc(), TAG, "adc init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_led(), TAG, "led init failed");
+    ESP_RETURN_ON_ERROR(beet_board_init_oled(), TAG, "oled init failed");
 
     gpio_config_t button_cfg = {
         .pin_bit_mask = 1ULL << GPIO_NUM_13,
@@ -194,6 +370,21 @@ esp_err_t beet_board_init(void)
 
 void beet_board_deinit(void)
 {
+    if (s_oled_panel_handle != NULL) {
+        esp_lcd_panel_disp_on_off(s_oled_panel_handle, false);
+        esp_lcd_panel_del(s_oled_panel_handle);
+        s_oled_panel_handle = NULL;
+    }
+    if (s_oled_io_handle != NULL) {
+        esp_lcd_panel_io_del(s_oled_io_handle);
+        s_oled_io_handle = NULL;
+    }
+    if (s_oled_i2c_bus != NULL) {
+        i2c_del_master_bus(s_oled_i2c_bus);
+        s_oled_i2c_bus = NULL;
+    }
+    s_oled_ready = false;
+    s_oled_enabled = false;
     if (s_led_strip != NULL) {
         led_strip_del(s_led_strip);
         s_led_strip = NULL;
@@ -247,14 +438,37 @@ esp_err_t beet_board_read_moisture_mv(uint8_t pair_index, uint16_t *out_mv)
 
 esp_err_t beet_board_read_battery_sample(beet_board_battery_sample_t *sample)
 {
-    ESP_RETURN_ON_FALSE(sample != NULL, ESP_ERR_INVALID_ARG, TAG, "sample is null");
-    ESP_RETURN_ON_ERROR(
-        beet_board_read_channel_sample(s_battery_channel, &sample->raw_avg, &sample->sensed_mv),
-        TAG,
-        "battery read failed");
+    uint32_t total_raw = 0U;
+    uint32_t total_sensed_mv = 0U;
+    uint32_t total_divider_mv = 0U;
+    uint32_t total_scaled_mv = 0U;
 
-    sample->divider_mv = beet_scale_permille(sample->sensed_mv, CONFIG_BEET_BATTERY_DIVIDER_SCALE_PERMILLE);
-    sample->scaled_mv = beet_scale_permille(sample->divider_mv, CONFIG_BEET_BATTERY_ADC_CALIBRATION_PERMILLE);
+    ESP_RETURN_ON_FALSE(sample != NULL, ESP_ERR_INVALID_ARG, TAG, "sample is null");
+
+    for (int i = 0; i < CONFIG_BEET_BATTERY_SAMPLE_OVERLAY_COUNT; ++i) {
+        int raw_avg = 0;
+        uint16_t sensed_mv = 0U;
+        uint16_t divider_mv = 0U;
+        uint16_t scaled_mv = 0U;
+
+        ESP_RETURN_ON_ERROR(
+            beet_board_read_channel_sample(s_battery_channel, &raw_avg, &sensed_mv),
+            TAG,
+            "battery read failed");
+
+        divider_mv = beet_scale_permille(sensed_mv, CONFIG_BEET_BATTERY_DIVIDER_SCALE_PERMILLE);
+        scaled_mv = beet_scale_permille(divider_mv, CONFIG_BEET_BATTERY_ADC_CALIBRATION_PERMILLE);
+
+        total_raw += (uint32_t)raw_avg;
+        total_sensed_mv += sensed_mv;
+        total_divider_mv += divider_mv;
+        total_scaled_mv += scaled_mv;
+    }
+
+    sample->raw_avg = (int)(total_raw / CONFIG_BEET_BATTERY_SAMPLE_OVERLAY_COUNT);
+    sample->sensed_mv = (uint16_t)(total_sensed_mv / CONFIG_BEET_BATTERY_SAMPLE_OVERLAY_COUNT);
+    sample->divider_mv = (uint16_t)(total_divider_mv / CONFIG_BEET_BATTERY_SAMPLE_OVERLAY_COUNT);
+    sample->scaled_mv = (uint16_t)(total_scaled_mv / CONFIG_BEET_BATTERY_SAMPLE_OVERLAY_COUNT);
     return ESP_OK;
 }
 
@@ -300,6 +514,43 @@ esp_err_t beet_board_set_indicator(beet_board_indicator_t indicator)
 
     ESP_RETURN_ON_ERROR(led_strip_set_pixel(s_led_strip, 0, r, g, b), TAG, "set pixel failed");
     return led_strip_refresh(s_led_strip);
+}
+
+esp_err_t beet_board_set_display_enabled(bool enabled)
+{
+    if (!s_oled_ready) {
+        return ESP_OK;
+    }
+    if (s_oled_enabled == enabled) {
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_oled_panel_handle, enabled), TAG, "oled display switch failed");
+    s_oled_enabled = enabled;
+    return ESP_OK;
+}
+
+esp_err_t beet_board_update_display(const char *const *lines, size_t line_count)
+{
+    if (!s_oled_ready || !s_oled_enabled) {
+        return ESP_OK;
+    }
+
+    memset(s_oled_buffer, 0, sizeof(s_oled_buffer));
+    if (line_count > BEET_OLED_MAX_LINES) {
+        line_count = BEET_OLED_MAX_LINES;
+    }
+    for (size_t i = 0; i < line_count; ++i) {
+        beet_oled_draw_text_line((int)i, lines[i]);
+    }
+
+    return esp_lcd_panel_draw_bitmap(
+        s_oled_panel_handle,
+        0,
+        0,
+        BEET_OLED_WIDTH,
+        BEET_OLED_HEIGHT,
+        s_oled_buffer);
 }
 
 int beet_board_relay_gpio(uint8_t pair_index)
