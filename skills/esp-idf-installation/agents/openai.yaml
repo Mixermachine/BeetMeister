@@ -1,0 +1,4 @@
+interface:
+  display_name: "ESP-IDF Setup"
+  short_description: "Build, flash, and repair BeetMeister ESP-IDF on Windows."
+  default_prompt: "Use $esp-idf-installation to build or troubleshoot BeetMeister firmware with the local Windows ESP-IDF install."

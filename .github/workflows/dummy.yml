@@ -1,0 +1,24 @@
+name: Dummy CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  dummy-check:
+    name: Dummy Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Print basic repository info
+        run: |
+          echo "Dummy workflow is running."
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Ref: $GITHUB_REF"
+          echo "Commit: $GITHUB_SHA"
+          pwd
+          ls -la

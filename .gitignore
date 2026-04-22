@@ -1,0 +1,9 @@
+.idea/
+.vscode/
+tmp-cal-monitor.err
+tmp-cal-monitor.txt
+
+app/.idea/
+app/.gradle/
+app/.kotlin/
+

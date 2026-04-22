@@ -1,0 +1,89 @@
+menu "BeetMeister Configuration"
+
+    orsource "$IDF_PATH/examples/common_components/env_caps/$IDF_TARGET/Kconfig.env_caps"
+
+    config BEET_STATUS_LED_GPIO
+        int "Status LED GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 48
+        help
+            GPIO number used for the onboard WS2812 status LED.
+
+    config BEET_STATUS_LED_BRIGHTNESS
+        int "Status LED brightness"
+        range 1 64
+        default 16
+        help
+            Brightness value applied to the WS2812 status LED.
+
+    config BEET_STATUS_LOG_PERIOD_S
+        int "Controller status log period in seconds"
+        range 5 300
+        default 15
+        help
+            Periodic diagnostic log interval for the controller task.
+
+    config BEET_SENSOR_SAMPLE_COUNT
+        int "ADC samples per measurement"
+        range 1 32
+        default 8
+        help
+            Number of ADC oneshot samples averaged for each sensor and battery reading.
+
+    config BEET_BATTERY_DIVIDER_SCALE_PERMILLE
+        int "Battery divider scale in permille"
+        range 1000 4000
+        default 2005
+        help
+            Divider-only scaling from ADC pin millivolts to source millivolts. The default 2005
+            reflects the measured GPIO2 divider built from approximately 149.2 kOhm over
+            148.5 kOhm, which is slightly above an ideal 2:1 ratio.
+
+    config BEET_BATTERY_ADC_CALIBRATION_PERMILLE
+        int "Battery ADC correction factor in permille"
+        range 900 1200
+        default 1030
+        help
+            Battery-path correction applied after the divider scaling. Keep this separate from the
+            divider factor so battery-channel trim does not affect moisture channels. The default
+            1030 comes from the current USB-powered bench calibration, where GPIO2 plus ADC curve
+            fitting and the measured divider values read about 3.296 V when the multimeter reads
+            3.326 V.
+
+    config BEET_ENABLE_PUMP_OUTPUTS
+        bool "Enable live pump output actuation"
+        default n
+        help
+            Keep this disabled during bench bring-up. When disabled, the controller still evaluates
+            sensors and scheduler timing but will not energize relay outputs for watering.
+
+    config BEET_ENABLE_BENCH_DIAGNOSTICS
+        bool "Enable bench diagnostics logging"
+        default y
+        help
+            Periodically emit parseable ADC and pair-state diagnostics for bench bring-up.
+
+    config BEET_BENCH_DIAGNOSTIC_PERIOD_S
+        int "Bench diagnostics log period in seconds"
+        range 2 300
+        default 10
+        depends on BEET_ENABLE_BENCH_DIAGNOSTICS
+        help
+            Interval for parseable bench diagnostics logs.
+
+    config BEET_ENABLE_RELAY_SELF_TEST
+        bool "Enable relay self-test routine"
+        default n
+        help
+            Cycles one relay output at a time for bench validation even when live watering outputs
+            remain disabled. Use only when pumps are disconnected or the relay board is safely isolated.
+
+    config BEET_RELAY_SELF_TEST_DWELL_MS
+        int "Relay self-test dwell in milliseconds"
+        range 100 10000
+        default 1500
+        depends on BEET_ENABLE_RELAY_SELF_TEST
+        help
+            Duration each relay remains active during the self-test sequence.
+
+endmenu

@@ -1,0 +1,268 @@
+# Project BeetMeister
+
+## Briefing
+I want to build a project based on a ESP32 which controls the irigation in my garden.
+It should run with multiple channels of pairs of moisture sensors and pumps.
+
+## Technical
+- The controller is a ESP32-S3 44 PIN. ESP32-S3-WRO*M-1-N16R8 module. N16R8 (16M external flash/8M PSRAM)
+ Has an integrated RGB-LED, WS2812, connected to PIN GPIO38. Please make sure to connect nothing to PIN 38 so we can still use the LED.
+- The ESP32 will be powered by a LiFePo4 battery which will be directly connected to the 3.3V PIN. The charging circite will charge the battery up until 3.6V. The LiFePo4 battery has a large capacity of 15AH. YES this is really how we want it.
+- Eight water pumps will be controlled by an eight channel relay. Pump voltage is 3.3V to 5.0V. I'm thinking about a step up converter. Every relay channel input signal is connected with a pin of the ESP32. Input signal high, relay will connect pump. The relay works down to 3.1V. 
+- I will connect eight moisture sensors to the ESP32. They have three lines. Positive, negative and signal. They work with a voltage signal.  Please put sane values for the detection here. Search them and convert them to percentage from 0 to 100% moisture.
+Capacitive Soil Moisture Sensor V2.0.0, TLC555 2542K XBLW.
+- The ESP32 should be integrated with a local HomeAssistant setup via WiFi.
+
+## Requirements
+- The controller needs to be able to act on its own. It should also be controleable by the HomeAssistant instance via Wifi.
+- A moisture sensor and a pump form a connected pair. The controller should only water automatically when the moisture sensor shows a low enough moisture level.
+- The controller needs to perform a sanity check on the moisture sensor. Before it starts an automatic watering cycle for a pair it needs to let the pump for 10 seconds and then needs to check if the moisture sensor truly changes its value enough (more then 3% increase). If the sensor does not change enough, the pair is blocked for 24 hours to prevent uncontrolled watering. After this time the pair is free again and will be checked when the next watering is necesarry on the pair. This status needs to be visible and resetable in the HomeAssistant instance.
+- The controller should be able to communicate the current state of a pair to HomeAssistant. Moisture, pump state, pump duration left, ....
+- The controller should check every 2 hours if watering is necessary.
+Watering time is determined by how low the moisture sensor is.
+81-100% -> no watering
+80% ->  10 sec
+70% -> 1 min
+60% -> 2 min
+50% -> 3 min
+0-40% -> 4 min
+- The controller should be able to detect the battery level, at least approximately by measuring the voltage.
+- Maximum 3 pumps can operate at one time.
+- If the battery voltage is to low in idle (3.2V or below), the controller needs to go into a deep deep sleep mode. It will only check every hour for a very short period if the battery is above 3.25V.
+While pumping the voltage is allowed to be a bit lower (3.1V) to account for the voltage drop of the cables and battery.
+If the battery is below 3.3V the controller needs to go into a sleep mode when nothing is happening (no external write commands for 5 minutes, no active watering cycle). It is OK that it can not communicate with the HomeAssistant here but it still needs to know the current system state and when to wake up for the next watering cycle.
+- It needs to be possible to connect via an Android app to the controller. Most likely the best way is via Bluetooth. The app should be able to control the ESP32 in the same ways as HomeAssistant can. The app also need to be written in Kotlin + Compose.
+- There should be a calibration program for the moisture sensors. Startable via the app. Otherwise you should assume sane default values for the moisture sensors.
+2.45 V in open air and about 0.90V in very wet conditions.The calibration values should be stored in persistent memory.
+moisture_pct = clamp((dry_v - measured_v) / (dry_v - wet_v) * 100, 0, 100)
+- The controller shall log each watering event per pair with timestamp, duration, moisture before/after, and stop reason. The ESP32 shall keep a small local history of recent events, while long-term history shall be handled by Home Assistant. Logging must be event-based only and must not write continuously during watering. Should only be to a ring. The ring should be 1000 entries large and NVS managed in a separate partition.
+- OTA updates should be possible via HTTP.
+
+
+## Planning
+- We pick ESP-IDF for the firmware stack
+- You need to plan the implementation of the program and execute on it
+- All wiring diagrams need to be written with Fritzing.
+- The app needs to be written and planned
+
+### Partition Planning
+- We use an OTA-first partition layout.
+- There is no separate factory app partition.
+- The initial firmware is flashed to ota_0.
+- OTA updates are downloaded by the controller itself over HTTP via WiFi.
+- The default nvs partition remains reserved for system use like WiFi/BLE state.
+- A dedicated appcfg partition stores application settings.
+- A dedicated events partition stores the 1000-entry watering-event ring buffer.
+- Remaining flash stays reserved for future expansion.
+
+### Event log partition
+The controller shall store watering events in a dedicated NVS partition as a persistent ring buffer of 1000 fixed-size records. Each record shall contain a monotonically increasing sequence number so that, on startup, the newest valid entry and the next write position can be reconstructed without storing a separate persistent head pointer. 
+
+
+## Testing
+
+The software shall be tested on **four levels**: host-simulated tests, QEMU smoke tests, target-based ESP32-S3 tests, and full hardware system tests. This matches ESP-IDF’s testing model: target-based unit tests use Unity, host-based runs are useful for testing logic with mocks, QEMU can run ESP32-S3 apps without flashing hardware, and host/QEMU do not fully replace real target testing. Automated target execution may be driven with pytest-based tooling. ([Espressif Systems][1])
+
+### 1. Host-simulated tests
+
+Hardware-independent logic shall be tested on the development PC without ESP32 hardware. These tests shall cover:
+
+* moisture voltage to percentage conversion
+* default calibration values and calibrated values
+* watering-duration lookup
+* automatic watering threshold logic
+* 10-second sanity-check evaluation
+* 24-hour block and unblock logic
+* maximum-3-pumps scheduler
+* battery threshold state transitions
+* event-ring-buffer wraparound and reboot recovery
+* configuration validation and persistence rules
+
+The purpose of these tests is fast feedback and broad logic coverage. They shall run on every build. Because Espressif notes that host simulation and mocks do not fully represent the target device, these tests are necessary but not sufficient. ([Espressif Systems][2])
+
+### 2. QEMU smoke tests
+
+A QEMU-based test suite shall verify that the firmware can boot and run the main control flow without physical hardware. These tests shall cover:
+
+* normal boot
+* loading configuration from persistent storage
+* wakeup flow into scheduler cycle
+* creation of watering events
+* ring-buffer startup scan and next-write reconstruction
+* command handling for a few representative BLE/Wi-Fi control paths where hardware dependence is abstracted
+* watchdog-safe main loop behavior
+
+These are smoke tests only. QEMU for ESP32-S3 emulates the CPU, memory, and several peripherals, which is useful for early test automation, but it is not a substitute for real sensor, relay, sleep-current, or radio validation. ([Espressif Systems][3])
+
+### 3. Target-based ESP32-S3 tests
+
+The firmware shall include target-based tests executed on real ESP32-S3 hardware using ESP-IDF’s Unity-based test support. These tests may be automated from a host PC with pytest-based test runners. They shall cover:
+
+* NVS read/write behavior on the real target
+* startup state restoration after reset
+* correct GPIO output behavior for relay control
+* ADC read path with controlled analog test input
+* correct handling of wakeup reasons
+* Wi-Fi connect and reconnect behavior
+* BLE connect, read, write, and disconnect behavior
+* timing-sensitive logic that cannot be trusted in host-only tests
+
+ESP-IDF provides target-based unit tests with Unity, and Espressif documents pytest-based automation for on-target tests. ([Espressif Systems][1])
+
+### 4. Full hardware system tests
+
+A real hardware bench setup shall be used for end-to-end testing with the actual ESP32-S3 board, relay board, pumps, battery supply, and moisture-sensor inputs. These tests shall cover:
+
+* actual moisture sensor reading stability
+* pump actuation and relay behavior
+* voltage drop while pumping
+* maximum 3 pumps active at the same time
+* transition into sleep and wakeup from sleep
+* Home Assistant communication over Wi-Fi
+* Android app communication over BLE
+* persistence of settings and logs across resets and sleep cycles
+
+These tests are mandatory because ESP32-S3 sleep behavior, analog measurements, and real peripheral interactions cannot be fully validated in host simulation. ESP32-S3 supports Light-sleep and Deep-sleep, and those behaviors need real-device verification. ([Espressif Systems][4])
+
+## Mandatory test groups
+
+### A. Moisture and calibration tests
+
+The following cases shall be tested:
+
+* default dry/wet voltage mapping
+* calibrated dry/wet mapping
+* clamping below 0% and above 100%
+* noisy input around thresholds
+* per-sensor calibration persistence across reboot
+* invalid calibration input rejection
+
+### B. Watering decision tests
+
+The following cases shall be tested:
+
+* no watering above the automatic threshold
+* correct duration lookup for all configured moisture bands
+* no watering when pair is blocked
+* no watering when battery rules forbid watering
+* no watering when 3 pumps are already active
+* manual start allowed only according to the final override rules
+
+### C. Sensor sanity-check tests
+
+The following cases shall be tested:
+
+* moisture rises by more than 3 percentage points after 10-second pre-run
+* moisture rises by exactly 3 percentage points
+* moisture rises by less than 3 percentage points and pair is blocked
+* block expires after 24 hours
+* block reset through Home Assistant
+* block reset through Android app
+
+### D. Battery and sleep tests
+
+The following cases shall be tested:
+
+* idle battery at 3.2 V or below enters deep deep sleep behavior
+* hourly short wakeup while battery remains low
+* resume when battery rises above 3.25 V
+* normal idle sleep below 3.3 V after 5 minutes of inactivity
+* pumping allowed down to 3.1 V
+* watering is stopped or prevented when battery is too low
+* last known state survives sleep transitions
+
+### E. Event logging tests
+
+The event log shall be tested as a persistent ring buffer of 1000 records in a dedicated NVS partition. NVS in ESP-IDF is a fault-tolerant wear-levelled key-value store, and applications can use dedicated NVS partitions rather than only the default one. ([Espressif Systems][5])
+
+The following cases shall be tested:
+
+* first event written into empty log
+* scan on boot finds newest record
+* next write index is reconstructed correctly
+* wraparound after 1000 records
+* oldest record replaced correctly
+* power loss during write does not corrupt usable history
+* reboot after partial write
+* log readout by pair
+* log readout in newest-first order
+
+### F. Home Assistant tests
+
+The following cases shall be tested:
+
+* device connects to Wi-Fi
+* telemetry becomes visible in Home Assistant
+* manual watering command works
+* blocked state is visible
+* blocked state can be reset
+* values after reconnect match persisted device state
+* command timeout and reconnect cases are handled cleanly
+
+### G. Android BLE tests
+
+The following cases shall be tested:
+
+* BLE advertising
+* connect and disconnect
+* read current state
+* start and stop watering
+* reset blocked pair
+* start sensor calibration
+* store calibration persistently
+* handle disconnect during command execution safely
+
+### H. OTA tests
+
+The controller shall be tested for safe OTA update behavior. ESP-IDF OTA supports updates while the normal firmware is running and requires OTA app slots plus OTA data partitioning for safe update flows. ([Espressif Systems][6])
+
+The following cases shall be tested:
+
+* normal HTTP OTA update succeeds
+* version check prevents wrong image
+* reboot into new image succeeds
+* rollback or recovery behavior on failed boot works as designed
+* interrupted download does not brick the device
+* power loss during OTA does not brick the device
+* settings and event log survive OTA update
+
+## Test automation rules
+
+* Every commit shall run host-simulated tests.
+* Every release candidate shall run QEMU smoke tests.
+* Every release candidate shall run target-based ESP32-S3 tests on real hardware.
+* Every hardware milestone shall include a full bench test with pumps, relay, battery supply, and simulated or real sensor inputs.
+* OTA shall be tested before every release build.
+* Any bug found in field testing shall get a regression test before it is closed.
+
+## Pass criteria
+
+A release is accepted only if:
+
+* all host-simulated tests pass
+* all QEMU smoke tests pass
+* all target-based tests pass
+* no blocking defects remain in battery, sleep, pump scheduling, logging, BLE, Wi-Fi, or OTA
+* at least one full 24-hour soak test passes on real hardware without corrupted state, missed wakeups, or invalid watering actions
+
+## Recommended soak tests
+
+The following long-run tests shall be part of the validation:
+
+* 24-hour normal operation test with repeated wake/sleep cycles
+* 24-hour low-battery recovery test
+* repeated manual commands from Home Assistant and BLE during sleep/wake transitions
+* 1000-event log wraparound test
+* repeated reboot/reset test during watering and during idle
+* OTA update after long runtime with existing settings and event history
+
+This is the right level of testing for your project: heavy logic coverage on host, quick firmware smoke tests in QEMU, real ESP32-S3 target tests for embedded behavior, and full bench validation for analog, sleep, relay, battery, and OTA behavior. ([Espressif Systems][1])
+
+I can also turn this into a cleaner final project spec section with the same wording style as the rest of your document.
+
+[1]: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-guides/unit-tests.html?utm_source=chatgpt.com "Unit Testing in ESP32 - ESP32 - — ESP-IDF Programming Guide v6.0 ..."
+[2]: https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/host-apps.html?utm_source=chatgpt.com "Running ESP-IDF Applications on Host - ESP32-S3 - — ESP-IDF Programming ..."
+[3]: https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-guides/tools/qemu.html?utm_source=chatgpt.com "QEMU Emulator - ESP32-S3 - — ESP-IDF Programming Guide v6.0 documentation"
+[4]: https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/sleep_modes.html?utm_source=chatgpt.com "Sleep Modes - ESP32-S3 - — ESP-IDF Programming Guide v6.0 documentation"
+[5]: https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/storage/index.html?utm_source=chatgpt.com "Storage API - ESP32 - — ESP-IDF Programming Guide v6.0 documentation"
+[6]: https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/system/ota.html?utm_source=chatgpt.com "Over The Air Updates (OTA) - ESP32-S3 - — ESP-IDF Programming Guide v6 ..."

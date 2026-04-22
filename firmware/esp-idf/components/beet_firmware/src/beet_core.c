@@ -1,0 +1,250 @@
+#include "beet_types.h"
+
+#include <string.h>
+#include "esp_rom_crc.h"
+
+_Static_assert(sizeof(beet_event_record_t) == 64U, "event record size must be 64 bytes");
+
+void beet_default_app_config(beet_app_config_t *config)
+{
+    memset(config, 0, sizeof(*config));
+    config->schema_version = BEET_SCHEMA_VERSION;
+    strncpy(config->device_id, "beetmeister-01", sizeof(config->device_id) - 1U);
+    config->pair_count = BEET_PAIR_COUNT;
+    config->watering_interval_s = BEET_SCHEDULER_INTERVAL_S;
+    config->idle_sleep_threshold_mv = BEET_IDLE_SLEEP_THRESHOLD_MV;
+    config->deep_sleep_threshold_mv = BEET_DEEP_SLEEP_THRESHOLD_MV;
+    config->deep_sleep_resume_mv = BEET_DEEP_SLEEP_RESUME_MV;
+    config->watering_abort_threshold_mv = BEET_WATERING_ABORT_THRESHOLD_MV;
+    config->inactivity_sleep_timeout_s = BEET_INACTIVITY_SLEEP_TIMEOUT_S;
+    strncpy(config->mqtt_base_topic, "beetmeister", sizeof(config->mqtt_base_topic) - 1U);
+}
+
+void beet_default_calibration(uint8_t pair_index, beet_pair_calibration_t *calibration)
+{
+    memset(calibration, 0, sizeof(*calibration));
+    calibration->pair_index = pair_index;
+    calibration->dry_mv = BEET_DEFAULT_DRY_MV;
+    calibration->wet_mv = BEET_DEFAULT_WET_MV;
+    calibration->source = BEET_CALIBRATION_SOURCE_DEFAULT;
+}
+
+void beet_default_snapshot(uint8_t pair_index, beet_pair_runtime_snapshot_t *snapshot)
+{
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->pair_index = pair_index;
+    snapshot->pair_state = BEET_PAIR_STATE_IDLE;
+    snapshot->block_reason = BEET_BLOCK_REASON_NONE;
+    snapshot->active_run_source = BEET_RUN_SOURCE_NONE;
+}
+
+bool beet_is_valid_pair_index(uint8_t pair_index)
+{
+    return pair_index >= 1U && pair_index <= BEET_PAIR_COUNT;
+}
+
+bool beet_is_valid_pair_state(beet_pair_state_t state)
+{
+    return state >= BEET_PAIR_STATE_IDLE && state <= BEET_PAIR_STATE_FAULT;
+}
+
+bool beet_is_valid_battery_state(beet_battery_state_t state)
+{
+    return state >= BEET_BATTERY_STATE_ACTIVE && state <= BEET_BATTERY_STATE_OTA_IN_PROGRESS;
+}
+
+bool beet_is_valid_run_source(beet_run_source_t source)
+{
+    return source >= BEET_RUN_SOURCE_NONE && source <= BEET_RUN_SOURCE_MANUAL;
+}
+
+bool beet_is_valid_block_reason(beet_block_reason_t reason)
+{
+    return reason >= BEET_BLOCK_REASON_NONE && reason <= BEET_BLOCK_REASON_SENSOR_READING_INVALID;
+}
+
+bool beet_is_valid_stop_reason(beet_stop_reason_t reason)
+{
+    return reason >= BEET_STOP_REASON_COMPLETED && reason <= BEET_STOP_REASON_SYSTEM_ABORT;
+}
+
+bool beet_is_sensor_mv_plausible(uint16_t sensor_mv)
+{
+    return sensor_mv >= BEET_SENSOR_MIN_PLAUSIBLE_MV && sensor_mv <= BEET_SENSOR_MAX_PLAUSIBLE_MV;
+}
+
+uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sensor_mv)
+{
+    if (dry_mv <= wet_mv) {
+        return 0U;
+    }
+
+    if (sensor_mv >= dry_mv) {
+        return 0U;
+    }
+
+    if (sensor_mv <= wet_mv) {
+        return 100U;
+    }
+
+    int32_t numerator = ((int32_t)dry_mv - (int32_t)sensor_mv) * 100;
+    int32_t denominator = (int32_t)dry_mv - (int32_t)wet_mv;
+    int32_t pct = (numerator + (denominator / 2)) / denominator;
+
+    if (pct < 0) {
+        return 0U;
+    }
+    if (pct > 100) {
+        return 100U;
+    }
+    return (uint8_t)pct;
+}
+
+uint16_t beet_automatic_duration_s(uint8_t moisture_pct)
+{
+    if (moisture_pct >= 81U) {
+        return 0U;
+    }
+    if (moisture_pct == 80U) {
+        return 10U;
+    }
+    if (moisture_pct >= 70U) {
+        return 60U;
+    }
+    if (moisture_pct >= 60U) {
+        return 120U;
+    }
+    if (moisture_pct >= 50U) {
+        return 180U;
+    }
+    return 240U;
+}
+
+uint16_t beet_manual_duration_s(uint8_t moisture_pct)
+{
+    uint16_t duration = beet_automatic_duration_s(moisture_pct);
+    return duration == 0U ? 10U : duration;
+}
+
+bool beet_sanity_check_passed(uint8_t pre_run_pct, uint8_t post_run_pct)
+{
+    return (int32_t)post_run_pct - (int32_t)pre_run_pct > 3;
+}
+
+beet_battery_state_t beet_classify_battery_state(
+    uint16_t battery_mv,
+    bool ota_in_progress,
+    bool active_watering,
+    uint32_t inactivity_s)
+{
+    if (ota_in_progress) {
+        return BEET_BATTERY_STATE_OTA_IN_PROGRESS;
+    }
+    if (!active_watering && battery_mv <= BEET_DEEP_SLEEP_THRESHOLD_MV) {
+        return BEET_BATTERY_STATE_DEEP_LOW_BATTERY;
+    }
+    if (!active_watering &&
+        battery_mv < BEET_IDLE_SLEEP_THRESHOLD_MV &&
+        inactivity_s >= BEET_INACTIVITY_SLEEP_TIMEOUT_S) {
+        return BEET_BATTERY_STATE_IDLE_LOW_POWER;
+    }
+    return BEET_BATTERY_STATE_ACTIVE;
+}
+
+uint32_t beet_event_crc32(const beet_event_record_t *record)
+{
+    return esp_rom_crc32_le(
+        0U,
+        (const uint8_t *)record,
+        sizeof(beet_event_record_t) - sizeof(record->crc32));
+}
+
+bool beet_validate_event_record(const beet_event_record_t *record)
+{
+    if (record->schema_version != BEET_EVENT_RECORD_VERSION) {
+        return false;
+    }
+    if (!beet_is_valid_pair_index(record->pair_index)) {
+        return false;
+    }
+    if (!beet_is_valid_run_source((beet_run_source_t)record->trigger_source)) {
+        return false;
+    }
+    if (!beet_is_valid_stop_reason((beet_stop_reason_t)record->stop_reason)) {
+        return false;
+    }
+    if (!beet_is_valid_block_reason((beet_block_reason_t)record->block_reason)) {
+        return false;
+    }
+    return beet_event_crc32(record) == record->crc32;
+}
+
+const char *beet_pair_state_name(beet_pair_state_t state)
+{
+    switch (state) {
+    case BEET_PAIR_STATE_IDLE:
+        return "IDLE";
+    case BEET_PAIR_STATE_WAITING_FOR_SLOT:
+        return "WAITING_FOR_SLOT";
+    case BEET_PAIR_STATE_SANITY_CHECK:
+        return "SANITY_CHECK";
+    case BEET_PAIR_STATE_WATERING:
+        return "WATERING";
+    case BEET_PAIR_STATE_BLOCKED:
+        return "BLOCKED";
+    case BEET_PAIR_STATE_FAULT:
+        return "FAULT";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+const char *beet_battery_state_name(beet_battery_state_t state)
+{
+    switch (state) {
+    case BEET_BATTERY_STATE_ACTIVE:
+        return "ACTIVE";
+    case BEET_BATTERY_STATE_IDLE_LOW_POWER:
+        return "IDLE_LOW_POWER";
+    case BEET_BATTERY_STATE_DEEP_LOW_BATTERY:
+        return "DEEP_LOW_BATTERY";
+    case BEET_BATTERY_STATE_OTA_IN_PROGRESS:
+        return "OTA_IN_PROGRESS";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+const char *beet_block_reason_name(beet_block_reason_t reason)
+{
+    switch (reason) {
+    case BEET_BLOCK_REASON_NONE:
+        return "NONE";
+    case BEET_BLOCK_REASON_SENSOR_DELTA_TOO_SMALL:
+        return "SENSOR_DELTA_TOO_SMALL";
+    case BEET_BLOCK_REASON_SENSOR_READING_INVALID:
+        return "SENSOR_READING_INVALID";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+const char *beet_stop_reason_name(beet_stop_reason_t reason)
+{
+    switch (reason) {
+    case BEET_STOP_REASON_COMPLETED:
+        return "COMPLETED";
+    case BEET_STOP_REASON_MANUAL_STOP:
+        return "MANUAL_STOP";
+    case BEET_STOP_REASON_LOW_BATTERY_ABORT:
+        return "LOW_BATTERY_ABORT";
+    case BEET_STOP_REASON_SENSOR_SANITY_FAILURE:
+        return "SENSOR_SANITY_FAILURE";
+    case BEET_STOP_REASON_SENSOR_INVALID_ABORT:
+        return "SENSOR_INVALID_ABORT";
+    case BEET_STOP_REASON_SYSTEM_ABORT:
+        return "SYSTEM_ABORT";
+    default:
+        return "UNKNOWN";
+    }
+}
