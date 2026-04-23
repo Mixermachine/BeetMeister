@@ -1,6 +1,7 @@
 #include "beet_ble.h"
 
 #include <ctype.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,12 +9,15 @@
 #include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_random.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "host/ble_att.h"
 #include "host/ble_gatt.h"
 #include "host/ble_gap.h"
 #include "host/ble_hs.h"
+#include "host/ble_sm.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -21,13 +25,16 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 #include "store/config/ble_store_config.h"
+#include "beet_ble_codec.h"
 #include "beet_iface.h"
 
 static const char *TAG = "beet_ble";
 
-#define BEET_BLE_PROTOCOL_VERSION 1U
+#define BEET_BLE_PROTOCOL_VERSION 2U
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
-#define BEET_BLE_JSON_MAX_LEN 220U
+#define BEET_BLE_JSON_MAX_LEN 320U
+#define BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US (30LL * 1000000LL)
+#define BEET_BLE_PAIRING_CODE_MAX 1000000U
 
 typedef struct {
     bool initialized;
@@ -49,6 +56,10 @@ typedef struct {
     bool have_last_pair_states;
     bool pending_result_valid;
     beet_iface_command_response_t pending_result;
+    bool pairing_display_active;
+    uint16_t pairing_display_conn_handle;
+    uint32_t pairing_display_passkey;
+    int64_t pairing_display_expires_at_us;
 } beet_ble_state_t;
 
 static beet_ble_state_t s_ble;
@@ -82,6 +93,12 @@ static int beet_ble_gatt_access(
     void *arg);
 static int beet_ble_gap_event(struct ble_gap_event *event, void *arg);
 static void beet_ble_advertise(void);
+static void beet_ble_log_diag_status(const char *reason);
+static void beet_ble_log_advertise_skip(const char *reason);
+static void beet_ble_clear_pairing_display(const char *reason);
+static void beet_ble_set_pairing_display(uint16_t conn_handle, uint32_t passkey);
+static void beet_ble_fill_pairing_display(beet_ble_pairing_display_t *display);
+static void beet_ble_service_pairing_display(void);
 
 static const struct ble_gatt_svc_def beet_ble_svcs[] = {
     {
@@ -131,6 +148,7 @@ static bool beet_ble_states_equal(
         a->blocked == b->blocked &&
         a->block_reason == b->block_reason &&
         a->source == b->source &&
+        a->enabled == b->enabled &&
         a->sensor_valid == b->sensor_valid;
 }
 
@@ -146,19 +164,6 @@ static bool beet_ble_device_states_equal(
         a->active_pumps == b->active_pumps &&
         a->wifi_connected == b->wifi_connected &&
         a->mqtt_connected == b->mqtt_connected;
-}
-
-static const char *beet_ble_run_source_name(beet_run_source_t source)
-{
-    switch (source) {
-    case BEET_RUN_SOURCE_AUTOMATIC:
-        return "AUTOMATIC";
-    case BEET_RUN_SOURCE_MANUAL:
-        return "MANUAL";
-    case BEET_RUN_SOURCE_NONE:
-    default:
-        return "NONE";
-    }
 }
 
 static bool beet_ble_is_bonded_conn(uint16_t conn_handle)
@@ -204,14 +209,13 @@ static int beet_ble_format_controller_info(char *buf, size_t len)
 {
     const esp_app_desc_t *app = esp_app_get_description();
 
-    return snprintf(
+    return beet_ble_format_controller_info_json(
         buf,
         len,
-        "{\"device_id\":\"%s\",\"protocol_version\":%u,\"firmware_version\":\"%s\",\"pair_count\":%u}",
         s_ble.device_name,
-        BEET_BLE_PROTOCOL_VERSION,
         app->version,
-        (unsigned)BEET_PAIR_COUNT);
+        BEET_BLE_PROTOCOL_VERSION,
+        BEET_PAIR_COUNT);
 }
 
 static int beet_ble_format_device_frame(
@@ -219,18 +223,7 @@ static int beet_ble_format_device_frame(
     size_t len,
     const beet_iface_device_state_t *state)
 {
-    return snprintf(
-        buf,
-        len,
-        "{\"type\":\"device\",\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
-        "\"next_check_in_s\":%lu,\"active_pumps\":%u,\"wifi_connected\":%s,\"mqtt_connected\":%s}",
-        beet_battery_state_name(state->battery_state),
-        state->battery_mv,
-        state->time_valid ? "true" : "false",
-        (unsigned long)state->next_check_in_s,
-        state->active_pumps,
-        state->wifi_connected ? "true" : "false",
-        state->mqtt_connected ? "true" : "false");
+    return beet_ble_format_device_frame_json(buf, len, state);
 }
 
 static int beet_ble_format_pair_frame(
@@ -238,19 +231,7 @@ static int beet_ble_format_pair_frame(
     size_t len,
     const beet_iface_pair_state_t *state)
 {
-    return snprintf(
-        buf,
-        len,
-        "{\"type\":\"pair\",\"pair\":%u,\"state\":\"%s\",\"moisture_pct\":%u,\"sensor_mv\":%u,"
-        "\"blocked\":%s,\"block_reason\":\"%s\",\"remaining_s\":%u,\"source\":\"%s\"}",
-        state->pair_index,
-        beet_pair_state_name(state->pair_state),
-        state->moisture_pct,
-        state->sensor_mv,
-        state->blocked ? "true" : "false",
-        beet_block_reason_name(state->block_reason),
-        state->remaining_s,
-        beet_ble_run_source_name(state->source));
+    return beet_ble_format_pair_frame_json(buf, len, state);
 }
 
 static int beet_ble_format_command_result(
@@ -258,169 +239,7 @@ static int beet_ble_format_command_result(
     size_t len,
     const beet_iface_command_response_t *response)
 {
-    if (response->accepted_duration_s > 0U) {
-        return snprintf(
-            buf,
-            len,
-            "{\"cmd\":\"%s\",\"pair\":%u,\"status\":\"%s\",\"reason\":\"%s\",\"duration_s\":%u}",
-            beet_iface_command_name(response->command),
-            response->pair_index,
-            beet_iface_status_name(response->status),
-            beet_iface_reason_name(response->reason),
-            response->accepted_duration_s);
-    }
-
-    return snprintf(
-        buf,
-        len,
-        "{\"cmd\":\"%s\",\"pair\":%u,\"status\":\"%s\",\"reason\":\"%s\"}",
-        beet_iface_command_name(response->command),
-        response->pair_index,
-        beet_iface_status_name(response->status),
-        beet_iface_reason_name(response->reason));
-}
-
-static bool beet_ble_extract_string(
-    const char *json,
-    const char *key,
-    char *out,
-    size_t out_len)
-{
-    char pattern[32];
-    const char *start;
-    const char *end;
-    size_t len;
-
-    if (out_len == 0U) {
-        return false;
-    }
-
-    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-    start = strstr(json, pattern);
-    if (start == NULL) {
-        return false;
-    }
-    start = strchr(start + strlen(pattern), ':');
-    if (start == NULL) {
-        return false;
-    }
-    ++start;
-    while (*start != '\0' && isspace((unsigned char)*start)) {
-        ++start;
-    }
-    if (*start != '"') {
-        return false;
-    }
-    ++start;
-    end = strchr(start, '"');
-    if (end == NULL) {
-        return false;
-    }
-    len = (size_t)(end - start);
-    if (len >= out_len) {
-        return false;
-    }
-    memcpy(out, start, len);
-    out[len] = '\0';
-    return true;
-}
-
-static bool beet_ble_extract_u16(const char *json, const char *key, uint16_t *value)
-{
-    char pattern[32];
-    const char *start;
-    unsigned long parsed;
-    char *endptr;
-
-    snprintf(pattern, sizeof(pattern), "\"%s\"", key);
-    start = strstr(json, pattern);
-    if (start == NULL) {
-        return false;
-    }
-    start = strchr(start + strlen(pattern), ':');
-    if (start == NULL) {
-        return false;
-    }
-    ++start;
-    while (*start != '\0' && isspace((unsigned char)*start)) {
-        ++start;
-    }
-    if (!isdigit((unsigned char)*start)) {
-        return false;
-    }
-
-    parsed = strtoul(start, &endptr, 10);
-    if (endptr == start || parsed > 65535UL) {
-        return false;
-    }
-
-    *value = (uint16_t)parsed;
-    return true;
-}
-
-static bool beet_ble_parse_command(
-    const char *json,
-    beet_iface_command_request_t *request)
-{
-    char cmd[24];
-    uint16_t pair_index;
-
-    memset(request, 0, sizeof(*request));
-
-    if (!beet_ble_extract_string(json, "cmd", cmd, sizeof(cmd))) {
-        return false;
-    }
-
-    if (strcmp(cmd, "manual_start") == 0) {
-        request->command = BEET_IFACE_COMMAND_MANUAL_START;
-        if (!beet_ble_extract_u16(json, "pair", &pair_index)) {
-            return false;
-        }
-        request->pair_index = (uint8_t)pair_index;
-        request->has_duration_s = beet_ble_extract_u16(json, "duration_s", &request->duration_s);
-        return true;
-    }
-
-    if (strcmp(cmd, "manual_stop") == 0) {
-        request->command = BEET_IFACE_COMMAND_MANUAL_STOP;
-        if (!beet_ble_extract_u16(json, "pair", &pair_index)) {
-            return false;
-        }
-        request->pair_index = (uint8_t)pair_index;
-        return true;
-    }
-
-    if (strcmp(cmd, "reset_block") == 0) {
-        request->command = BEET_IFACE_COMMAND_RESET_BLOCK;
-        if (!beet_ble_extract_u16(json, "pair", &pair_index)) {
-            return false;
-        }
-        request->pair_index = (uint8_t)pair_index;
-        return true;
-    }
-
-    if (strcmp(cmd, "store_calibration") == 0) {
-        request->command = BEET_IFACE_COMMAND_STORE_CALIBRATION;
-        if (!beet_ble_extract_u16(json, "pair", &pair_index) ||
-            !beet_ble_extract_u16(json, "dry_mv", &request->dry_mv) ||
-            !beet_ble_extract_u16(json, "wet_mv", &request->wet_mv)) {
-            return false;
-        }
-        request->pair_index = (uint8_t)pair_index;
-        return true;
-    }
-
-    if (strcmp(cmd, "start_ota") == 0) {
-        request->command = BEET_IFACE_COMMAND_START_OTA;
-        return true;
-    }
-
-    if (strcmp(cmd, "clear_ble_bonds") == 0) {
-        request->command = BEET_IFACE_COMMAND_CLEAR_BLE_BONDS;
-        return true;
-    }
-
-    return false;
+    return beet_ble_format_command_result_json(buf, len, response);
 }
 
 static int beet_ble_read_controller_info(struct ble_gatt_access_ctxt *ctxt)
@@ -451,7 +270,7 @@ static int beet_ble_write_control_point(struct ble_gatt_access_ctxt *ctxt)
     }
     json[copied] = '\0';
 
-    if (!beet_ble_parse_command(json, &request)) {
+    if (!beet_ble_parse_command_json(json, &request)) {
         return BLE_ATT_ERR_UNLIKELY;
     }
 
@@ -492,46 +311,190 @@ static int beet_ble_gatt_access(
     }
 }
 
+static void beet_ble_fill_diag_status(beet_ble_diag_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    status->initialized = s_ble.initialized;
+    status->host_synced = s_ble.host_synced;
+    status->enabled = s_ble.enabled;
+    status->advertising = s_ble.advertising;
+    status->connected = s_ble.connected;
+    status->bonded = s_ble.bonded;
+    status->own_addr_type = s_ble.own_addr_type;
+}
+
+static void beet_ble_clear_pairing_display(const char *reason)
+{
+    if (!s_ble.pairing_display_active) {
+        return;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "pairing display cleared reason=%s handle=%u passkey=%06" PRIu32,
+        reason,
+        (unsigned)s_ble.pairing_display_conn_handle,
+        s_ble.pairing_display_passkey);
+    s_ble.pairing_display_active = false;
+    s_ble.pairing_display_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    s_ble.pairing_display_passkey = 0U;
+    s_ble.pairing_display_expires_at_us = 0;
+}
+
+static void beet_ble_set_pairing_display(uint16_t conn_handle, uint32_t passkey)
+{
+    s_ble.pairing_display_active = true;
+    s_ble.pairing_display_conn_handle = conn_handle;
+    s_ble.pairing_display_passkey = passkey;
+    s_ble.pairing_display_expires_at_us = esp_timer_get_time() + BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US;
+    ESP_LOGI(
+        TAG,
+        "pairing display active handle=%u passkey=%06" PRIu32 " timeout_s=30",
+        (unsigned)conn_handle,
+        passkey);
+}
+
+static void beet_ble_fill_pairing_display(beet_ble_pairing_display_t *display)
+{
+    int64_t now_us;
+    int64_t remaining_us;
+
+    if (display == NULL) {
+        return;
+    }
+
+    memset(display, 0, sizeof(*display));
+    if (!s_ble.pairing_display_active) {
+        return;
+    }
+
+    now_us = esp_timer_get_time();
+    if (now_us >= s_ble.pairing_display_expires_at_us) {
+        beet_ble_clear_pairing_display("timeout");
+        return;
+    }
+
+    remaining_us = s_ble.pairing_display_expires_at_us - now_us;
+    display->active = true;
+    display->conn_handle = s_ble.pairing_display_conn_handle;
+    display->passkey = s_ble.pairing_display_passkey;
+    display->remaining_s = (uint8_t)((remaining_us + 999999LL) / 1000000LL);
+}
+
+static void beet_ble_log_diag_status(const char *reason)
+{
+    beet_ble_diag_status_t status;
+
+    beet_ble_fill_diag_status(&status);
+    ESP_LOGI(
+        TAG,
+        "diag %s initialized=%d host_synced=%d enabled=%d advertising=%d connected=%d bonded=%d own_addr_type=%u",
+        reason,
+        status.initialized,
+        status.host_synced,
+        status.enabled,
+        status.advertising,
+        status.connected,
+        status.bonded,
+        (unsigned)status.own_addr_type);
+}
+
+static void beet_ble_service_pairing_display(void)
+{
+    if (s_ble.pairing_display_active &&
+        esp_timer_get_time() >= s_ble.pairing_display_expires_at_us) {
+        beet_ble_clear_pairing_display("timeout");
+    }
+}
+
+static void beet_ble_log_advertise_skip(const char *reason)
+{
+    ESP_LOGI(
+        TAG,
+        "advertise skipped reason=%s initialized=%d host_synced=%d enabled=%d connected=%d advertising=%d",
+        reason,
+        s_ble.initialized,
+        s_ble.host_synced,
+        s_ble.enabled,
+        s_ble.connected,
+        s_ble.advertising);
+}
+
 static void beet_ble_advertise(void)
 {
     struct ble_gap_adv_params adv_params;
     struct ble_hs_adv_fields fields;
+    struct ble_hs_adv_fields rsp_fields;
     int rc;
 
-    if (!s_ble.initialized || !s_ble.host_synced || !s_ble.enabled || s_ble.connected || s_ble.advertising) {
+    if (!s_ble.initialized) {
+        beet_ble_log_advertise_skip("not_initialized");
         return;
     }
+    if (!s_ble.host_synced) {
+        beet_ble_log_advertise_skip("host_not_synced");
+        return;
+    }
+    if (!s_ble.enabled) {
+        beet_ble_log_advertise_skip("disabled");
+        return;
+    }
+    if (s_ble.connected) {
+        beet_ble_log_advertise_skip("already_connected");
+        return;
+    }
+    if (s_ble.advertising) {
+        beet_ble_log_advertise_skip("already_advertising");
+        return;
+    }
+
+    ESP_LOGI(TAG, "advertise start requested name=%s own_addr_type=%u", s_ble.device_name, (unsigned)s_ble.own_addr_type);
 
     memset(&fields, 0, sizeof(fields));
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.tx_pwr_lvl_is_present = 1;
     fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
-    fields.name = (uint8_t *)s_ble.device_name;
-    fields.name_len = strlen(s_ble.device_name);
-    fields.name_is_complete = 1;
     fields.uuids128 = (ble_uuid128_t[]){ BEET_BLE_SERVICE_UUID };
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
 
     rc = ble_gap_adv_set_fields(&fields);
-    if (rc == 0) {
-        memset(&adv_params, 0, sizeof(adv_params));
-        adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
-        adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
-        rc = ble_gap_adv_start(
-            s_ble.own_addr_type,
-            NULL,
-            BLE_HS_FOREVER,
-            &adv_params,
-            beet_ble_gap_event,
-            NULL);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "advertising fields setup failed: rc=%d", rc);
+        return;
     }
+
+    memset(&rsp_fields, 0, sizeof(rsp_fields));
+    rsp_fields.name = (uint8_t *)s_ble.device_name;
+    rsp_fields.name_len = strlen(s_ble.device_name);
+    rsp_fields.name_is_complete = 1;
+
+    rc = ble_gap_adv_rsp_set_fields(&rsp_fields);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "advertising scan response setup failed: rc=%d", rc);
+        return;
+    }
+
+    memset(&adv_params, 0, sizeof(adv_params));
+    adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
+    adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+    rc = ble_gap_adv_start(
+        s_ble.own_addr_type,
+        NULL,
+        BLE_HS_FOREVER,
+        &adv_params,
+        beet_ble_gap_event,
+        NULL);
     if (rc != 0) {
         ESP_LOGW(TAG, "advertising start failed: rc=%d", rc);
         return;
     }
 
     s_ble.advertising = true;
+    beet_ble_log_diag_status("advertising_started");
 }
 
 static void beet_ble_stop_advertising(void)
@@ -580,13 +543,17 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             s_ble.have_last_device_state = false;
             s_ble.have_last_pair_states = false;
             ESP_LOGI(TAG, "ble connected handle=%u bonded=%d", s_ble.conn_handle, s_ble.bonded);
+            beet_ble_log_diag_status("gap_connect");
         } else if (s_ble.enabled) {
+            ESP_LOGW(TAG, "ble connect failed status=%d", event->connect.status);
+            beet_ble_clear_pairing_display("connect_failed");
             beet_ble_advertise();
         }
         return 0;
 
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "ble disconnected reason=%d", event->disconnect.reason);
+        beet_ble_clear_pairing_display("disconnect");
         s_ble.connected = false;
         s_ble.bonded = false;
         s_ble.conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -598,9 +565,11 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         if (s_ble.enabled) {
             beet_ble_advertise();
         }
+        beet_ble_log_diag_status("gap_disconnect");
         return 0;
 
     case BLE_GAP_EVENT_ADV_COMPLETE:
+        ESP_LOGI(TAG, "advertising complete reason=%d", event->adv_complete.reason);
         s_ble.advertising = false;
         if (s_ble.enabled && !s_ble.connected) {
             beet_ble_advertise();
@@ -613,16 +582,55 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             s_ble.initial_sync_pending = s_ble.state_stream_subscribed;
             s_ble.have_last_device_state = false;
             s_ble.have_last_pair_states = false;
+            ESP_LOGI(TAG, "state stream subscribe notify=%d bonded=%d", event->subscribe.cur_notify, s_ble.state_stream_subscribed);
         } else if (event->subscribe.attr_handle == s_command_result_handle) {
             s_ble.command_result_subscribed = event->subscribe.cur_indicate && beet_ble_is_bonded_conn(event->subscribe.conn_handle);
+            ESP_LOGI(TAG, "command result subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.command_result_subscribed);
         }
         return 0;
 
     case BLE_GAP_EVENT_ENC_CHANGE:
         s_ble.bonded = beet_ble_is_bonded_conn(event->enc_change.conn_handle);
+        ESP_LOGI(TAG, "encryption change status=%d bonded=%d", event->enc_change.status, s_ble.bonded);
+        if (event->enc_change.status == 0 && s_ble.bonded) {
+            beet_ble_clear_pairing_display("bonded");
+        }
+        beet_ble_log_diag_status("enc_change");
         return 0;
 
+    case BLE_GAP_EVENT_PASSKEY_ACTION:
+        if (event->passkey.params.action == BLE_SM_IOACT_DISP ||
+            event->passkey.params.action == BLE_SM_IOACT_STATIC) {
+            struct ble_sm_io io = { 0 };
+            uint32_t passkey = esp_random() % BEET_BLE_PAIRING_CODE_MAX;
+            int rc;
+
+            io.action = event->passkey.params.action;
+            io.passkey = passkey;
+            rc = ble_sm_inject_io(event->passkey.conn_handle, &io);
+            if (rc != 0) {
+                ESP_LOGW(
+                    TAG,
+                    "passkey inject failed action=%u handle=%u rc=%d",
+                    (unsigned)event->passkey.params.action,
+                    (unsigned)event->passkey.conn_handle,
+                    rc);
+                return rc;
+            }
+
+            beet_ble_set_pairing_display(event->passkey.conn_handle, passkey);
+            return 0;
+        }
+
+        ESP_LOGW(
+            TAG,
+            "unsupported passkey action=%u handle=%u",
+            (unsigned)event->passkey.params.action,
+            (unsigned)event->passkey.conn_handle);
+        return BLE_HS_EINVAL;
+
     case BLE_GAP_EVENT_REPEAT_PAIRING:
+        beet_ble_clear_pairing_display("repeat_pairing");
         return BLE_GAP_REPEAT_PAIRING_RETRY;
 
     default:
@@ -639,6 +647,8 @@ static void beet_ble_on_sync(void)
 {
     int rc;
 
+    ESP_LOGI(TAG, "nimble host synced");
+
     rc = ble_hs_util_ensure_addr(0);
     if (rc != 0) {
         ESP_LOGE(TAG, "ensure addr failed: rc=%d", rc);
@@ -652,6 +662,7 @@ static void beet_ble_on_sync(void)
     }
 
     s_ble.host_synced = true;
+    beet_ble_log_diag_status("host_sync");
     beet_ble_advertise();
 }
 
@@ -816,8 +827,11 @@ esp_err_t beet_ble_init(const char *device_name)
 
     ESP_RETURN_ON_FALSE(device_name != NULL, ESP_ERR_INVALID_ARG, TAG, "device name null");
     if (s_ble.initialized) {
+        beet_ble_log_diag_status("init_already_initialized");
         return ESP_OK;
     }
+
+    ESP_LOGI(TAG, "ble init start device_name=%s force_enable=%d", device_name, BEET_BLE_FORCE_ENABLE_DIAGNOSTICS);
 
     memset(&s_ble, 0, sizeof(s_ble));
     s_ble.conn_handle = BLE_HS_CONN_HANDLE_NONE;
@@ -831,9 +845,9 @@ esp_err_t beet_ble_init(const char *device_name)
     ble_hs_cfg.sync_cb = beet_ble_on_sync;
     ble_hs_cfg.gatts_register_cb = beet_ble_register_cb;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_ONLY;
     ble_hs_cfg.sm_bonding = 1;
-    ble_hs_cfg.sm_mitm = 0;
+    ble_hs_cfg.sm_mitm = 1;
     ble_hs_cfg.sm_sc = 1;
     ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
@@ -853,22 +867,49 @@ esp_err_t beet_ble_init(const char *device_name)
 
     s_ble.initialized = true;
     s_ble.enabled = true;
+    beet_ble_log_diag_status("init_complete");
     return ESP_OK;
+}
+
+void beet_ble_get_diag_status(beet_ble_diag_status_t *status)
+{
+    beet_ble_fill_diag_status(status);
+}
+
+void beet_ble_get_pairing_display(beet_ble_pairing_display_t *display)
+{
+    beet_ble_fill_pairing_display(display);
 }
 
 void beet_ble_set_enabled(bool enabled)
 {
+    bool requested = enabled;
+
     if (!s_ble.initialized) {
+        ESP_LOGW(TAG, "set_enabled ignored before init requested=%d", enabled);
         return;
     }
 
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    enabled = true;
+#endif
+
+    ESP_LOGI(
+        TAG,
+        "set_enabled requested=%d effective=%d previous=%d force_enable=%d",
+        requested,
+        enabled,
+        s_ble.enabled,
+        BEET_BLE_FORCE_ENABLE_DIAGNOSTICS);
     s_ble.enabled = enabled;
     if (!enabled) {
         beet_ble_stop_advertising();
         beet_ble_disconnect();
+        beet_ble_log_diag_status("set_enabled_false");
         return;
     }
 
+    beet_ble_log_diag_status("set_enabled_true");
     beet_ble_advertise();
 }
 
@@ -878,6 +919,7 @@ void beet_ble_service(void)
         return;
     }
 
+    beet_ble_service_pairing_display();
     beet_ble_drain_commands();
     beet_ble_send_pending_result();
 

@@ -4,6 +4,21 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#if defined(_MSC_VER)
+#define BEET_STATIC_ASSERT_GLUE_(a, b) a##b
+#define BEET_STATIC_ASSERT_GLUE(a, b) BEET_STATIC_ASSERT_GLUE_(a, b)
+#define BEET_STATIC_ASSERT(condition, message) \
+    typedef char BEET_STATIC_ASSERT_GLUE(beet_static_assert_, __LINE__)[(condition) ? 1 : -1]
+#define BEET_PACKED_BEGIN __pragma(pack(push, 1))
+#define BEET_PACKED_END __pragma(pack(pop))
+#define BEET_PACKED
+#else
+#define BEET_STATIC_ASSERT(condition, message) _Static_assert(condition, message)
+#define BEET_PACKED_BEGIN
+#define BEET_PACKED_END
+#define BEET_PACKED __attribute__((packed))
+#endif
+
 #define BEET_SCHEMA_VERSION 1U
 #define BEET_EVENT_RECORD_VERSION 1U
 #define BEET_PAIR_COUNT 8U
@@ -42,6 +57,7 @@ typedef enum {
     BEET_PAIR_STATE_WATERING = 3,
     BEET_PAIR_STATE_BLOCKED = 4,
     BEET_PAIR_STATE_FAULT = 5,
+    BEET_PAIR_STATE_DISABLED = 6,
 } beet_pair_state_t;
 
 typedef enum {
@@ -116,6 +132,7 @@ typedef struct {
     uint8_t last_moisture_pct;
     uint16_t last_sensor_mv;
     bool sensor_valid;
+    bool enabled;
     beet_block_reason_t block_reason;
     uint32_t block_until_unix_s;
     uint32_t block_remaining_s;
@@ -128,7 +145,8 @@ typedef struct {
     uint32_t next_check_due_in_s;
 } beet_pair_runtime_snapshot_t;
 
-typedef struct __attribute__((packed)) {
+BEET_PACKED_BEGIN
+typedef struct BEET_PACKED {
     uint8_t schema_version;
     uint64_t seq_no;
     uint8_t pair_index;
@@ -149,6 +167,7 @@ typedef struct __attribute__((packed)) {
     uint8_t reserved[24];
     uint32_t crc32;
 } beet_event_record_t;
+BEET_PACKED_END
 
 typedef struct {
     bool has_valid_records;

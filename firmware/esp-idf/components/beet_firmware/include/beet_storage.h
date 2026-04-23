@@ -17,5 +17,6 @@ esp_err_t beet_storage_save_power_state(const beet_power_runtime_state_t *state)
 esp_err_t beet_storage_scan_event_ring(beet_event_ring_state_t *state);
 esp_err_t beet_storage_append_event(beet_event_ring_state_t *state, beet_event_record_t *record);
 esp_err_t beet_storage_read_event_by_seq_no(uint64_t seq_no, beet_event_record_t *record);
+esp_err_t beet_storage_summarize_events(uint16_t *event_count, uint32_t pair_totals_s[BEET_PAIR_COUNT]);
 
 #endif

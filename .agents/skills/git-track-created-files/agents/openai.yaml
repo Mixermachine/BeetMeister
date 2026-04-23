@@ -1,0 +1,4 @@
+interface:
+  display_name: "Track Created Files"
+  short_description: "Add real new repo files to git tracking"
+  default_prompt: "Use $git-track-created-files so any newly created repo files are added to git tracking before finishing."

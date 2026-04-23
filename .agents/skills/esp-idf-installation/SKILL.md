@@ -12,8 +12,8 @@ Use the BeetMeister ESP-IDF installation exactly as documented here instead of g
 - Treat [firmware/esp-idf](C:/git/BeetMeister/firmware/esp-idf:1) as the ESP-IDF project root.
 - Treat `C:\esp\v6.0\esp-idf` as `IDF_PATH`.
 - Treat `C:\Espressif\tools` as the installed toolchain root.
-- Prefer the repo-local wrapper script at [scripts/invoke-idf.ps1](C:/git/BeetMeister/skills/esp-idf-installation/scripts/invoke-idf.ps1:1) for `idf.py` commands on this machine.
-- Read [references/windows.md](C:/git/BeetMeister/skills/esp-idf-installation/references/windows.md:1) when exact commands or recovery steps are needed.
+- Prefer the repo-local wrapper script at [scripts/invoke-idf.ps1](C:/git/BeetMeister/.agents/skills/esp-idf-installation/scripts/invoke-idf.ps1:1) for `idf.py` commands on this machine.
+- Read [references/windows.md](C:/git/BeetMeister/.agents/skills/esp-idf-installation/references/windows.md:1) when exact commands or recovery steps are needed.
 
 ## Run Commands
 
@@ -27,9 +27,9 @@ Use the wrapper script when:
 Typical invocations:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\skills\esp-idf-installation\scripts\invoke-idf.ps1 set-target esp32s3
-powershell -ExecutionPolicy Bypass -File .\skills\esp-idf-installation\scripts\invoke-idf.ps1 build
-powershell -ExecutionPolicy Bypass -File .\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM4 flash monitor
+powershell -ExecutionPolicy Bypass -File .\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 set-target esp32s3
+powershell -ExecutionPolicy Bypass -File .\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 build
+powershell -ExecutionPolicy Bypass -File .\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM4 flash monitor
 ```
 
 Check the active serial port before flashing if it is not already known. `COM4` is the last confirmed BeetMeister port, not a guaranteed constant.
@@ -58,4 +58,4 @@ Do not invent alternate install paths unless the repo or the user explicitly cha
 
 ## References
 
-- Read [references/windows.md](C:/git/BeetMeister/skills/esp-idf-installation/references/windows.md:1) for exact environment variables, command examples, and known failure signatures.
+- Read [references/windows.md](C:/git/BeetMeister/.agents/skills/esp-idf-installation/references/windows.md:1) for exact environment variables, command examples, and known failure signatures.

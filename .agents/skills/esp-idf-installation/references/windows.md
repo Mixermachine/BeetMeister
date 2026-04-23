@@ -12,16 +12,16 @@
 Use the repo-local wrapper script:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\skills\esp-idf-installation\scripts\invoke-idf.ps1 <idf.py args...>
+powershell -ExecutionPolicy Bypass -File .\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 <idf.py args...>
 ```
 
 Examples:
 
 ```powershell
 cd C:\git\BeetMeister\firmware\esp-idf
-powershell -ExecutionPolicy Bypass -File ..\..\skills\esp-idf-installation\scripts\invoke-idf.ps1 set-target esp32s3
-powershell -ExecutionPolicy Bypass -File ..\..\skills\esp-idf-installation\scripts\invoke-idf.ps1 build
-powershell -ExecutionPolicy Bypass -File ..\..\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM4 flash monitor
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 set-target esp32s3
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 build
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM4 flash monitor
 ```
 
 For bench diagnostics capture from the project root:

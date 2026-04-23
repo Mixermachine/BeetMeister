@@ -4,7 +4,7 @@
 #include "sdkconfig.h"
 #include "esp_rom_crc.h"
 
-_Static_assert(sizeof(beet_event_record_t) == 64U, "event record size must be 64 bytes");
+BEET_STATIC_ASSERT(sizeof(beet_event_record_t) == 64U, "event record size must be 64 bytes");
 
 void beet_default_app_config(beet_app_config_t *config)
 {
@@ -34,6 +34,7 @@ void beet_default_snapshot(uint8_t pair_index, beet_pair_runtime_snapshot_t *sna
 {
     memset(snapshot, 0, sizeof(*snapshot));
     snapshot->pair_index = pair_index;
+    snapshot->enabled = true;
     snapshot->pair_state = BEET_PAIR_STATE_IDLE;
     snapshot->block_reason = BEET_BLOCK_REASON_NONE;
     snapshot->active_run_source = BEET_RUN_SOURCE_NONE;
@@ -53,7 +54,7 @@ bool beet_is_valid_pair_index(uint8_t pair_index)
 
 bool beet_is_valid_pair_state(beet_pair_state_t state)
 {
-    return state >= BEET_PAIR_STATE_IDLE && state <= BEET_PAIR_STATE_FAULT;
+    return state >= BEET_PAIR_STATE_IDLE && state <= BEET_PAIR_STATE_DISABLED;
 }
 
 bool beet_is_valid_battery_state(beet_battery_state_t state)
@@ -280,6 +281,8 @@ const char *beet_pair_state_name(beet_pair_state_t state)
         return "BLOCKED";
     case BEET_PAIR_STATE_FAULT:
         return "FAULT";
+    case BEET_PAIR_STATE_DISABLED:
+        return "DISABLED";
     default:
         return "UNKNOWN";
     }

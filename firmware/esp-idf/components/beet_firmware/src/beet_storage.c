@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "nvs.h"
 #include "nvs_flash.h"
+#include "beet_event_ring.h"
 
 static const char *TAG = "beet_storage";
 
@@ -210,7 +211,7 @@ esp_err_t beet_storage_scan_event_ring(beet_event_ring_state_t *state)
     ESP_RETURN_ON_FALSE(state != NULL, ESP_ERR_INVALID_ARG, TAG, "state is null");
     ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
 
-    memset(state, 0, sizeof(*state));
+    beet_event_ring_reset(state);
 
     for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
         beet_event_record_t record;
@@ -222,19 +223,10 @@ esp_err_t beet_storage_scan_event_ring(beet_event_ring_state_t *state)
         if (err != ESP_OK || required_size != sizeof(record)) {
             continue;
         }
-        if (!beet_validate_event_record(&record)) {
-            continue;
-        }
-
-        if (!state->has_valid_records || record.seq_no > state->highest_valid_seq_no) {
-            state->has_valid_records = true;
-            state->highest_valid_seq_no = record.seq_no;
-        }
+        beet_event_ring_accept_record(state, &record);
     }
 
-    state->next_write_slot = state->has_valid_records ?
-        (uint16_t)((state->highest_valid_seq_no + 1U) % BEET_EVENT_RING_CAPACITY) :
-        1U;
+    beet_event_ring_finalize(state);
 
     nvs_close(handle);
     return ESP_OK;
@@ -301,4 +293,33 @@ esp_err_t beet_storage_read_event_by_seq_no(uint64_t seq_no, beet_event_record_t
 
     nvs_close(handle);
     return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t beet_storage_summarize_events(uint16_t *event_count, uint32_t pair_totals_s[BEET_PAIR_COUNT])
+{
+    nvs_handle_t handle = 0;
+
+    ESP_RETURN_ON_FALSE(event_count != NULL, ESP_ERR_INVALID_ARG, TAG, "event_count is null");
+    ESP_RETURN_ON_FALSE(pair_totals_s != NULL, ESP_ERR_INVALID_ARG, TAG, "pair_totals_s is null");
+    ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
+
+    *event_count = 0U;
+    memset(pair_totals_s, 0, sizeof(uint32_t) * BEET_PAIR_COUNT);
+
+    for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
+        beet_event_record_t record;
+        size_t required_size = sizeof(record);
+        char key[8];
+
+        beet_event_key(key, sizeof(key), slot);
+        if (nvs_get_blob(handle, key, &record, &required_size) != ESP_OK ||
+            required_size != sizeof(record)) {
+            continue;
+        }
+
+        beet_event_ring_accumulate_summary(&record, event_count, pair_totals_s);
+    }
+
+    nvs_close(handle);
+    return ESP_OK;
 }

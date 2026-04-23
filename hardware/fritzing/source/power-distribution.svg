@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <style>
+      .small { font: 14px 'Segoe UI', Arial, sans-serif; fill: #1f2937; }
+      .mono { font: 13px 'Consolas', 'Courier New', monospace; fill: #111827; }
+      .note { font: 13px 'Segoe UI', Arial, sans-serif; fill: #374151; }
+      .title { font: 700 32px 'Segoe UI', Arial, sans-serif; fill: #111827; }
+      .subtitle { font: 600 18px 'Segoe UI', Arial, sans-serif; fill: #1f2937; }
+    </style>
+  </defs>
+  <rect width="1600" height="1000" fill="#f8fafc"/>
+<text x="60" y="70" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="700" fill="#111827" text-anchor="start">BeetMeister Power Distribution</text>
+<text x="60" y="104" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600" fill="#334155" text-anchor="start">Baseline: LiFePO4 direct battery rail for controller, relay board, and pumps</text>
+<rect x="100" y="180" width="250" height="160" rx="24" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+<text x="225" y="225" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#92400e" text-anchor="middle">Charge Input</text>
+<text x="225" y="258" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" fill="#92400e" text-anchor="middle">USB / bench source</text>
+<text x="225" y="285" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="400" fill="#78350f" text-anchor="middle">feeds generic charger module</text>
+<rect x="430" y="150" width="290" height="220" rx="24" fill="#ffffff" stroke="#0f766e" stroke-width="2"/>
+<text x="575" y="195" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#0f766e" text-anchor="middle">Generic LiFePO4 Charger</text>
+<text x="575" y="228" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" fill="#115e59" text-anchor="middle">VIN+, VIN-, BATT+, BATT-</text>
+<text x="575" y="258" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#134e4a" text-anchor="middle">placeholder block until module SKU is fixed</text>
+<rect x="810" y="170" width="250" height="180" rx="24" fill="#dbeafe" stroke="#1d4ed8" stroke-width="2"/>
+<text x="935" y="218" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#1d4ed8" text-anchor="middle">LiFePO4 Battery</text>
+<text x="935" y="252" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600" fill="#1d4ed8" text-anchor="middle">1S / 15 Ah planned</text>
+<text x="935" y="282" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="400" fill="#1e3a8a" text-anchor="middle">3.20 V deep-low threshold</text>
+<rect x="1180" y="120" width="300" height="180" rx="24" fill="#dcfce7" stroke="#166534" stroke-width="2"/>
+<text x="1330" y="164" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#166534" text-anchor="middle">ESP32-S3 Controller</text>
+<text x="1330" y="198" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" fill="#166534" text-anchor="middle">direct battery on 3.3V pin</text>
+<text x="1330" y="228" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="400" fill="#166534" text-anchor="middle">Battery sense on GPIO2</text>
+<text x="1330" y="252" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="400" fill="#166534" text-anchor="middle">OLED on GPIO11 / GPIO12</text>
+<rect x="1180" y="360" width="300" height="180" rx="24" fill="#fce7f3" stroke="#be185d" stroke-width="2"/>
+<text x="1330" y="404" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#be185d" text-anchor="middle">8-Channel Relay Board</text>
+<text x="1330" y="438" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" fill="#be185d" text-anchor="middle">logic and switched pump rail</text>
+<text x="1330" y="468" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="400" fill="#9d174d" text-anchor="middle">active-high IN1..IN8 with pull-downs</text>
+<rect x="1180" y="600" width="300" height="170" rx="24" fill="#fae8ff" stroke="#7e22ce" stroke-width="2"/>
+<text x="1330" y="644" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#7e22ce" text-anchor="middle">8 Pumps</text>
+<text x="1330" y="678" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" fill="#7e22ce" text-anchor="middle">switched from direct battery rail</text>
+<text x="1330" y="708" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#6b21a8" text-anchor="middle">optional 5V boost remains a later variant</text>
+<rect x="720" y="430" width="300" height="200" rx="24" fill="#ffffff" stroke="#b91c1c" stroke-width="2"/>
+<text x="870" y="468" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#b91c1c" text-anchor="middle">Battery Sense Divider</text>
+<text x="870" y="502" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" fill="#7f1d1d" text-anchor="middle">Rtop 149.2k  -&gt;  GPIO2  -&gt;  Rbottom 148.5k</text>
+<text x="870" y="530" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#7f1d1d" text-anchor="middle">current bench build: 300k || 300k on each side</text>
+<text x="870" y="556" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#7f1d1d" text-anchor="middle">0.1 uF local capacitor recommended at the ADC node</text>
+<line x1="1060" y1="260" x2="1180" y2="210" stroke="#1d4ed8" stroke-width="5" stroke-linecap="round"/>
+<line x1="720" y1="260" x2="810" y2="260" stroke="#0f766e" stroke-width="5" stroke-linecap="round"/>
+<line x1="350" y1="260" x2="430" y2="260" stroke="#d97706" stroke-width="5" stroke-linecap="round"/>
+<line x1="935" y1="170" x2="935" y2="90" stroke="#dc2626" stroke-width="6" stroke-linecap="round"/>
+<line x1="935" y1="90" x2="1330" y2="90" stroke="#dc2626" stroke-width="6" stroke-linecap="round"/>
+<line x1="1330" y1="90" x2="1330" y2="120" stroke="#dc2626" stroke-width="6" stroke-linecap="round"/>
+<line x1="1330" y1="90" x2="1330" y2="360" stroke="#dc2626" stroke-width="6" stroke-linecap="round"/>
+<line x1="1330" y1="90" x2="1330" y2="600" stroke="#dc2626" stroke-width="6" stroke-linecap="round"/>
+<text x="1000" y="78" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" fill="#b91c1c" text-anchor="start">Direct battery rail</text>
+<line x1="935" y1="350" x2="870" y2="430" stroke="#b91c1c" stroke-width="4" stroke-linecap="round"/>
+<line x1="1020" y1="520" x2="1180" y2="210" stroke="#b91c1c" stroke-width="3" stroke-linecap="round" stroke-dasharray="8 8"/>
+<line x1="160" y1="880" x2="1490" y2="880" stroke="#111827" stroke-width="6" stroke-linecap="round"/>
+<text x="1000" y="808" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" fill="#111827" text-anchor="start">Common ground</text>
+<line x1="225" y1="340" x2="225" y2="880" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+<line x1="575" y1="370" x2="575" y2="880" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+<line x1="935" y1="350" x2="935" y2="880" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+<line x1="1330" y1="300" x2="1330" y2="880" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+<line x1="1330" y1="540" x2="1330" y2="880" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+<line x1="1330" y1="770" x2="1330" y2="880" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+<line x1="870" y1="630" x2="870" y2="880" stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+<rect x="60" y="730" width="620" height="108" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+<text x="82" y="758" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#111827" text-anchor="start">Bench annotation</text>
+<text x="82" y="784" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#111827" text-anchor="start">Current bring-up may still use USB-C power, but the final baseline here is battery-powered.</text>
+<text x="82" y="806" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#111827" text-anchor="start">A boosted 5V pump rail is intentionally omitted from the v1 baseline and only noted as a later variant.</text>
+</svg>

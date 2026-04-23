@@ -14,6 +14,11 @@ typedef enum {
     BEET_IFACE_COMMAND_STORE_CALIBRATION = 3,
     BEET_IFACE_COMMAND_START_OTA = 4,
     BEET_IFACE_COMMAND_CLEAR_BLE_BONDS = 5,
+    BEET_IFACE_COMMAND_GET_CALIBRATION = 6,
+    BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY = 7,
+    BEET_IFACE_COMMAND_GET_EVENT = 8,
+    BEET_IFACE_COMMAND_DISABLE_PAIR = 9,
+    BEET_IFACE_COMMAND_ENABLE_PAIR = 10,
 } beet_iface_command_t;
 
 typedef enum {
@@ -44,6 +49,9 @@ typedef enum {
     BEET_IFACE_REASON_SENSOR_INVALID = 19,
     BEET_IFACE_REASON_ALREADY_ACTIVE = 20,
     BEET_IFACE_REASON_INVALID_PAIR = 21,
+    BEET_IFACE_REASON_EVENT_NOT_FOUND = 22,
+    BEET_IFACE_REASON_PAIR_DISABLED = 23,
+    BEET_IFACE_REASON_PAIR_ENABLED = 24,
 } beet_iface_reason_t;
 
 typedef struct {
@@ -53,6 +61,7 @@ typedef struct {
     uint16_t duration_s;
     uint16_t dry_mv;
     uint16_t wet_mv;
+    uint64_t seq_no;
 } beet_iface_command_request_t;
 
 typedef struct {
@@ -61,6 +70,14 @@ typedef struct {
     beet_iface_status_t status;
     beet_iface_reason_t reason;
     uint16_t accepted_duration_s;
+    bool has_calibration;
+    beet_pair_calibration_t calibration;
+    bool has_history_summary;
+    uint64_t latest_event_seq_no;
+    uint16_t event_count;
+    uint32_t pair_totals_s[BEET_PAIR_COUNT];
+    bool has_event;
+    beet_event_record_t event;
 } beet_iface_command_response_t;
 
 typedef struct {
@@ -84,6 +101,7 @@ typedef struct {
     bool blocked;
     beet_block_reason_t block_reason;
     beet_run_source_t source;
+    bool enabled;
     bool sensor_valid;
 } beet_iface_pair_state_t;
 

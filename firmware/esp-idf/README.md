@@ -66,14 +66,14 @@ Use the project-local wrapper so the repo uses the installed ESP-IDF toolchain c
 
 ```powershell
 cd C:\git\BeetMeister\firmware\esp-idf
-powershell -ExecutionPolicy Bypass -File ..\..\skills\esp-idf-installation\scripts\invoke-idf.ps1 build
-powershell -ExecutionPolicy Bypass -File ..\..\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM7 flash
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 build
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM7 flash
 ```
 
 For serial logs:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File ..\..\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM7 monitor
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM7 monitor
 ```
 
 For a short bench-capture run with summary output:
@@ -81,6 +81,33 @@ For a short bench-capture run with summary output:
 ```powershell
 powershell -ExecutionPolicy Bypass -File ..\..\scripts\dev\capture-bench-diagnostics.ps1 -Port COM7 -DurationSeconds 15 -BenchOnly
 ```
+
+## Non-hardware tests
+
+Host-side tests now live under `firmware/tests/host`.
+
+Run them from the repo root with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\dev\run-firmware-host-tests.ps1
+```
+
+The host suite covers:
+
+- pure controller logic from `beet_core.c`
+- event-ring reconstruction helpers
+- BLE JSON parsing and formatting
+- shared interface name mapping
+
+If the current shell does not provide a Windows MSVC/SDK linker environment, the runner falls back to compile-only validation of every host-test translation unit and prints that explicitly.
+
+QEMU smoke scaffolding is also available:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\dev\run-firmware-qemu-smoke.ps1
+```
+
+This currently skips cleanly when `qemu-system-xtensa` is not installed.
 
 ## Project layout
 

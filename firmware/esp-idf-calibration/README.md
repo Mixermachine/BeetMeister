@@ -27,6 +27,6 @@ Build and flash from this project root:
 
 ```powershell
 cd C:\git\BeetMeister\firmware\esp-idf-calibration
-powershell -ExecutionPolicy Bypass -File ..\..\skills\esp-idf-installation\scripts\invoke-idf.ps1 set-target esp32s3
-powershell -ExecutionPolicy Bypass -File ..\..\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM7 flash monitor
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 set-target esp32s3
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM7 flash monitor
 ```

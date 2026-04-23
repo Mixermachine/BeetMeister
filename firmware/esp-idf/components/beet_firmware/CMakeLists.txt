@@ -2,8 +2,11 @@ idf_component_register(
     SRCS
         "src/beet_board.c"
         "src/beet_ble.c"
+        "src/beet_ble_codec.c"
         "src/beet_controller.c"
         "src/beet_core.c"
+        "src/beet_event_ring.c"
+        "src/beet_iface_names.c"
         "src/beet_storage.c"
     INCLUDE_DIRS "include"
     REQUIRES
