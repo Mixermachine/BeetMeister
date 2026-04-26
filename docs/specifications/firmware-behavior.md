@@ -40,7 +40,7 @@ Runtime snapshots shall be authoritative for:
 - active manual or automatic run metadata that needs graceful recovery
 - next scheduled check deadline
 
-If a persisted snapshot indicates that a pair was watering before reset or power loss, the controller shall restore that pair as `FAULT` with pump output off and shall require a new scheduler or manual action before watering resumes.
+If a persisted snapshot indicates that a pair was watering before reset or power loss, the controller shall restore that pair with pump output off, clear any stale runtime state, and recover the pair to `IDLE` unless the pair is still sensor-invalid.
 
 ## Scheduler behavior
 
@@ -130,7 +130,7 @@ No other transitions are permitted.
 
 - A manual start command shall use the same moisture and battery safety gates as automatic watering except that it shall not perform the 10-second sanity check.
 - Manual watering default duration shall equal the current automatic lookup duration for that pair, with a minimum of 10 seconds when the lookup would otherwise be 0.
-- A manual start command may instead provide an explicit requested duration from 1 through 900 seconds, which shall override the default manual duration for that accepted run only.
+- A manual start command may instead provide an explicit requested duration from 1 through 1200 seconds, which shall override the default manual duration for that accepted run only.
 - A manual stop command shall terminate active watering immediately and record stop reason `MANUAL_STOP`.
 - Manual start on a blocked or faulted pair shall be rejected.
 
@@ -143,6 +143,7 @@ The block reason enum is closed and shall be one of:
 - `NONE`
 - `SENSOR_DELTA_TOO_SMALL`
 - `SENSOR_READING_INVALID`
+- `LOW_BATTERY_ABORT`
 
 Exact meanings:
 
@@ -151,13 +152,14 @@ Exact meanings:
 | `NONE` | Pair is not currently blocked. |
 | `SENSOR_DELTA_TOO_SMALL` | Automatic 10-second sanity check completed but moisture increase was less than or equal to 3 percentage points. |
 | `SENSOR_READING_INVALID` | Sensor reading was electrically implausible, missing, or disconnected during an automatic safety evaluation. |
+| `LOW_BATTERY_ABORT` | An active watering run was aborted because battery voltage fell below the watering threshold. |
 
 ### Unblock conditions
 
 - A 24-hour sensor block shall expire automatically when the current UTC time is known and has passed the expiry time.
 - If UTC time is not known, the controller shall track block age by elapsed sleep and awake durations and shall expire the block after 24 hours of accumulated elapsed time.
-- An operator reset through MQTT or BLE shall clear the block immediately.
-- Clearing a block shall not erase calibration, history, or the last fault counters.
+- An operator reset through MQTT or BLE shall clear `BLOCKED` immediately and shall clear `FAULT` when the sensor is valid.
+- Clearing an error shall not erase calibration, history, or the last fault counters.
 
 ## Error handling and fail-safe rules
 
@@ -274,7 +276,7 @@ Current implementation note:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `pair_index` | `u8` | Pair number 1 through 8 |
+| `pair_index` | `u8` | Pair number 1 through 8, or `0` for controller sleep events |
 | `dry_mv` | `u16` | Dry reference in millivolts |
 | `wet_mv` | `u16` | Wet reference in millivolts |
 | `calibrated_at_unix_s` | `u32` | UTC time of calibration, 0 if unknown |
@@ -301,6 +303,8 @@ Current implementation note:
 | `next_check_due_in_s` | `u32` | Relative deadline for sleep recovery when time is not valid |
 
 ### Watering event schema
+
+The event ring stores both watering outcomes and controller sleep entries. Watering events use `pair_index` 1 through 8. Controller sleep entries use `pair_index = 0`, record the sleep reason in `stop_reason`, and store the battery voltage at sleep entry in `battery_start_mv` and `battery_end_mv`.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -332,6 +336,10 @@ The stop reason enum is closed and shall be one of:
 - `SENSOR_SANITY_FAILURE`
 - `SENSOR_INVALID_ABORT`
 - `SYSTEM_ABORT`
+- `IDLE_LOW_POWER_SLEEP`
+- `DEEP_LOW_BATTERY_SLEEP`
+- `IDLE_LOW_POWER_SLEEP`
+- `DEEP_LOW_BATTERY_SLEEP`
 
 Exact meanings:
 
@@ -343,6 +351,8 @@ Exact meanings:
 | `SENSOR_SANITY_FAILURE` | Automatic run stopped after the mandatory pre-run delta check failed. |
 | `SENSOR_INVALID_ABORT` | Run stopped because sensor data became invalid during the safety path. |
 | `SYSTEM_ABORT` | Run stopped because of reset, OTA transition, or unrecoverable controller error. |
+| `IDLE_LOW_POWER_SLEEP` | Controller entered idle low-power sleep after inactivity or low battery policy allowed light sleep. |
+| `DEEP_LOW_BATTERY_SLEEP` | Controller entered deep sleep because battery voltage fell below the deep-low threshold. |
 
 ## Time-handling rules
 

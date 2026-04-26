@@ -5,7 +5,7 @@ import de.aarondietz.beetmeister.beet.BeetRepositoryState
 import kotlinx.coroutines.flow.StateFlow
 import androidx.lifecycle.ViewModel
 
-class BeetAppViewModel(
+internal class BeetAppViewModel(
     private val repository: BeetRepository,
 ) : ViewModel() {
     val state: StateFlow<BeetRepositoryState> = repository.state
@@ -34,7 +34,9 @@ class BeetAppViewModel(
 
     fun manualStop(pairIndex: Int) = repository.manualStop(pairIndex)
 
-    fun resetBlock(pairIndex: Int) = repository.resetBlock(pairIndex)
+    fun clearPairError(pairIndex: Int) = repository.clearPairError(pairIndex)
+
+    fun resetBlock(pairIndex: Int) = clearPairError(pairIndex)
 
     fun disablePair(pairIndex: Int) = repository.disablePair(pairIndex)
 

@@ -1,5 +1,6 @@
 #include "beet_board.h"
 
+#include <inttypes.h>
 #include <ctype.h>
 #include <string.h>
 
@@ -48,6 +49,8 @@ static esp_lcd_panel_io_handle_t s_oled_io_handle;
 static esp_lcd_panel_handle_t s_oled_panel_handle;
 static bool s_oled_ready;
 static bool s_oled_enabled;
+static bool s_sensor_power_enabled;
+static bool s_boost_enabled;
 static uint8_t s_oled_buffer[128 * 64 / 8];
 static bool s_initialized;
 
@@ -55,6 +58,7 @@ static bool s_initialized;
 #define BEET_OLED_HEIGHT 64
 #define BEET_OLED_LINE_HEIGHT 8
 #define BEET_OLED_CHAR_WIDTH 6
+#define BEET_OLED_CHAR_HEIGHT 7
 #define BEET_OLED_MAX_LINES (BEET_OLED_HEIGHT / BEET_OLED_LINE_HEIGHT)
 #define BEET_OLED_MAX_CHARS_PER_LINE (BEET_OLED_WIDTH / BEET_OLED_CHAR_WIDTH)
 #define BEET_OLED_COLUMN2_X 69
@@ -129,9 +133,46 @@ static void beet_oled_draw_char(int x, int y, char c)
     const uint8_t *glyph = beet_oled_glyph(c);
     for (int col = 0; col < 5; ++col) {
         uint8_t bits = glyph[col];
-        for (int row = 0; row < 7; ++row) {
+        for (int row = 0; row < BEET_OLED_CHAR_HEIGHT; ++row) {
             beet_oled_set_pixel(x + col, y + row, (bits & (1U << row)) != 0U);
         }
+    }
+}
+
+static void beet_oled_draw_scaled_char(int x, int y, char c, int scale)
+{
+    const uint8_t *glyph = beet_oled_glyph(c);
+
+    for (int col = 0; col < 5; ++col) {
+        uint8_t bits = glyph[col];
+        for (int row = 0; row < BEET_OLED_CHAR_HEIGHT; ++row) {
+            if ((bits & (1U << row)) == 0U) {
+                continue;
+            }
+
+            for (int dx = 0; dx < scale; ++dx) {
+                for (int dy = 0; dy < scale; ++dy) {
+                    beet_oled_set_pixel(x + (col * scale) + dx, y + (row * scale) + dy, true);
+                }
+            }
+        }
+    }
+}
+
+static void beet_oled_draw_scaled_text_centered(
+    int y,
+    const char *text,
+    int scale,
+    int digit_spacing)
+{
+    size_t len = strlen(text);
+    int digit_width = (5 * scale) + digit_spacing;
+    int total_width = (int)len * digit_width - digit_spacing;
+    int x = (BEET_OLED_WIDTH - total_width) / 2;
+
+    for (size_t i = 0; i < len; ++i) {
+        beet_oled_draw_scaled_char(x, y, text[i], scale);
+        x += digit_width;
     }
 }
 
@@ -297,6 +338,25 @@ static esp_err_t beet_board_init_relays(void)
     return ESP_OK;
 }
 
+static esp_err_t beet_board_init_power_controls(void)
+{
+    uint64_t pin_mask = (1ULL << CONFIG_BEET_SENSOR_POWER_GPIO) | (1ULL << CONFIG_BEET_BOOST_ENABLE_GPIO);
+    gpio_config_t io_config = {
+        .pin_bit_mask = pin_mask,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+
+    ESP_RETURN_ON_ERROR(gpio_config(&io_config), TAG, "power control gpio config failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level(CONFIG_BEET_SENSOR_POWER_GPIO, 0), TAG, "sensor power init failed");
+    ESP_RETURN_ON_ERROR(gpio_set_level(CONFIG_BEET_BOOST_ENABLE_GPIO, 0), TAG, "boost init failed");
+    s_sensor_power_enabled = false;
+    s_boost_enabled = false;
+    return ESP_OK;
+}
+
 static esp_err_t beet_board_init_adc(void)
 {
     adc_oneshot_unit_init_cfg_t unit_cfg = {
@@ -351,6 +411,7 @@ esp_err_t beet_board_init(void)
     }
 
     ESP_RETURN_ON_ERROR(beet_board_init_relays(), TAG, "relay init failed");
+    ESP_RETURN_ON_ERROR(beet_board_init_power_controls(), TAG, "power control init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_adc(), TAG, "adc init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_led(), TAG, "led init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_oled(), TAG, "oled init failed");
@@ -370,6 +431,11 @@ esp_err_t beet_board_init(void)
 
 void beet_board_deinit(void)
 {
+    if (s_initialized) {
+        beet_board_set_boost_enabled(false);
+        beet_board_set_sensor_power_enabled(false);
+        beet_board_all_relays_off();
+    }
     if (s_oled_panel_handle != NULL) {
         esp_lcd_panel_disp_on_off(s_oled_panel_handle, false);
         esp_lcd_panel_del(s_oled_panel_handle);
@@ -417,10 +483,37 @@ esp_err_t beet_board_set_relay(uint8_t pair_index, bool enabled)
     return gpio_set_level(s_pair_pins[pair_index - 1U].relay_gpio, enabled ? 1 : 0);
 }
 
+esp_err_t beet_board_set_sensor_power_enabled(bool enabled)
+{
+    ESP_RETURN_ON_FALSE(s_initialized, ESP_ERR_INVALID_STATE, TAG, "board not initialized");
+    ESP_RETURN_ON_ERROR(gpio_set_level(CONFIG_BEET_SENSOR_POWER_GPIO, enabled ? 1 : 0), TAG, "sensor power set failed");
+    s_sensor_power_enabled = enabled;
+    return ESP_OK;
+}
+
+bool beet_board_is_sensor_power_enabled(void)
+{
+    return s_sensor_power_enabled;
+}
+
+esp_err_t beet_board_set_boost_enabled(bool enabled)
+{
+    ESP_RETURN_ON_FALSE(s_initialized, ESP_ERR_INVALID_STATE, TAG, "board not initialized");
+    ESP_RETURN_ON_ERROR(gpio_set_level(CONFIG_BEET_BOOST_ENABLE_GPIO, enabled ? 1 : 0), TAG, "boost set failed");
+    s_boost_enabled = enabled;
+    return ESP_OK;
+}
+
+bool beet_board_is_boost_enabled(void)
+{
+    return s_boost_enabled;
+}
+
 esp_err_t beet_board_read_moisture_sample(uint8_t pair_index, beet_board_sensor_sample_t *sample)
 {
     ESP_RETURN_ON_FALSE(beet_is_valid_pair_index(pair_index), ESP_ERR_INVALID_ARG, TAG, "invalid pair");
     ESP_RETURN_ON_FALSE(sample != NULL, ESP_ERR_INVALID_ARG, TAG, "sample is null");
+    ESP_RETURN_ON_FALSE(s_sensor_power_enabled, ESP_ERR_INVALID_STATE, TAG, "sensor power is off");
 
     return beet_board_read_channel_sample(
         s_pair_pins[pair_index - 1U].moisture_channel,
@@ -544,6 +637,45 @@ esp_err_t beet_board_update_display(const char *const *lines, size_t line_count)
         beet_oled_draw_text_line((int)i, lines[i]);
     }
 
+    return esp_lcd_panel_draw_bitmap(
+        s_oled_panel_handle,
+        0,
+        0,
+        BEET_OLED_WIDTH,
+        BEET_OLED_HEIGHT,
+        s_oled_buffer);
+}
+
+esp_err_t beet_board_show_pairing_code(uint32_t passkey, uint8_t remaining_s)
+{
+    char code[7];
+    char remaining[16];
+    const char *lines[8];
+
+    if (!s_oled_ready || !s_oled_enabled) {
+        return ESP_OK;
+    }
+
+    snprintf(code, sizeof(code), "%06" PRIu32, passkey);
+    snprintf(remaining, sizeof(remaining), "VISIBLE %2us", remaining_s);
+    lines[0] = "  BLE PAIRING";
+    lines[1] = remaining;
+    lines[2] = " PAIR CODE";
+    lines[3] = "";
+    lines[4] = "";
+    lines[5] = "";
+    lines[6] = "";
+    lines[7] = "ENTER ON PHONE";
+
+    memset(s_oled_buffer, 0, sizeof(s_oled_buffer));
+    for (size_t i = 0; i < 8; ++i) {
+        if (i == 3 || i == 4 || i == 5 || i == 6) {
+            continue;
+        }
+        beet_oled_draw_text_line((int)i, lines[i]);
+    }
+
+    beet_oled_draw_scaled_text_centered(24, code, 2, 2);
     return esp_lcd_panel_draw_bitmap(
         s_oled_panel_handle,
         0,

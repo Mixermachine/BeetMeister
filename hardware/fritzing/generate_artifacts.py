@@ -103,8 +103,8 @@ PIN_ROLES = {
     "GPIO12": ("OLED SCL", "#dcfce7", "#166534"),
     "GPIO13": ("Future single button", "#fef3c7", "#92400e"),
     "GPIO14": ("Pair 1 relay", "#fce7f3", "#be185d"),
-    "GPIO15": ("Free expansion", "#f3f4f6", "#374151"),
-    "GPIO16": ("Free expansion", "#f3f4f6", "#374151"),
+    "GPIO15": ("Sensor power EN", "#dcfce7", "#166534"),
+    "GPIO16": ("Boost enable", "#dcfce7", "#166534"),
     "GPIO17": ("Free expansion", "#f3f4f6", "#374151"),
     "GPIO18": ("Free expansion", "#f3f4f6", "#374151"),
     "GPIO19": ("USB D-", "#e5e7eb", "#111827"),
@@ -306,7 +306,7 @@ def build_controller_pinout() -> str:
             svg_rect(1080, 800, 440, 80, "#ffffff", "#cbd5e1", 1, 16),
             svg_text(1100, 826, "Board-specific notes", 18, "700"),
             svg_text(1100, 848, "GPIO48 stays reserved for the onboard RGB LED.", 13),
-            svg_text(1100, 866, "GPIO11/GPIO12 are active; GPIO13 remains deferred.", 13),
+            svg_text(1100, 866, "GPIO15/GPIO16 now gate sensor and boost power; GPIO13 remains deferred.", 13),
         ]
     )
 

@@ -105,6 +105,9 @@ data class BeetWateringEvent(
 ) {
     val timeValid: Boolean
         get() = timeValidRaw != 0
+
+    val isControllerSleepEvent: Boolean
+        get() = pairIndex == 0
 }
 
 internal data class BeetCommandAckData(
@@ -185,6 +188,8 @@ object BeetEventMappings {
         3 -> "Sanity failure"
         4 -> "Sensor invalid abort"
         5 -> "System abort"
+        6 -> "Idle low-power sleep"
+        7 -> "Deep low-battery sleep"
         else -> "Unknown"
     }
 
@@ -192,6 +197,7 @@ object BeetEventMappings {
         0 -> "None"
         1 -> "Sensor delta too small"
         2 -> "Sensor invalid"
+        3 -> "Low battery abort"
         else -> "Unknown"
     }
 }

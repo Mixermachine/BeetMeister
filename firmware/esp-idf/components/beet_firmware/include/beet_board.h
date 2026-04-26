@@ -30,6 +30,10 @@ esp_err_t beet_board_init(void);
 void beet_board_deinit(void);
 void beet_board_all_relays_off(void);
 esp_err_t beet_board_set_relay(uint8_t pair_index, bool enabled);
+esp_err_t beet_board_set_sensor_power_enabled(bool enabled);
+bool beet_board_is_sensor_power_enabled(void);
+esp_err_t beet_board_set_boost_enabled(bool enabled);
+bool beet_board_is_boost_enabled(void);
 esp_err_t beet_board_read_moisture_sample(uint8_t pair_index, beet_board_sensor_sample_t *sample);
 esp_err_t beet_board_read_moisture_mv(uint8_t pair_index, uint16_t *out_mv);
 esp_err_t beet_board_read_battery_sample(beet_board_battery_sample_t *sample);
@@ -37,6 +41,7 @@ esp_err_t beet_board_read_battery_mv(uint16_t *out_mv);
 esp_err_t beet_board_set_indicator(beet_board_indicator_t indicator);
 esp_err_t beet_board_set_display_enabled(bool enabled);
 esp_err_t beet_board_update_display(const char *const *lines, size_t line_count);
+esp_err_t beet_board_show_pairing_code(uint32_t passkey, uint8_t remaining_s);
 int beet_board_relay_gpio(uint8_t pair_index);
 int beet_board_moisture_gpio(uint8_t pair_index);
 

@@ -7,6 +7,10 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "manual_start";
     case BEET_IFACE_COMMAND_MANUAL_STOP:
         return "manual_stop";
+    case BEET_IFACE_COMMAND_RELAY_TEST_START:
+        return "relay_test_start";
+    case BEET_IFACE_COMMAND_RELAY_TEST_STOP:
+        return "relay_test_stop";
     case BEET_IFACE_COMMAND_RESET_BLOCK:
         return "reset_block";
     case BEET_IFACE_COMMAND_STORE_CALIBRATION:
@@ -95,6 +99,10 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "pair_disabled";
     case BEET_IFACE_REASON_PAIR_ENABLED:
         return "pair_enabled";
+    case BEET_IFACE_REASON_RELAY_TEST_STARTED:
+        return "relay_test_started";
+    case BEET_IFACE_REASON_RELAY_TEST_STOPPED:
+        return "relay_test_stopped";
     default:
         return "unknown";
     }

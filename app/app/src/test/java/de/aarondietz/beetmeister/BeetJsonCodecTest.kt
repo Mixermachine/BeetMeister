@@ -195,6 +195,43 @@ class BeetJsonCodecTest {
     }
 
     @Test
+    fun parsesControllerSleepEventPayload() {
+        val payload = """
+            {
+              "cmd":"get_event",
+              "status":"accepted",
+              "reason":"none",
+              "data":{
+                "seq":78,
+                "pair":0,
+                "src":0,
+                "start":0,
+                "end":0,
+                "tv":0,
+                "mb":0,
+                "ma":0,
+                "sb":0,
+                "sa":0,
+                "req":0,
+                "act":0,
+                "stop":6,
+                "block":0,
+                "bs":3270,
+                "be":3270
+              }
+            }
+        """.trimIndent()
+
+        val result = BeetJsonCodec.parseCommandResult(payload)
+
+        assertEquals(78L, result.event!!.sequenceNumber)
+        assertEquals(0, result.event!!.pairIndex)
+        assertEquals(6, result.event!!.stopReason)
+        assertEquals(3270, result.event!!.batteryStartMillivolts)
+        assertTrue(result.event!!.isControllerSleepEvent)
+    }
+
+    @Test
     fun buildsEnableDisableCommands() {
         assertEquals("""{"cmd":"disable_pair","data":{"pair":4}}""", BeetJsonCodec.disablePair(4))
         assertEquals("""{"cmd":"enable_pair","data":{"pair":4}}""", BeetJsonCodec.enablePair(4))

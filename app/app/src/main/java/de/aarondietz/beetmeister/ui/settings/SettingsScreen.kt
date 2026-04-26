@@ -1,4 +1,4 @@
-package de.aarondietz.beetmeister.ui
+package de.aarondietz.beetmeister.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.ui.composable.ValueGridRow
 
 @Composable
 internal fun SettingsScreen(

@@ -150,6 +150,26 @@ If provided, it shall override the default manual duration for that accepted run
 }
 ```
 
+### Relay test start
+
+```json
+{
+  "cmd": "relay_test_start",
+  "pair": 3
+}
+```
+
+This turns on the selected relay GPIO for bench and board verification while intentionally keeping the boost converter disabled.
+
+### Relay test stop
+
+```json
+{
+  "cmd": "relay_test_stop",
+  "pair": 3
+}
+```
+
 ### Reset block
 
 ```json
@@ -210,8 +230,10 @@ Accepted commands that take time to complete, such as calibration or OTA start, 
 
 - Commands shall be idempotent where meaningful.
 - `manual_stop` on a non-watering pair shall return `accepted` with reason `already_stopped`.
+- `relay_test_stop` on a non-tested pair shall return `accepted` with reason `already_stopped`.
 - `reset_block` on an unblocked pair shall return `accepted` with reason `not_blocked`.
-- `manual_start` shall reject `duration_s` values below 1 second or above 900 seconds.
+- `manual_start` shall reject `duration_s` values below 1 second or above 1200 seconds.
+- `relay_test_start` shall reject requests while watering, OTA is in progress, or the controller is not in normal active battery state.
 - `store_calibration` shall reject invalid dry or wet values and dry values that are not greater than wet values.
 - Commands shall be rejected while the controller is in `DEEP_LOW_BATTERY`.
 - Commands that would violate controller safety rules shall be rejected rather than queued indefinitely.

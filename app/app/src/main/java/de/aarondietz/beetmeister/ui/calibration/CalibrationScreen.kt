@@ -1,4 +1,4 @@
-package de.aarondietz.beetmeister.ui
+package de.aarondietz.beetmeister.ui.calibration
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.beet.BeetPairState
 import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.ui.formatting.formatUnixSeconds
 
 @Composable
 internal fun CalibrationScreen(

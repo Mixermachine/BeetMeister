@@ -1,4 +1,4 @@
-package de.aarondietz.beetmeister.ui
+package de.aarondietz.beetmeister.ui.events
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -28,6 +28,10 @@ import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.beet.BeetEventMappings
 import de.aarondietz.beetmeister.beet.BeetRepositoryState
 import de.aarondietz.beetmeister.beet.BeetWateringEvent
+import de.aarondietz.beetmeister.ui.composable.ValueGridRow
+import de.aarondietz.beetmeister.ui.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.formatting.formatEventTime
+import de.aarondietz.beetmeister.ui.formatting.formatEventSubject
 import kotlin.math.max
 
 @Composable
@@ -160,6 +164,7 @@ private fun DurationBarChart(pairTotalsSeconds: List<Int>) {
 
 @Composable
 private fun EventRow(event: BeetWateringEvent) {
+    val eventSubject = formatEventSubject(event)
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFFDFBF6)),
@@ -170,13 +175,28 @@ private fun EventRow(event: BeetWateringEvent) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text("Seq ${event.sequenceNumber}", fontWeight = FontWeight.SemiBold)
-                Text("Pair ${event.pairIndex}")
+                Text(eventSubject)
             }
             Spacer(modifier = Modifier.height(8.dp))
-            ValueGridRow("Source", BeetEventMappings.triggerSourceLabel(event.triggerSource), "Actual", formatDuration(event.actualDurationSeconds))
-            ValueGridRow("Requested", formatDuration(event.requestedDurationSeconds), "Stop", BeetEventMappings.stopReasonLabel(event.stopReason))
-            ValueGridRow("Block", BeetEventMappings.blockReasonLabel(event.blockReason), "Time", formatEventTime(event))
-            ValueGridRow("Before", "${event.moistureBeforePercent}% / ${event.sensorBeforeMillivolts} mV", "After", "${event.moistureAfterPercent}% / ${event.sensorAfterMillivolts} mV")
+            if (event.isControllerSleepEvent) {
+                ValueGridRow(
+                    "Reason",
+                    BeetEventMappings.stopReasonLabel(event.stopReason),
+                    "Battery",
+                    "${event.batteryStartMillivolts} mV",
+                )
+                ValueGridRow(
+                    "Time",
+                    formatEventTime(event),
+                    "Voltage end",
+                    "${event.batteryEndMillivolts} mV",
+                )
+            } else {
+                ValueGridRow("Source", BeetEventMappings.triggerSourceLabel(event.triggerSource), "Actual", formatDuration(event.actualDurationSeconds))
+                ValueGridRow("Requested", formatDuration(event.requestedDurationSeconds), "Stop", BeetEventMappings.stopReasonLabel(event.stopReason))
+                ValueGridRow("Block", BeetEventMappings.blockReasonLabel(event.blockReason), "Time", formatEventTime(event))
+                ValueGridRow("Before", "${event.moistureBeforePercent}% / ${event.sensorBeforeMillivolts} mV", "After", "${event.moistureAfterPercent}% / ${event.sensorAfterMillivolts} mV")
+            }
         }
     }
 }

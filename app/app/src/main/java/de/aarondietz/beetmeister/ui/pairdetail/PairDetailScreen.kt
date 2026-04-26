@@ -1,4 +1,4 @@
-package de.aarondietz.beetmeister.ui
+package de.aarondietz.beetmeister.ui.pairdetail
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -26,6 +26,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.beet.BeetPairState
+import de.aarondietz.beetmeister.ui.composable.PairErrorClearButton
+import de.aarondietz.beetmeister.ui.composable.PairEnabledToggleButton
+import de.aarondietz.beetmeister.ui.composable.ValueGridRow
+import de.aarondietz.beetmeister.ui.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.formatting.yesNo
 
 @Composable
 internal fun PairDetailScreen(
@@ -34,7 +39,7 @@ internal fun PairDetailScreen(
     onToggleEnabled: (Int) -> Unit,
     onManualStart: (Int, Int?) -> Unit,
     onManualStop: (Int) -> Unit,
-    onResetBlock: (Int) -> Unit,
+    onClearError: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var durationText by rememberSaveable(pairState.pairIndex) { mutableStateOf("") }
@@ -111,12 +116,10 @@ internal fun PairDetailScreen(
                         ) {
                             Text("Stop")
                         }
-                        OutlinedButton(
-                            onClick = { onResetBlock(pairState.pairIndex) },
-                            enabled = pairState.enabled,
-                        ) {
-                            Text("Reset block")
-                        }
+                        PairErrorClearButton(
+                            canClearError = pairState.sensorValid && (pairState.blocked || pairState.state == "FAULT"),
+                            onClear = { onClearError(pairState.pairIndex) },
+                        )
                     }
                 }
             }

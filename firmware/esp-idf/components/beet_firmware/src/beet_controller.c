@@ -88,10 +88,14 @@ static void beet_finish_pair_state(
     beet_pair_state_t final_state,
     beet_stop_reason_t stop_reason,
     beet_block_reason_t block_reason);
+static void beet_log_sleep_event(beet_sleep_mode_t mode);
 static void beet_disable_pair(uint8_t pair_index);
 static void beet_enable_pair(uint8_t pair_index);
 static void beet_log_ble_diag_status(const char *reason);
 static bool beet_ble_should_be_enabled(void);
+static void beet_controller_sync_boost_output(void);
+static void beet_stop_relay_test(bool log_stop);
+static esp_err_t beet_start_relay_test(uint8_t pair_index);
 
 static int64_t beet_now_us(void)
 {
@@ -126,6 +130,16 @@ static bool beet_runtime_has_pump(const beet_pair_runtime_t *runtime)
     return runtime->phase == BEET_RUN_PHASE_SANITY_CHECK || runtime->phase == BEET_RUN_PHASE_WATERING;
 }
 
+static bool beet_has_any_runtime(void)
+{
+    for (size_t i = 0; i < BEET_PAIR_COUNT; ++i) {
+        if (s_state.runtimes[i].phase != BEET_RUN_PHASE_NONE) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static uint8_t beet_count_active_pumps(void)
 {
     uint8_t active = 0;
@@ -140,6 +154,19 @@ static uint8_t beet_count_active_pumps(void)
 static void beet_mark_activity(int64_t now_us)
 {
     s_state.last_activity_us = now_us;
+}
+
+static void beet_controller_sync_boost_output(void)
+{
+#if CONFIG_BEET_ENABLE_PUMP_OUTPUTS
+    const bool should_enable = s_state.active_pumps > 0U;
+#else
+    const bool should_enable = false;
+#endif
+
+    if (beet_board_set_boost_enabled(should_enable) != ESP_OK) {
+        ESP_LOGW(TAG, "boost output sync failed");
+    }
 }
 
 static void beet_mark_snapshot_dirty(uint8_t pair_index)
@@ -240,10 +267,50 @@ static void beet_clear_runtime(uint8_t pair_index)
     memset(&s_state.runtimes[pair_index - 1U], 0, sizeof(s_state.runtimes[pair_index - 1U]));
 }
 
+static void beet_stop_relay_test(bool log_stop)
+{
+    if (!s_state.relay_test_active) {
+        return;
+    }
+
+    beet_board_set_relay(s_state.relay_test_pair, false);
+    s_state.relay_test_active = false;
+    s_state.relay_test_pair = 0U;
+    s_state.relay_test_phase_started_us = 0LL;
+    beet_controller_sync_boost_output();
+
+    if (log_stop) {
+        ESP_LOGI(TAG, "relay test stopped");
+    }
+}
+
+static esp_err_t beet_start_relay_test(uint8_t pair_index)
+{
+    ESP_RETURN_ON_FALSE(beet_is_valid_pair_index(pair_index), ESP_ERR_INVALID_ARG, TAG, "invalid relay test pair");
+
+    if (s_state.relay_test_active && s_state.relay_test_pair != pair_index) {
+        beet_stop_relay_test(false);
+    }
+
+    beet_board_all_relays_off();
+    ESP_RETURN_ON_ERROR(beet_board_set_boost_enabled(false), TAG, "boost disable failed for relay test");
+    ESP_RETURN_ON_ERROR(beet_board_set_relay(pair_index, true), TAG, "relay test start failed");
+
+    s_state.relay_test_active = true;
+    s_state.relay_test_pair = pair_index;
+    s_state.relay_test_phase_started_us = beet_now_us();
+    ESP_LOGI(TAG, "relay test started pair=%u gpio=%d boost=0", pair_index, beet_board_relay_gpio(pair_index));
+    return ESP_OK;
+}
+
 static void beet_disable_pair(uint8_t pair_index)
 {
     beet_pair_runtime_snapshot_t *snapshot = &s_state.snapshots[pair_index - 1U];
     const bool was_waiting = s_state.runtimes[pair_index - 1U].phase == BEET_RUN_PHASE_WAITING;
+
+    if (s_state.relay_test_active && s_state.relay_test_pair == pair_index) {
+        beet_stop_relay_test(false);
+    }
 
     if (was_waiting) {
         beet_clear_runtime(pair_index);
@@ -393,9 +460,25 @@ static uint64_t beet_light_sleep_interval_us(int64_t now_us)
     return (uint64_t)due_us;
 }
 
+static const char *beet_sleep_mode_name(beet_sleep_mode_t mode)
+{
+    switch (mode) {
+    case BEET_SLEEP_MODE_LIGHT_IDLE:
+        return "LIGHT_IDLE";
+    case BEET_SLEEP_MODE_DEEP_LOW_BATTERY:
+        return "DEEP_LOW_BATTERY";
+    case BEET_SLEEP_MODE_NONE:
+    default:
+        return "NONE";
+    }
+}
+
 static esp_err_t beet_controller_prepare_for_sleep(beet_sleep_mode_t mode)
 {
+    beet_stop_relay_test(false);
     beet_board_all_relays_off();
+    beet_board_set_boost_enabled(false);
+    beet_board_set_sensor_power_enabled(false);
     beet_flush_dirty_snapshots(true);
     s_state.power_state.last_sleep_mode = mode;
     ESP_RETURN_ON_ERROR(beet_controller_save_power_state(), TAG, "power state save failed");
@@ -414,6 +497,7 @@ static void beet_controller_restore_after_light_sleep(bool button_wake)
     s_state.last_tick_us = now_us;
     s_state.power_state.last_sleep_mode = BEET_SLEEP_MODE_NONE;
     beet_controller_save_power_state();
+    beet_controller_sync_boost_output();
     beet_controller_restore_radios();
     beet_board_set_display_enabled(true);
     s_state.wake_led_pulse_pending = true;
@@ -450,6 +534,7 @@ static void beet_controller_enter_idle_light_sleep(void)
         return;
     }
 
+    beet_log_sleep_event(BEET_SLEEP_MODE_LIGHT_IDLE);
     err = esp_light_sleep_start();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "light sleep rejected: %s", esp_err_to_name(err));
@@ -481,6 +566,7 @@ static void beet_controller_enter_deep_low_battery_sleep(void)
         return;
     }
 
+    beet_log_sleep_event(BEET_SLEEP_MODE_DEEP_LOW_BATTERY);
     esp_deep_sleep_start();
 }
 
@@ -600,6 +686,33 @@ static void beet_log_event(
         record.requested_duration_s);
 }
 
+static void beet_log_sleep_event(beet_sleep_mode_t mode)
+{
+    beet_event_record_t record;
+    const char *mode_name = beet_sleep_mode_name(mode);
+
+    memset(&record, 0, sizeof(record));
+    record.pair_index = 0U;
+    record.trigger_source = (uint8_t)BEET_RUN_SOURCE_NONE;
+    record.stop_reason = (mode == BEET_SLEEP_MODE_LIGHT_IDLE) ?
+        (uint8_t)BEET_STOP_REASON_IDLE_LOW_POWER_SLEEP :
+        (uint8_t)BEET_STOP_REASON_DEEP_LOW_BATTERY_SLEEP;
+    record.battery_start_mv = s_state.battery_mv;
+    record.battery_end_mv = s_state.battery_mv;
+
+    if (beet_storage_append_event(&s_state.event_ring, &record) != ESP_OK) {
+        ESP_LOGW(TAG, "sleep event append failed mode=%s battery=%umV", mode_name, s_state.battery_mv);
+        return;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "sleep event seq=%" PRIu64 " mode=%s battery=%umV",
+        record.seq_no,
+        mode_name,
+        s_state.battery_mv);
+}
+
 static void beet_finish_pair_state(
     uint8_t pair_index,
     beet_pair_state_t final_state,
@@ -639,6 +752,7 @@ static void beet_finish_pair_state(
     beet_mark_snapshot_dirty(pair_index);
     beet_flush_snapshot(pair_index, true);
     s_state.active_pumps = beet_count_active_pumps();
+    beet_controller_sync_boost_output();
 }
 
 static void beet_fault_pair(uint8_t pair_index, beet_block_reason_t reason)
@@ -682,6 +796,7 @@ static void beet_start_sanity_check(uint8_t pair_index, int64_t now_us)
 
     beet_flush_snapshot(pair_index, true);
     s_state.active_pumps = beet_count_active_pumps();
+    beet_controller_sync_boost_output();
     ESP_LOGI(TAG, "pair %u entered SANITY_CHECK for %us", pair_index, BEET_SANITY_CHECK_DURATION_S);
 }
 
@@ -702,6 +817,7 @@ static void beet_start_watering_phase(uint8_t pair_index, int64_t now_us)
 
     beet_flush_snapshot(pair_index, true);
     s_state.active_pumps = beet_count_active_pumps();
+    beet_controller_sync_boost_output();
     ESP_LOGI(TAG, "pair %u entered WATERING with %us remaining", pair_index, runtime->remaining_duration_s);
 }
 
@@ -793,6 +909,13 @@ static void beet_service_waiting_pairs(int64_t now_us)
 
 static void beet_refresh_sensors(void)
 {
+    if (beet_board_set_sensor_power_enabled(true) != ESP_OK) {
+        ESP_LOGW(TAG, "sensor power enable failed");
+        return;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(CONFIG_BEET_SENSOR_POWER_SETTLE_MS));
+
     for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
         beet_pair_runtime_snapshot_t *snapshot = &s_state.snapshots[pair - 1U];
         const beet_pair_calibration_t *calibration = &s_state.calibrations[pair - 1U];
@@ -853,6 +976,10 @@ static void beet_refresh_sensors(void)
             ESP_LOGI(TAG, "pair %u recovered from sensor fault after valid reading", pair);
         }
     }
+
+    if (beet_board_set_sensor_power_enabled(false) != ESP_OK) {
+        ESP_LOGW(TAG, "sensor power disable failed");
+    }
 }
 
 static void beet_restore_snapshots(void)
@@ -885,13 +1012,23 @@ static void beet_restore_snapshots(void)
             snapshot->pair_state == BEET_PAIR_STATE_WAITING_FOR_SLOT ||
             snapshot->pair_state == BEET_PAIR_STATE_SANITY_CHECK ||
             snapshot->pair_state == BEET_PAIR_STATE_WATERING) {
-            snapshot->pair_state = BEET_PAIR_STATE_FAULT;
+            snapshot->pair_state = BEET_PAIR_STATE_IDLE;
             snapshot->active_run_id = 0U;
             snapshot->active_run_source = BEET_RUN_SOURCE_NONE;
             snapshot->run_elapsed_s = 0U;
             snapshot->run_target_s = 0U;
+            snapshot->block_reason = BEET_BLOCK_REASON_NONE;
+            snapshot->block_remaining_s = 0U;
             beet_mark_snapshot_dirty(pair);
             continue;
+        }
+
+        if (snapshot->pair_state == BEET_PAIR_STATE_FAULT &&
+            snapshot->block_reason != BEET_BLOCK_REASON_SENSOR_READING_INVALID) {
+            snapshot->pair_state = BEET_PAIR_STATE_IDLE;
+            snapshot->block_reason = BEET_BLOCK_REASON_NONE;
+            snapshot->block_remaining_s = 0U;
+            beet_mark_snapshot_dirty(pair);
         }
 
         if (snapshot->block_reason != BEET_BLOCK_REASON_NONE && snapshot->block_remaining_s > 0U) {
@@ -1072,15 +1209,7 @@ static void beet_update_display(void)
 
     beet_ble_get_pairing_display(&pairing_display);
     if (pairing_display.active) {
-        snprintf(lines[0], sizeof(lines[0]), "  BLE PAIRING");
-        snprintf(lines[1], sizeof(lines[1]), " ");
-        snprintf(lines[2], sizeof(lines[2]), " PAIR CODE");
-        snprintf(lines[3], sizeof(lines[3]), "   %06" PRIu32, pairing_display.passkey);
-        snprintf(lines[4], sizeof(lines[4]), "VISIBLE %2us", pairing_display.remaining_s);
-        snprintf(lines[5], sizeof(lines[5]), "ENTER ON PHONE");
-        snprintf(lines[6], sizeof(lines[6]), " ");
-        snprintf(lines[7], sizeof(lines[7]), "WAITING...");
-        beet_board_update_display(line_ptrs, 8U);
+        beet_board_show_pairing_code(pairing_display.passkey, pairing_display.remaining_s);
         return;
     }
 
@@ -1131,6 +1260,10 @@ static bool beet_pair_can_start_manual(uint8_t pair_index, beet_iface_reason_t *
         return false;
     }
     if (runtime->phase != BEET_RUN_PHASE_NONE) {
+        *reason = BEET_IFACE_REASON_ALREADY_ACTIVE;
+        return false;
+    }
+    if (s_state.relay_test_active) {
         *reason = BEET_IFACE_REASON_ALREADY_ACTIVE;
         return false;
     }
@@ -1254,7 +1387,7 @@ esp_err_t beet_iface_submit_command(
             return ESP_OK;
         }
         if (request->has_duration_s) {
-            if (request->duration_s == 0U || request->duration_s > 900U) {
+            if (!beet_is_valid_manual_duration_s(request->duration_s)) {
                 response->reason = BEET_IFACE_REASON_INVALID_DURATION;
                 return ESP_OK;
             }
@@ -1295,22 +1428,76 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_STOPPED;
         return ESP_OK;
 
+    case BEET_IFACE_COMMAND_RELAY_TEST_START:
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        if (s_state.battery_state == BEET_BATTERY_STATE_OTA_IN_PROGRESS) {
+            response->reason = BEET_IFACE_REASON_OTA_IN_PROGRESS;
+            return ESP_OK;
+        }
+        if (s_state.battery_state != BEET_BATTERY_STATE_ACTIVE) {
+            response->reason = BEET_IFACE_REASON_LOW_BATTERY;
+            return ESP_OK;
+        }
+        if (beet_has_any_runtime()) {
+            response->reason = BEET_IFACE_REASON_ALREADY_ACTIVE;
+            return ESP_OK;
+        }
+
+        beet_mark_activity(now_us);
+        ESP_RETURN_ON_ERROR(beet_start_relay_test(request->pair_index), TAG, "relay test start failed");
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_RELAY_TEST_STARTED;
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_RELAY_TEST_STOP:
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        if (!s_state.relay_test_active || s_state.relay_test_pair != request->pair_index) {
+            response->status = BEET_IFACE_STATUS_ACCEPTED;
+            response->reason = BEET_IFACE_REASON_ALREADY_STOPPED;
+            return ESP_OK;
+        }
+
+        beet_mark_activity(now_us);
+        beet_stop_relay_test(true);
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_RELAY_TEST_STOPPED;
+        return ESP_OK;
+
     case BEET_IFACE_COMMAND_RESET_BLOCK:
         if (!beet_is_valid_pair_index(request->pair_index)) {
             response->reason = BEET_IFACE_REASON_INVALID_PAIR;
             return ESP_OK;
         }
-        if (s_state.snapshots[request->pair_index - 1U].pair_state != BEET_PAIR_STATE_BLOCKED) {
+        if (s_state.snapshots[request->pair_index - 1U].pair_state != BEET_PAIR_STATE_BLOCKED &&
+            s_state.snapshots[request->pair_index - 1U].pair_state != BEET_PAIR_STATE_FAULT) {
             response->status = BEET_IFACE_STATUS_ACCEPTED;
             response->reason = BEET_IFACE_REASON_NOT_BLOCKED;
             return ESP_OK;
         }
 
         beet_mark_activity(now_us);
-        s_state.snapshots[request->pair_index - 1U].block_reason = BEET_BLOCK_REASON_NONE;
+        if (s_state.snapshots[request->pair_index - 1U].pair_state == BEET_PAIR_STATE_FAULT &&
+            !s_state.snapshots[request->pair_index - 1U].sensor_valid) {
+            response->status = BEET_IFACE_STATUS_REJECTED;
+            response->reason = BEET_IFACE_REASON_SENSOR_INVALID;
+            return ESP_OK;
+        }
+
+        s_state.snapshots[request->pair_index - 1U].block_reason =
+            s_state.snapshots[request->pair_index - 1U].sensor_valid ?
+            BEET_BLOCK_REASON_NONE :
+            BEET_BLOCK_REASON_SENSOR_READING_INVALID;
         s_state.snapshots[request->pair_index - 1U].block_remaining_s = 0U;
         s_state.snapshots[request->pair_index - 1U].pair_state =
-            s_state.snapshots[request->pair_index - 1U].sensor_valid ? BEET_PAIR_STATE_IDLE : BEET_PAIR_STATE_FAULT;
+            s_state.snapshots[request->pair_index - 1U].sensor_valid ?
+            BEET_PAIR_STATE_IDLE :
+            BEET_PAIR_STATE_FAULT;
         beet_mark_snapshot_dirty(request->pair_index);
         beet_flush_snapshot(request->pair_index, true);
         response->status = BEET_IFACE_STATUS_ACCEPTED;
@@ -1592,7 +1779,11 @@ static void beet_progress_runs(int64_t now_us)
             continue;
         }
         if (s_state.battery_mv < s_state.config.watering_abort_threshold_mv) {
-            beet_finish_pair_state(pair, BEET_PAIR_STATE_FAULT, BEET_STOP_REASON_LOW_BATTERY_ABORT, BEET_BLOCK_REASON_NONE);
+            beet_finish_pair_state(
+                pair,
+                BEET_PAIR_STATE_FAULT,
+                BEET_STOP_REASON_LOW_BATTERY_ABORT,
+                BEET_BLOCK_REASON_LOW_BATTERY_ABORT);
             continue;
         }
         if (!snapshot->sensor_valid) {
@@ -1647,6 +1838,7 @@ static void beet_progress_runs(int64_t now_us)
     }
 
     s_state.active_pumps = beet_count_active_pumps();
+    beet_controller_sync_boost_output();
 }
 
 static void beet_controller_task(void *arg)
@@ -1700,12 +1892,15 @@ static void beet_controller_task(void *arg)
         }
 #endif
 
-        if (s_state.battery_state == BEET_BATTERY_STATE_DEEP_LOW_BATTERY && s_state.active_pumps == 0U) {
+        if (s_state.battery_state == BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
+            s_state.active_pumps == 0U &&
+            !s_state.relay_test_active) {
             beet_controller_enter_deep_low_battery_sleep();
         }
 
         if (s_state.battery_state == BEET_BATTERY_STATE_IDLE_LOW_POWER &&
             s_state.active_pumps == 0U &&
+            !s_state.relay_test_active &&
             !ble_status.connected &&
             !pairing_display.active) {
             beet_controller_enter_idle_light_sleep();
@@ -1737,6 +1932,7 @@ esp_err_t beet_controller_init(void)
     beet_refresh_battery();
     beet_refresh_sensors();
     s_state.active_pumps = beet_count_active_pumps();
+    beet_controller_sync_boost_output();
     beet_controller_handle_boot_wakeup();
     s_state.next_check_due_us = beet_now_us();
     beet_update_next_check_fields();

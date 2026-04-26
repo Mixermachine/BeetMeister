@@ -44,12 +44,14 @@ These GPIOs are currently unassigned after the baseline plan is applied, excludi
 
 | GPIOs | Recommended status | Why |
 | --- | --- | --- |
-| `GPIO15` to `GPIO18` | Preferred free expansion pins | Left-header pins, not strapping pins, not USB pins, not PSRAM pins, and still available after the baseline mapping plus the optional OLED display |
+| `GPIO17` to `GPIO18` | Preferred free expansion pins | Left-header pins, not strapping pins, not USB pins, not PSRAM pins, and still available after the baseline mapping plus the current OLED and power-control additions |
 
 Use notes:
 
 - `GPIO11` and `GPIO12` are now the preferred `SSD1306` OLED lines, with `GPIO11` as `SDA` and `GPIO12` as `SCL`.
-- `GPIO15` to `GPIO18` are the cleanest currently free pins for future expansion after the baseline plan plus the optional OLED display is applied.
+- `GPIO15` is now reserved as `SENSOR_POWER_EN` for the shared moisture sensor supply rail.
+- `GPIO16` is now reserved as `BOOST_ENABLE` for the pump and relay DC-DC converter enable line.
+- `GPIO17` and `GPIO18` are the cleanest currently free pins for future expansion after the baseline plan plus the current OLED and power-control additions.
 - `GPIO14` is intentionally not listed as free because it carries the one relay output moved to the left header.
 - `GPIO12` is intentionally not listed as a preferred button pin because `GPIO13` is the planned future single-button local control and BLE bond-admit input.
 - `GPIO15` to `GPIO18` are `ADC2`-capable and also usable as digital I/O if later needed.
@@ -116,6 +118,8 @@ Each pair number binds the relay and moisture pin at the same position in those 
 | OLED SDA | GPIO11 | Left header, reserved for `SSD1306` I2C data |
 | OLED SCL | GPIO12 | Left header, reserved for `SSD1306` I2C clock |
 | Future local UI / BLE bond-admit button | GPIO13 | Left header, reserved digital input for later short-press and long-press controls plus bond admission |
+| Sensor power enable | GPIO15 | Left header, digital output for the shared moisture sensor supply rail |
+| Boost converter enable | GPIO16 | Left header, digital output for the pump and relay DC-DC converter |
 | Relay pair 1 | GPIO14 | Left header, digital output, external pull-down, paired with moisture on `GPIO10` |
 | Relay pair 2 | GPIO21 | Right header, digital output, external pull-down, paired with moisture on `GPIO9` |
 | Relay pair 3 | GPIO47 | Right header, digital output, external pull-down, paired with moisture on `GPIO8` |
@@ -142,4 +146,5 @@ Each pair number binds the relay and moisture pin at the same position in those 
 - The preferred moisture-sensor order by pair number is `GPIO10`, `GPIO9`, `GPIO8`, `GPIO7`, `GPIO6`, `GPIO5`, `GPIO4`, `GPIO1`, keeping all moisture sensing on `ADC1`.
 - The preferred OLED mapping is `GPIO11` for `SDA` and `GPIO12` for `SCL`.
 - `GPIO13` is reserved as the preferred future single-button local control and BLE bond-admit input.
-- The preferred currently free expansion pins are `GPIO15` through `GPIO18`.
+- `GPIO15` and `GPIO16` are reserved for sensor and boost power control.
+- The preferred currently free expansion pins are `GPIO17` and `GPIO18`.

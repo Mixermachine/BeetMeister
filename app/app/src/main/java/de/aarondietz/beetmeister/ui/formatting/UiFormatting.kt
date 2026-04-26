@@ -1,4 +1,4 @@
-package de.aarondietz.beetmeister.ui
+package de.aarondietz.beetmeister.ui.formatting
 
 import android.bluetooth.BluetoothDevice
 import de.aarondietz.beetmeister.beet.BeetWateringEvent
@@ -37,3 +37,6 @@ internal fun formatEventTime(event: BeetWateringEvent): String {
     }
     return "${formatUnixSeconds(event.startedAtUnixSeconds)} -> ${formatUnixSeconds(event.endedAtUnixSeconds)}"
 }
+
+internal fun formatEventSubject(event: BeetWateringEvent): String =
+    if (event.isControllerSleepEvent) "Controller sleep" else "Pair ${event.pairIndex}"

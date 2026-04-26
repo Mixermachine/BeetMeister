@@ -145,6 +145,8 @@ The serialized event record shall fit in 64 bytes and contain:
 | `battery_end_mv` | `u16` | 2 |
 | `crc32` | `u32` | 4 |
 
+- `pair_index = 0` is reserved for controller sleep events. These records use `stop_reason` to encode whether the controller entered `IDLE_LOW_POWER_SLEEP` or `DEEP_LOW_BATTERY_SLEEP`, and `battery_start_mv` / `battery_end_mv` store the battery voltage at sleep entry.
+
 ## Reset, sleep, and OTA compatibility
 
 - Application configuration, calibrations, runtime snapshots, and event records shall survive reboot, deep sleep, and OTA.

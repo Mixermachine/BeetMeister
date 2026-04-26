@@ -35,6 +35,8 @@ The planned baseline allocation is:
 - battery sense on `GPIO2`
 - optional `SSD1306` OLED on `GPIO11` (`SDA`) and `GPIO12` (`SCL`)
 - future single-button local control and bond-admit input on `GPIO13`
+- moisture sensor supply enable on `GPIO15`
+- pump and relay boost-converter enable on `GPIO16`
 - relay outputs on `GPIO14`, `GPIO21`, `GPIO47`, `GPIO38`, `GPIO39`, `GPIO40`, `GPIO41`, and `GPIO42`
 
 Rationale:
@@ -49,8 +51,6 @@ Rationale:
 
 After the baseline allocation plus the optional OLED display, the cleanest currently free GPIOs are:
 
-- `GPIO15`
-- `GPIO16`
 - `GPIO17`
 - `GPIO18`
 
@@ -61,14 +61,18 @@ These are preferred for later expansion because they are not strapping pins, are
 - The controller 3.3 V input is supplied directly from a single-cell LiFePO4 battery in v1.
 - The charge path is assumed to terminate at 3.6 V.
 - The controller shall measure battery voltage through a resistor divider into one ADC channel.
+- The controller shall switch the moisture sensor supply rail separately from battery sensing.
+- The controller shall never interpret a moisture ADC reading unless the shared sensor supply rail is currently enabled and has had time to settle.
 - Divider design shall keep the ADC input below the ESP32-S3 ADC reference range at the maximum battery voltage plus margin.
 - Pump supply may be either direct battery voltage or a boosted 5.0 V rail.
 - If a boost converter is used, pump ground, relay-board ground, and controller ground shall share a common reference.
+- If a boost converter is used, `GPIO16` shall drive its enable input and remain low whenever no pumping is active.
 
 ## Relay and pump design rules
 
 - The relay board shall expose eight individually driven active-high control inputs.
 - Each relay input shall have an external pull-down so the relay remains off through ESP32 reset and boot.
+- The controller may expose an app-driven relay test mode that toggles relay GPIOs while keeping the boost converter disabled.
 - Relay outputs shall default to off in hardware and again in firmware at the first executable point.
 - Pump current and relay-coil current budgets shall be validated against the selected power rail before enabling three-pump concurrency.
 - The design shall assume up to three simultaneous pumps, not more.

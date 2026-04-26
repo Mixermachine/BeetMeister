@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Grass
@@ -38,6 +39,14 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.aarondietz.beetmeister.beet.BeetConnectionPhase
 import de.aarondietz.beetmeister.beet.BeetRepository
+import de.aarondietz.beetmeister.ui.calibration.CalibrationScreen
+import de.aarondietz.beetmeister.ui.composable.Header
+import de.aarondietz.beetmeister.ui.connection.ConnectionGate
+import de.aarondietz.beetmeister.ui.events.EventDetailScreen
+import de.aarondietz.beetmeister.ui.events.EventsScreen
+import de.aarondietz.beetmeister.ui.overview.OverviewScreen
+import de.aarondietz.beetmeister.ui.pairdetail.PairDetailScreen
+import de.aarondietz.beetmeister.ui.settings.SettingsScreen
 import kotlinx.coroutines.delay
 
 private const val UI_TAG = "BeetAppUi"
@@ -51,12 +60,13 @@ private enum class TopLevelScreen(val label: String, val icon: @Composable () ->
 }
 
 @Composable
-fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Modifier) {
+internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val state by viewModel.state.collectAsStateWithLifecycle()
     var topLevelScreen by rememberSaveable { mutableStateOf(TopLevelScreen.Overview) }
     var selectedPair by rememberSaveable { mutableIntStateOf(0) }
+    var pairDetailReturnScreen by rememberSaveable { mutableStateOf(TopLevelScreen.Overview) }
     var showEventTable by rememberSaveable { mutableStateOf(false) }
     var connectionGateVisible by rememberSaveable { mutableStateOf(true) }
     var permissionRequestAttempted by rememberSaveable { mutableStateOf(false) }
@@ -107,6 +117,11 @@ fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Modifier) {
             }
             connectionGateVisible = true
         }
+    }
+
+    BackHandler(enabled = selectedPair != 0) {
+        topLevelScreen = pairDetailReturnScreen
+        selectedPair = 0
     }
 
     if (connectionGateVisible) {
@@ -171,11 +186,14 @@ fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Modifier) {
                 when {
                     selectedPair != 0 -> PairDetailScreen(
                         pairState = state.pairStates.first { it.pairIndex == selectedPair },
-                        onBack = { selectedPair = 0 },
+                        onBack = {
+                            topLevelScreen = pairDetailReturnScreen
+                            selectedPair = 0
+                        },
                         onToggleEnabled = viewModel::togglePairEnabled,
                         onManualStart = viewModel::manualStart,
                         onManualStop = viewModel::manualStop,
-                        onResetBlock = viewModel::resetBlock,
+                        onClearError = viewModel::clearPairError,
                         modifier = Modifier.fillMaxSize(),
                     )
 
@@ -188,7 +206,11 @@ fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Modifier) {
 
                     topLevelScreen == TopLevelScreen.Overview -> OverviewScreen(
                         state = state,
-                        onPairSelected = { selectedPair = it },
+                        onPairSelected = {
+                            pairDetailReturnScreen = topLevelScreen
+                            selectedPair = it
+                        },
+                        onClearError = viewModel::clearPairError,
                         onToggleEnabled = viewModel::togglePairEnabled,
                         modifier = Modifier.fillMaxSize(),
                     )

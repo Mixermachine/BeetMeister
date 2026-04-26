@@ -71,6 +71,27 @@ menu "BeetMeister Configuration"
             back the missing headroom below this knee before applying the dry/wet calibration so
             default calibration stays usable across the supported battery range.
 
+    config BEET_SENSOR_POWER_GPIO
+        int "Moisture sensor power enable GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 15
+        help
+            GPIO used to switch the shared moisture sensor supply rail.
+
+    config BEET_SENSOR_POWER_SETTLE_MS
+        int "Moisture sensor settle time in milliseconds"
+        range 1 1000
+        default 50
+        help
+            Delay between enabling the shared sensor supply and taking the batched moisture reads.
+
+    config BEET_BOOST_ENABLE_GPIO
+        int "Pump and relay boost enable GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 16
+        help
+            GPIO used to enable the pump and relay DC-DC boost converter.
+
     config BEET_ENABLE_OLED_DISPLAY
         bool "Enable SSD1306 OLED status display"
         default y

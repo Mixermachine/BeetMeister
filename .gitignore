@@ -2,8 +2,8 @@
 .vscode/
 tmp-cal-monitor.err
 tmp-cal-monitor.txt
+.tmp_qemu_inspect/
 
 app/.idea/
 app/.gradle/
 app/.kotlin/
-

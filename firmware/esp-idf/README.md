@@ -33,7 +33,7 @@ It now contains the first real controller foundation rather than the temporary b
   - `manual_stop`
   - `reset_block`
   - `store_calibration`
-- `manual_start` accepts an optional per-command `duration_s` override in the range `1..900`.
+- `manual_start` accepts an optional per-command `duration_s` override in the range `1..1200`.
 - The transport is built on the shared internal interface layer so the same command and state model can later be reused for MQTT.
 
 ## Safety defaults

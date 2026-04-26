@@ -1,4 +1,4 @@
-package de.aarondietz.beetmeister.ui
+package de.aarondietz.beetmeister.ui.overview
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,12 +23,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import de.aarondietz.beetmeister.beet.BeetPairState
 import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.ui.composable.PairErrorClearButton
+import de.aarondietz.beetmeister.ui.composable.PairEnabledToggleButton
+import de.aarondietz.beetmeister.ui.composable.ValueGridRow
+import de.aarondietz.beetmeister.ui.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.formatting.yesNo
 import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun OverviewScreen(
     state: BeetRepositoryState,
     onPairSelected: (Int) -> Unit,
+    onClearError: (Int) -> Unit,
     onToggleEnabled: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -43,6 +49,7 @@ internal fun OverviewScreen(
             PairOverviewCard(
                 pair = pair,
                 onDetails = { onPairSelected(pair.pairIndex) },
+                onClearError = { onClearError(pair.pairIndex) },
                 onToggleEnabled = { onToggleEnabled(pair.pairIndex) },
             )
         }
@@ -68,7 +75,12 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
 }
 
 @Composable
-private fun PairOverviewCard(pair: BeetPairState, onDetails: () -> Unit, onToggleEnabled: () -> Unit) {
+private fun PairOverviewCard(
+    pair: BeetPairState,
+    onDetails: () -> Unit,
+    onClearError: () -> Unit,
+    onToggleEnabled: () -> Unit,
+) {
     val tone = when {
         !pair.enabled -> Color(0xFFE3E0DA)
         pair.state == "FAULT" -> Color(0xFFF3D7D3)
@@ -112,6 +124,10 @@ private fun PairOverviewCard(pair: BeetPairState, onDetails: () -> Unit, onToggl
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = onDetails) { Text("Details") }
+                PairErrorClearButton(
+                    canClearError = pair.sensorValid && (pair.blocked || pair.state == "FAULT"),
+                    onClear = onClearError,
+                )
                 PairEnabledToggleButton(pairEnabled = pair.enabled, onToggle = onToggleEnabled)
             }
         }

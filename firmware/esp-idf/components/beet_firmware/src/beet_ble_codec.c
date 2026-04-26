@@ -413,6 +413,24 @@ bool beet_ble_parse_command_json(
         return true;
     }
 
+    if (strcmp(cmd, "relay_test_start") == 0) {
+        request->command = BEET_IFACE_COMMAND_RELAY_TEST_START;
+        if (!beet_ble_extract_u16(data_json, "pair", &pair_index)) {
+            return false;
+        }
+        request->pair_index = (uint8_t)pair_index;
+        return true;
+    }
+
+    if (strcmp(cmd, "relay_test_stop") == 0) {
+        request->command = BEET_IFACE_COMMAND_RELAY_TEST_STOP;
+        if (!beet_ble_extract_u16(data_json, "pair", &pair_index)) {
+            return false;
+        }
+        request->pair_index = (uint8_t)pair_index;
+        return true;
+    }
+
     if (strcmp(cmd, "reset_block") == 0) {
         request->command = BEET_IFACE_COMMAND_RESET_BLOCK;
         if (!beet_ble_extract_u16(data_json, "pair", &pair_index)) {

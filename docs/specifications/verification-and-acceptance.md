@@ -113,7 +113,7 @@ This document turns the baseline requirements into verifiable activities and rel
 ### `VT-038` Watering low-battery abort bench test
 
 - Input: controlled supply droop below 3.10 V during active watering.
-- Expected result: pump stops immediately, event is logged with `LOW_BATTERY_ABORT`, pair transitions to `FAULT`.
+- Expected result: pump stops immediately, event is logged with `LOW_BATTERY_ABORT`.
 - Pass condition: pump-off edge and logged event both reflect the abort.
 
 ## Entry and exit criteria by milestone

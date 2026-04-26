@@ -1,4 +1,4 @@
-package de.aarondietz.beetmeister.ui
+package de.aarondietz.beetmeister.ui.connection
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.beet.BeetConnectionPhase
 import de.aarondietz.beetmeister.beet.BeetDiscoveredDevice
 import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.ui.formatting.bondStateLabel
 
 @Composable
 internal fun ConnectionGate(

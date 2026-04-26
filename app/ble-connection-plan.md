@@ -31,7 +31,7 @@ The first app slice should implement only the commands already live in firmware:
 - `reset_block`
 - `store_calibration`
 
-`manual_start` supports an optional `duration_s` field with valid values `1..900`.
+`manual_start` supports an optional `duration_s` field with valid values `1..1200`.
 
 Do not implement app UI for `start_ota` or `clear_ble_bonds` yet.
 Those commands are not ready as a meaningful end-to-end user flow.
@@ -153,7 +153,7 @@ Behavior:
 
 - `duration_s` is optional
 - if omitted, firmware uses the default manual duration
-- if supplied, app must validate `1..900` before sending
+- if supplied, app must validate `1..1200` before sending
 
 ### Manual stop
 

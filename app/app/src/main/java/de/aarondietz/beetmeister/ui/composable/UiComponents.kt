@@ -1,4 +1,4 @@
-package de.aarondietz.beetmeister.ui
+package de.aarondietz.beetmeister.ui.composable
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -68,5 +68,12 @@ private fun ValueCell(label: String, value: String, modifier: Modifier = Modifie
 internal fun PairEnabledToggleButton(pairEnabled: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
     Button(onClick = onToggle, modifier = modifier) {
         Text(if (pairEnabled) "Disable pair" else "Enable pair")
+    }
+}
+
+@Composable
+internal fun PairErrorClearButton(canClearError: Boolean, onClear: () -> Unit, modifier: Modifier = Modifier) {
+    Button(onClick = onClear, enabled = canClearError, modifier = modifier) {
+        Text("Clear error")
     }
 }

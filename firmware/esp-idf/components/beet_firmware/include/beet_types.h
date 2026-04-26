@@ -34,6 +34,7 @@
 #define BEET_MAX_ACTIVE_PUMPS 3U
 #define BEET_SANITY_CHECK_DURATION_S 10U
 #define BEET_MANUAL_QUEUE_TIMEOUT_S 30U
+#define BEET_MAX_MANUAL_DURATION_S 1200U
 #define BEET_SNAPSHOT_COALESCE_S 5U
 #define BEET_IDLE_SLEEP_THRESHOLD_MV 3300U
 #define BEET_DEEP_SLEEP_THRESHOLD_MV 3200U
@@ -88,6 +89,7 @@ typedef enum {
     BEET_BLOCK_REASON_NONE = 0,
     BEET_BLOCK_REASON_SENSOR_DELTA_TOO_SMALL = 1,
     BEET_BLOCK_REASON_SENSOR_READING_INVALID = 2,
+    BEET_BLOCK_REASON_LOW_BATTERY_ABORT = 3,
 } beet_block_reason_t;
 
 typedef enum {
@@ -97,6 +99,8 @@ typedef enum {
     BEET_STOP_REASON_SENSOR_SANITY_FAILURE = 3,
     BEET_STOP_REASON_SENSOR_INVALID_ABORT = 4,
     BEET_STOP_REASON_SYSTEM_ABORT = 5,
+    BEET_STOP_REASON_IDLE_LOW_POWER_SLEEP = 6,
+    BEET_STOP_REASON_DEEP_LOW_BATTERY_SLEEP = 7,
 } beet_stop_reason_t;
 
 typedef struct {
@@ -201,6 +205,7 @@ uint8_t beet_battery_pct_from_mv(uint16_t battery_mv);
 uint32_t beet_deep_low_recovery_interval_s(uint8_t failure_count);
 uint16_t beet_automatic_duration_s(uint8_t moisture_pct);
 uint16_t beet_manual_duration_s(uint8_t moisture_pct);
+bool beet_is_valid_manual_duration_s(uint16_t duration_s);
 bool beet_sanity_check_passed(uint8_t pre_run_pct, uint8_t post_run_pct);
 beet_battery_state_t beet_classify_battery_state(
     uint16_t battery_mv,
