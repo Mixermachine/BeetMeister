@@ -207,6 +207,48 @@ static void beet_oled_draw_text_line(int line_index, const char *text)
     }
 }
 
+static void beet_oled_draw_ble_status(const beet_board_display_status_t *status)
+{
+    if (status == NULL || !status->ble_connected) {
+        return;
+    }
+
+    const int x = 115;
+    const int y = 0;
+
+    /* 6x8 Bluetooth rune sized to fit the first text row. */
+    beet_oled_set_pixel(x + 2, y + 0, true);
+    beet_oled_set_pixel(x + 2, y + 1, true);
+    beet_oled_set_pixel(x + 2, y + 2, true);
+    beet_oled_set_pixel(x + 2, y + 3, true);
+    beet_oled_set_pixel(x + 2, y + 4, true);
+    beet_oled_set_pixel(x + 2, y + 5, true);
+    beet_oled_set_pixel(x + 2, y + 6, true);
+    beet_oled_set_pixel(x + 2, y + 7, true);
+    beet_oled_set_pixel(x + 3, y + 1, true);
+    beet_oled_set_pixel(x + 4, y + 2, true);
+    beet_oled_set_pixel(x + 5, y + 3, true);
+    beet_oled_set_pixel(x + 4, y + 4, true);
+    beet_oled_set_pixel(x + 3, y + 5, true);
+    beet_oled_set_pixel(x + 1, y + 2, true);
+    beet_oled_set_pixel(x + 0, y + 1, true);
+    beet_oled_set_pixel(x + 1, y + 5, true);
+    beet_oled_set_pixel(x + 0, y + 6, true);
+
+    if (!status->ble_wave_visible) {
+        return;
+    }
+
+    beet_oled_set_pixel(x + 8, y + 2, true);
+    beet_oled_set_pixel(x + 9, y + 3, true);
+    beet_oled_set_pixel(x + 9, y + 4, true);
+    beet_oled_set_pixel(x + 8, y + 5, true);
+    beet_oled_set_pixel(x + 11, y + 1, true);
+    beet_oled_set_pixel(x + 12, y + 2, true);
+    beet_oled_set_pixel(x + 12, y + 5, true);
+    beet_oled_set_pixel(x + 11, y + 6, true);
+}
+
 static esp_err_t beet_board_init_oled(void)
 {
 #if CONFIG_BEET_ENABLE_OLED_DISPLAY
@@ -639,7 +681,10 @@ esp_err_t beet_board_set_display_enabled(bool enabled)
     return ESP_OK;
 }
 
-esp_err_t beet_board_update_display(const char *const *lines, size_t line_count)
+esp_err_t beet_board_update_display(
+    const char *const *lines,
+    size_t line_count,
+    const beet_board_display_status_t *status)
 {
     if (!s_oled_ready || !s_oled_enabled) {
         return ESP_OK;
@@ -652,6 +697,7 @@ esp_err_t beet_board_update_display(const char *const *lines, size_t line_count)
     for (size_t i = 0; i < line_count; ++i) {
         beet_oled_draw_text_line((int)i, lines[i]);
     }
+    beet_oled_draw_ble_status(status);
 
     return esp_lcd_panel_draw_bitmap(
         s_oled_panel_handle,

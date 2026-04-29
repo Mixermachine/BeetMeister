@@ -19,6 +19,9 @@
 
 static const char *TAG = "beet_controller";
 
+#define BEET_DISPLAY_BLE_ACTIVITY_WINDOW_US (1500LL * 1000LL)
+#define BEET_DISPLAY_BLE_WAVE_PERIOD_US (500LL * 1000LL)
+
 typedef enum {
     BEET_RUN_PHASE_NONE = 0,
     BEET_RUN_PHASE_WAITING = 1,
@@ -1201,10 +1204,13 @@ static const char *beet_display_pair_state_short(beet_pair_state_t state)
 
 static void beet_update_display(void)
 {
+    beet_ble_diag_status_t ble_status;
     beet_ble_pairing_display_t pairing_display;
+    beet_board_display_status_t display_status = { 0 };
     char lines[8][22];
     const char *line_ptrs[8];
-    int64_t due_us = s_state.next_check_due_us - beet_now_us();
+    int64_t now_us = beet_now_us();
+    int64_t due_us = s_state.next_check_due_us - now_us;
     uint32_t next_check_s = due_us > 0 ? (uint32_t)(due_us / 1000000LL) : 0U;
     unsigned int next_hours = (unsigned int)(next_check_s / 3600U);
     unsigned int next_minutes = (unsigned int)((next_check_s % 3600U) / 60U);
@@ -1222,6 +1228,14 @@ static void beet_update_display(void)
     if (pairing_display.active) {
         beet_board_show_pairing_code(pairing_display.passkey, pairing_display.remaining_s);
         return;
+    }
+
+    beet_ble_get_diag_status(&ble_status);
+    display_status.ble_connected = ble_status.connected;
+    if (ble_status.connected && ble_status.last_activity_us > 0 &&
+        (now_us - ble_status.last_activity_us) <= BEET_DISPLAY_BLE_ACTIVITY_WINDOW_US) {
+        display_status.ble_wave_visible =
+            ((now_us / BEET_DISPLAY_BLE_WAVE_PERIOD_US) % 2LL) == 0LL;
     }
 
     snprintf(lines[0], sizeof(lines[0]), "  BEETMEISTER");
@@ -1258,7 +1272,7 @@ static void beet_update_display(void)
             right->last_moisture_pct,
             beet_display_pair_state_short(right->pair_state));
     }
-    beet_board_update_display(line_ptrs, 8U);
+    beet_board_update_display(line_ptrs, 8U, &display_status);
 }
 
 static bool beet_pair_can_start_manual(uint8_t pair_index, beet_iface_reason_t *reason)

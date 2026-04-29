@@ -60,6 +60,7 @@ typedef struct {
     uint16_t pairing_display_conn_handle;
     uint32_t pairing_display_passkey;
     int64_t pairing_display_expires_at_us;
+    int64_t last_activity_us;
 } beet_ble_state_t;
 
 static beet_ble_state_t s_ble;
@@ -99,6 +100,7 @@ static void beet_ble_clear_pairing_display(const char *reason);
 static void beet_ble_set_pairing_display(uint16_t conn_handle, uint32_t passkey);
 static void beet_ble_fill_pairing_display(beet_ble_pairing_display_t *display);
 static void beet_ble_service_pairing_display(void);
+static void beet_ble_mark_activity(void);
 
 static const struct ble_gatt_svc_def beet_ble_svcs[] = {
     {
@@ -252,7 +254,12 @@ static int beet_ble_read_controller_info(struct ble_gatt_access_ctxt *ctxt)
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
-    return os_mbuf_append(ctxt->om, json, (uint16_t)written) == 0 ? 0 : BLE_ATT_ERR_INSUFFICIENT_RES;
+    if (os_mbuf_append(ctxt->om, json, (uint16_t)written) != 0) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    beet_ble_mark_activity();
+    return 0;
 }
 
 static int beet_ble_write_control_point(struct ble_gatt_access_ctxt *ctxt)
@@ -278,6 +285,7 @@ static int beet_ble_write_control_point(struct ble_gatt_access_ctxt *ctxt)
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
+    beet_ble_mark_activity();
     return 0;
 }
 
@@ -324,6 +332,7 @@ static void beet_ble_fill_diag_status(beet_ble_diag_status_t *status)
     status->connected = s_ble.connected;
     status->bonded = s_ble.bonded;
     status->own_addr_type = s_ble.own_addr_type;
+    status->last_activity_us = s_ble.last_activity_us;
 }
 
 static void beet_ble_clear_pairing_display(const char *reason)
@@ -408,6 +417,11 @@ static void beet_ble_service_pairing_display(void)
         esp_timer_get_time() >= s_ble.pairing_display_expires_at_us) {
         beet_ble_clear_pairing_display("timeout");
     }
+}
+
+static void beet_ble_mark_activity(void)
+{
+    s_ble.last_activity_us = esp_timer_get_time();
 }
 
 static void beet_ble_log_advertise_skip(const char *reason)
@@ -582,9 +596,11 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             s_ble.initial_sync_pending = s_ble.state_stream_subscribed;
             s_ble.have_last_device_state = false;
             s_ble.have_last_pair_states = false;
+            beet_ble_mark_activity();
             ESP_LOGI(TAG, "state stream subscribe notify=%d bonded=%d", event->subscribe.cur_notify, s_ble.state_stream_subscribed);
         } else if (event->subscribe.attr_handle == s_command_result_handle) {
             s_ble.command_result_subscribed = event->subscribe.cur_indicate && beet_ble_is_bonded_conn(event->subscribe.conn_handle);
+            beet_ble_mark_activity();
             ESP_LOGI(TAG, "command result subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.command_result_subscribed);
         }
         return 0;
@@ -699,6 +715,7 @@ static esp_err_t beet_ble_send_notify_json(uint16_t attr_handle, const char *jso
         return ESP_FAIL;
     }
 
+    beet_ble_mark_activity();
     return ESP_OK;
 }
 
@@ -722,6 +739,7 @@ static esp_err_t beet_ble_send_indicate_json(uint16_t attr_handle, const char *j
         return ESP_FAIL;
     }
 
+    beet_ble_mark_activity();
     return ESP_OK;
 }
 

@@ -226,6 +226,7 @@ Current implementation note:
 - The firmware already performs battery-state classification using these thresholds.
 - The implemented battery refresh cadence is approximately `1 Hz` while the controller loop is awake.
 - The OLED display follows the controller power state and turns off in `IDLE_LOW_POWER` and `DEEP_LOW_BATTERY`.
+- While a BLE central is connected, the OLED top-right corner shall show a small Bluetooth indicator. A small wave next to the indicator shall blink briefly after GATT traffic, including protected reads, writes, state notifications, and command-result indications.
 - Wi-Fi and BLE stop/start are centralized at the sleep transition hooks, but remain no-op stubs until those transports are implemented in firmware.
 - `DEEP_LOW_BATTERY` recovery checks use an adaptive interval of 1 hour for the first 3 failed checks, 2 hours for the next 6 failed checks, and 4 hours thereafter until recovery.
 

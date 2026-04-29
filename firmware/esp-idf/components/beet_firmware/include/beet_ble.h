@@ -18,6 +18,7 @@ typedef struct {
     bool connected;
     bool bonded;
     uint8_t own_addr_type;
+    int64_t last_activity_us;
 } beet_ble_diag_status_t;
 
 typedef struct {
