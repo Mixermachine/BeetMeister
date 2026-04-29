@@ -1,0 +1,85 @@
+name: Firmware CI
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "firmware/**"
+      - "scripts/dev/run-firmware-host-tests.ps1"
+      - ".github/workflows/ci-firmware.yml"
+      - ".github/workflows/release.yml"
+  pull_request:
+    paths:
+      - "firmware/**"
+      - "scripts/dev/run-firmware-host-tests.ps1"
+      - ".github/workflows/ci-firmware.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  firmware-tests-and-build:
+    name: Firmware tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Install host-test build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential
+
+      - name: Run firmware host tests
+        run: |
+          cmake -S firmware/tests/host -B firmware/tests/host/build -G Ninja
+          cmake --build firmware/tests/host/build
+          ctest --test-dir firmware/tests/host/build --output-on-failure
+
+      - name: Set up ESP-IDF v6.0
+        # v1
+        uses: espressif/install-esp-idf-action@8fc05d1470d5591417e7a3707a1f2bec178db4ae
+        with:
+          version: v6.0
+
+      - name: Build firmware
+        working-directory: firmware/esp-idf
+        run: |
+          idf.py set-target esp32s3
+          idf.py build
+
+      - name: Upload firmware host test reports
+        # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firmware-host-tests
+          path: |
+            firmware/tests/host/build/Testing/**
+            firmware/tests/host/build/*.exe
+          if-no-files-found: warn
+
+      - name: Upload firmware binaries
+        # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firmware-binaries
+          path: |
+            firmware/esp-idf/build/beetmeister.bin
+            firmware/esp-idf/build/beetmeister.elf
+            firmware/esp-idf/build/bootloader/bootloader.bin
+            firmware/esp-idf/build/partition_table/partition-table.bin
+            firmware/esp-idf/build/ota_data_initial.bin
+            firmware/esp-idf/build/flasher_args.json
+          if-no-files-found: error

@@ -1,0 +1,177 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app-verify:
+    name: App verify (tests + debug)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Set up JDK 17
+        # v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle cache
+        # v4
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Run app tests and build debug APK
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      - name: Upload debug APK
+        # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-debug-apk-${{ github.ref_name }}
+          path: app/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload app test reports
+        # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-verify-test-reports-${{ github.ref_name }}
+          path: |
+            app/app/build/reports/tests/testDebugUnitTest/**
+            app/app/build/test-results/testDebugUnitTest/**
+          if-no-files-found: warn
+
+  app-sign-release:
+    name: App release signing
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: app-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: app
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Validate signing secrets
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+
+      - name: Decode Android release keystore
+        run: |
+          KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        # v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle cache
+        # v4
+        uses: gradle/actions/setup-gradle@0b6dd653ba04f4f93bf581ec31e66cbd7dcb644d
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Build release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Upload release APK
+        # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-release-apk-${{ github.ref_name }}
+          path: app/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  firmware-release:
+    name: Firmware full validation and build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        # v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Install host-test build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential
+
+      - name: Run firmware host tests
+        run: |
+          cmake -S firmware/tests/host -B firmware/tests/host/build -G Ninja
+          cmake --build firmware/tests/host/build
+          ctest --test-dir firmware/tests/host/build --output-on-failure
+
+      - name: Set up ESP-IDF v6.0
+        # v1
+        uses: espressif/install-esp-idf-action@8fc05d1470d5591417e7a3707a1f2bec178db4ae
+        with:
+          version: v6.0
+
+      - name: Build firmware
+        working-directory: firmware/esp-idf
+        run: |
+          idf.py set-target esp32s3
+          idf.py build
+
+      - name: Upload firmware artifacts
+        # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: firmware-release-${{ github.ref_name }}
+          path: |
+            firmware/esp-idf/build/beetmeister.bin
+            firmware/esp-idf/build/beetmeister.elf
+            firmware/esp-idf/build/bootloader/bootloader.bin
+            firmware/esp-idf/build/partition_table/partition-table.bin
+            firmware/esp-idf/build/ota_data_initial.bin
+            firmware/esp-idf/build/flasher_args.json
+            firmware/tests/host/build/Testing/**
+          if-no-files-found: error
