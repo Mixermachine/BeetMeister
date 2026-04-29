@@ -116,6 +116,42 @@ This document turns the baseline requirements into verifiable activities and rel
 - Expected result: pump stops immediately, event is logged with `LOW_BATTERY_ABORT`.
 - Pass condition: pump-off edge and logged event both reflect the abort.
 
+### `VT-039` System-event storage and coverage test
+
+- Input: controller boot, entry to idle sleep, entry to deep-low-battery sleep, BLE connect, BLE disconnect, BLE bond success, BLE bond failure, and clear-bonds command.
+- Expected result: watering history remains in `events` only, system events are written to `sysevents` only, and each captured system event carries event type, reason, battery voltage, boot identifier, uptime, and valid time-state metadata.
+- Pass condition: event reads and summaries show the expected event classes in the correct ring with no watering or system-event mixing.
+
+### `VT-040` Event timestamp and legacy-ignore test
+
+- Input: new v2 event records with valid time, unresolved current-boot records, unresolved older-boot records, and legacy v1 records.
+- Expected result: current-boot unresolved records are backfilled after `set_time`, older unresolved records remain persisted but hidden, and legacy records are ignored.
+- Pass condition: history ordering remains by `seq_no`, no unresolved older-boot or legacy records are shown in normal history views, and backfilled current-boot timestamps are stable.
+
+### `VT-041` App background event-sync test
+
+- Input: initial connect with empty cache, reconnect with partially populated cache, and arrival of new live events while history download is active.
+- Expected result: live device and pair state appears without waiting for full history download, only missing sequence numbers are requested, cached events are reused, and new streamed events appear without manual refresh.
+- Pass condition: event-sync progress advances in the background, no duplicate events are persisted locally, and reconnect does not refetch already cached history unnecessarily.
+
+### `VT-042` Events-screen graph and filter test
+
+- Input: watering events spanning the last 24 hours and last 7 days plus mixed system-event types.
+- Expected result: the graph totals differ correctly between `Last 24 hours` and `Last 7 days`, and system-event filters isolate Bluetooth, sleep, startup, and MQTT classes correctly.
+- Pass condition: graph totals match the event data exactly and filter toggles show only the intended event classes.
+
+### `VT-043` Overview running-since test
+
+- Input: connected controller with reported uptime and a client connection timestamp.
+- Expected result: the Overview screen computes `Running since` on the client from connection time and controller uptime rather than relying on persisted controller wall-clock history alone.
+- Pass condition: the displayed `Running since` value advances consistently across reconnect and continues to match controller uptime.
+
+### `VT-044` Event-sync progress-indicator UX test
+
+- Input: connect to a controller with missing cached event history and observe the top-right connected-status area during background sync.
+- Expected result: a visible clockwise outline-fill progress indicator is present while sync is active in the connected-status chip and clears when sync is complete.
+- Pass condition: the indicator advances with background event download progress, uses the intended gray-to-primary outline-fill treatment, and does not obscure live connection state text.
+
 ## Entry and exit criteria by milestone
 
 | Milestone | Entry criteria | Exit criteria |

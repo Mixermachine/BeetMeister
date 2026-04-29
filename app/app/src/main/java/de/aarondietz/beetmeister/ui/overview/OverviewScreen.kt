@@ -73,11 +73,12 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
             delay(60_000)
         }
     }
-    val runningSinceMillis = if (state.connectedAtMillis > 0L) {
-        state.connectedAtMillis - ((state.connectedAtControllerUptimeSeconds.coerceAtLeast(0L)) * 1000L)
-    } else {
-        nowMillis - (device.uptimeSeconds * 1000L)
-    }
+    val runningSinceUnixSeconds = runningSinceUnixSeconds(
+        connectedAtMillis = state.connectedAtMillis,
+        connectedAtControllerUptimeSeconds = state.connectedAtControllerUptimeSeconds,
+        fallbackUptimeSeconds = device.uptimeSeconds,
+        nowMillis = nowMillis,
+    )
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F1E4)),
         modifier = Modifier.fillMaxWidth(),
@@ -89,7 +90,7 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
             ValueGridRow("Battery state", device.batteryState, "Next check", formatDuration(device.nextCheckInSeconds))
             ValueGridRow("Active pumps", device.activePumps.toString(), "Time valid", yesNo(device.timeValid))
             ValueGridRow("Wi-Fi", yesNo(device.wifiConnected), "MQTT", yesNo(device.mqttConnected))
-            ValueGridRow("Running since", formatUnixSeconds(runningSinceMillis / 1000L), "Uptime", formatDuration(device.uptimeSeconds.toInt()))
+            ValueGridRow("Running since", formatUnixSeconds(runningSinceUnixSeconds), "Uptime", formatDuration(device.uptimeSeconds.toInt()))
         }
     }
 }
