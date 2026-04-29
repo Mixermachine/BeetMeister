@@ -57,6 +57,7 @@ static beet_event_record_t beet_make_event(uint64_t seq_no, uint8_t pair_index, 
     memset(&record, 0, sizeof(record));
     record.schema_version = BEET_EVENT_RECORD_VERSION;
     record.seq_no = seq_no;
+    record.boot_id = 9U;
     record.pair_index = pair_index;
     record.trigger_source = BEET_RUN_SOURCE_MANUAL;
     record.started_at_unix_s = 1000U;
@@ -76,20 +77,27 @@ static beet_event_record_t beet_make_event(uint64_t seq_no, uint8_t pair_index, 
     return record;
 }
 
-static beet_event_record_t beet_make_sleep_event(uint64_t seq_no, beet_stop_reason_t stop_reason, uint16_t battery_mv)
+static beet_system_event_record_t beet_make_system_event(uint64_t seq_no, beet_system_event_type_t type)
 {
-    beet_event_record_t record;
+    beet_system_event_record_t record;
 
     memset(&record, 0, sizeof(record));
-    record.schema_version = BEET_EVENT_RECORD_VERSION;
+    record.schema_version = BEET_SYSTEM_EVENT_RECORD_VERSION;
     record.seq_no = seq_no;
-    record.pair_index = 0U;
-    record.trigger_source = BEET_RUN_SOURCE_NONE;
-    record.stop_reason = stop_reason;
-    record.block_reason = BEET_BLOCK_REASON_NONE;
-    record.battery_start_mv = battery_mv;
-    record.battery_end_mv = battery_mv;
-    record.crc32 = beet_event_crc32(&record);
+    record.boot_id = 9U;
+    record.event_type = (uint8_t)type;
+    record.reason = 22U;
+    record.occurred_uptime_s = 123U;
+    record.battery_mv = 3340U;
+    record.peer_addr[0] = 0xFFU;
+    record.peer_addr[1] = 0xEEU;
+    record.peer_addr[2] = 0xDDU;
+    record.peer_addr[3] = 0xCCU;
+    record.peer_addr[4] = 0xBBU;
+    record.peer_addr[5] = 0xAAU;
+    record.peer_addr_type = 1U;
+    record.known_peer = 1U;
+    record.crc32 = beet_system_event_crc32(&record);
     return record;
 }
 
@@ -179,11 +187,15 @@ static void test_event_record_validation(void)
     record.crc32 = beet_event_crc32(&record);
     TEST_ASSERT_TRUE(beet_validate_event_record(&record));
 
-    record = beet_make_sleep_event(8U, BEET_STOP_REASON_IDLE_LOW_POWER_SLEEP, 3270U);
-    TEST_ASSERT_TRUE(beet_validate_event_record(&record));
-    record.pair_index = 2U;
-    record.crc32 = beet_event_crc32(&record);
+    record = beet_make_event(8U, 2U, 90U);
+    record.boot_id = 0U;
     TEST_ASSERT_FALSE(beet_validate_event_record(&record));
+
+    beet_system_event_record_t system = beet_make_system_event(9U, BEET_SYSTEM_EVENT_BLE_CONNECT);
+    TEST_ASSERT_TRUE(beet_validate_system_event_record(&system));
+    system.event_type = 250U;
+    system.crc32 = beet_system_event_crc32(&system);
+    TEST_ASSERT_FALSE(beet_validate_system_event_record(&system));
 }
 
 static void test_event_ring_reconstruction_and_summary(void)
@@ -193,13 +205,23 @@ static void test_event_ring_reconstruction_and_summary(void)
     uint32_t totals[BEET_PAIR_COUNT];
     beet_event_record_t a = beet_make_event(4U, 1U, 30U);
     beet_event_record_t b = beet_make_event(7U, 3U, 50U);
-    beet_event_record_t sleep = beet_make_sleep_event(8U, BEET_STOP_REASON_DEEP_LOW_BATTERY_SLEEP, 3260U);
+    beet_event_record_t unresolved_current = beet_make_event(8U, 4U, 15U);
     beet_event_record_t c = beet_make_event(999U, 2U, 20U);
     beet_event_record_t test = beet_make_event(10U, 2U, 10U);
-    beet_event_record_t bad = beet_make_event(8U, 4U, 15U);
+    beet_event_record_t unresolved_old = beet_make_event(11U, 5U, 25U);
+    beet_event_record_t bad = beet_make_event(12U, 6U, 15U);
 
     test.trigger_source = BEET_RUN_SOURCE_TEST;
     test.crc32 = beet_event_crc32(&test);
+    unresolved_current.time_valid = 0U;
+    unresolved_current.started_at_unix_s = 0U;
+    unresolved_current.ended_at_unix_s = 0U;
+    unresolved_current.crc32 = beet_event_crc32(&unresolved_current);
+    unresolved_old.time_valid = 0U;
+    unresolved_old.boot_id = 3U;
+    unresolved_old.started_at_unix_s = 0U;
+    unresolved_old.ended_at_unix_s = 0U;
+    unresolved_old.crc32 = beet_event_crc32(&unresolved_old);
     bad.crc32 ^= 1U;
 
     beet_event_ring_reset(&state);
@@ -208,11 +230,12 @@ static void test_event_ring_reconstruction_and_summary(void)
     beet_event_ring_accept_record(&state, &a);
     beet_event_ring_accept_record(&state, &bad);
     beet_event_ring_accept_record(&state, &b);
-    beet_event_ring_accept_record(&state, &sleep);
+    beet_event_ring_accept_record(&state, &unresolved_current);
+    beet_event_ring_accept_record(&state, &unresolved_old);
     beet_event_ring_finalize(&state);
     TEST_ASSERT_TRUE(state.has_valid_records);
-    TEST_ASSERT_U32_EQ(8U, state.highest_valid_seq_no);
-    TEST_ASSERT_U32_EQ(9U, state.next_write_slot);
+    TEST_ASSERT_U32_EQ(11U, state.highest_valid_seq_no);
+    TEST_ASSERT_U32_EQ(12U, state.next_write_slot);
 
     beet_event_ring_reset(&state);
     beet_event_ring_accept_record(&state, &c);
@@ -224,13 +247,16 @@ static void test_event_ring_reconstruction_and_summary(void)
     beet_event_ring_accumulate_summary(&a, &event_count, totals);
     beet_event_ring_accumulate_summary(&bad, &event_count, totals);
     beet_event_ring_accumulate_summary(&b, &event_count, totals);
-    beet_event_ring_accumulate_summary(&sleep, &event_count, totals);
+    if (beet_event_record_is_visible(&unresolved_current, 9U)) {
+        beet_event_ring_accumulate_summary(&unresolved_current, &event_count, totals);
+    }
+    TEST_ASSERT_FALSE(beet_event_record_is_visible(&unresolved_old, 9U));
     beet_event_ring_accumulate_summary(&test, &event_count, totals);
     TEST_ASSERT_U32_EQ(4U, event_count);
     TEST_ASSERT_U32_EQ(30U, totals[0]);
     TEST_ASSERT_U32_EQ(0U, totals[1]);
     TEST_ASSERT_U32_EQ(50U, totals[2]);
-    TEST_ASSERT_U32_EQ(0U, totals[3]);
+    TEST_ASSERT_U32_EQ(15U, totals[3]);
 }
 
 static void test_ble_command_parsing(void)
@@ -255,6 +281,20 @@ static void test_ble_command_parsing(void)
         "{\"cmd\":\"get_event\",\"data\":{\"seq_no\":42}}", &request));
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_EVENT, request.command);
     TEST_ASSERT_U32_EQ(42U, request.seq_no);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_system_history_summary\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_system_event\",\"data\":{\"seq_no\":43}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_SYSTEM_EVENT, request.command);
+    TEST_ASSERT_U32_EQ(43U, request.seq_no);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"set_time\",\"data\":{\"unix_s\":1714412345}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_SET_TIME, request.command);
+    TEST_ASSERT_U32_EQ(1714412345U, request.unix_s);
 
     TEST_ASSERT_TRUE(beet_ble_parse_command_json(
         "{\"cmd\":\"relay_test_start\",\"data\":{\"pair\":4}}", &request));
@@ -284,6 +324,7 @@ static void test_ble_json_formatting(void)
         .battery_state = BEET_BATTERY_STATE_ACTIVE,
         .battery_mv = 3325U,
         .time_valid = false,
+        .boot_id = 9U,
         .next_check_in_s = 71995U,
         .active_pumps = 0U,
         .wifi_connected = false,
@@ -311,7 +352,7 @@ static void test_ble_json_formatting(void)
 
     TEST_ASSERT_TRUE(beet_ble_format_device_frame_json(json, sizeof(json), &device) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":false,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":false,\"mqtt_connected\":false}}",
+        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":false,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":false,\"mqtt_connected\":false,\"uptime_s\":0}}",
         json);
 
     TEST_ASSERT_TRUE(beet_ble_format_pair_frame_json(json, sizeof(json), &pair) > 0);
@@ -350,6 +391,12 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"moisture_test_start\",\"status\":\"accepted\",\"reason\":\"moisture_test_started\",\"data\":{\"pair\":2,\"duration_s\":10}}",
         json);
+
+    beet_system_event_record_t system = beet_make_system_event(9U, BEET_SYSTEM_EVENT_BLE_CONNECT);
+    TEST_ASSERT_TRUE(beet_ble_format_system_event_frame_json(json, sizeof(json), &system) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"time_valid\":false,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":true,\"detail\":0}}",
+        json);
 }
 
 static void test_iface_name_mapping(void)
@@ -361,6 +408,8 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ("invalid_duration", beet_iface_reason_name(BEET_IFACE_REASON_INVALID_DURATION));
     TEST_ASSERT_STR_EQ("relay_test_stopped", beet_iface_reason_name(BEET_IFACE_REASON_RELAY_TEST_STOPPED));
     TEST_ASSERT_STR_EQ("moisture_test_started", beet_iface_reason_name(BEET_IFACE_REASON_MOISTURE_TEST_STARTED));
+    TEST_ASSERT_STR_EQ("set_time", beet_iface_command_name(BEET_IFACE_COMMAND_SET_TIME));
+    TEST_ASSERT_STR_EQ("time_updated", beet_iface_reason_name(BEET_IFACE_REASON_TIME_UPDATED));
     TEST_ASSERT_STR_EQ("LOW_BATTERY_ABORT", beet_block_reason_name(BEET_BLOCK_REASON_LOW_BATTERY_ABORT));
     TEST_ASSERT_STR_EQ(
         "MOISTURE_RESPONSE_TEST_FAILED",

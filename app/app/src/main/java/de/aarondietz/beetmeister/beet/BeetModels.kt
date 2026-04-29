@@ -40,16 +40,20 @@ sealed interface BeetStateMessage {
     data class DeviceStateUpdate(val data: BeetDeviceState) : BeetStateMessage
 
     data class PairStateUpdate(val data: BeetPairState) : BeetStateMessage
+
+    data class SystemEventUpdate(val data: BeetSystemEvent) : BeetStateMessage
 }
 
 data class BeetDeviceState(
     @param:Json(name = "battery_state") val batteryState: String,
     @param:Json(name = "battery_mv") val batteryMillivolts: Int,
     @param:Json(name = "time_valid") val timeValid: Boolean,
+    @param:Json(name = "boot_id") val bootId: Long = 0L,
     @param:Json(name = "next_check_in_s") val nextCheckInSeconds: Int,
     @param:Json(name = "active_pumps") val activePumps: Int,
     @param:Json(name = "wifi_connected") val wifiConnected: Boolean,
     @param:Json(name = "mqtt_connected") val mqttConnected: Boolean,
+    @param:Json(name = "uptime_s") val uptimeSeconds: Long = 0L,
 ) {
     val batteryPercentApprox: Int
         get() {
@@ -85,9 +89,15 @@ data class BeetHistorySummary(
     @param:Json(name = "pair_totals_s") val pairTotalsSeconds: List<Int>,
 )
 
+data class BeetSystemHistorySummary(
+    @param:Json(name = "latest_seq_no") val latestSequenceNumber: Long,
+    @param:Json(name = "event_count") val eventCount: Int,
+)
+
 data class BeetWateringEvent(
     @param:Json(name = "seq") val sequenceNumber: Long,
     @param:Json(name = "pair") val pairIndex: Int,
+    @param:Json(name = "boot_id") val bootId: Long = 0L,
     @param:Json(name = "src") val triggerSource: Int,
     @param:Json(name = "start") val startedAtUnixSeconds: Long,
     @param:Json(name = "end") val endedAtUnixSeconds: Long,
@@ -102,12 +112,38 @@ data class BeetWateringEvent(
     @param:Json(name = "block") val blockReason: Int,
     @param:Json(name = "bs") val batteryStartMillivolts: Int,
     @param:Json(name = "be") val batteryEndMillivolts: Int,
+    @param:Json(name = "su") val startedUptimeSeconds: Long = 0L,
+    @param:Json(name = "eu") val endedUptimeSeconds: Long = 0L,
 ) {
     val timeValid: Boolean
         get() = timeValidRaw != 0
 
     val isControllerSleepEvent: Boolean
         get() = pairIndex == 0
+}
+
+data class BeetSystemEvent(
+    @param:Json(name = "seq") val sequenceNumber: Long,
+    @param:Json(name = "event_type") val eventType: String,
+    val reason: Int,
+    @param:Json(name = "boot_id") val bootId: Long = 0L,
+    @param:Json(name = "uptime_s") val uptimeSeconds: Long,
+    @param:Json(name = "unix_s") val unixSeconds: Long,
+    @param:Json(name = "time_valid") val timeValid: Boolean,
+    @param:Json(name = "battery_mv") val batteryMillivolts: Int,
+    @param:Json(name = "peer_addr") val peerAddress: String,
+    @param:Json(name = "peer_addr_type") val peerAddressType: Int,
+    @param:Json(name = "known_peer") val knownPeer: Boolean,
+    val detail: Long,
+)
+
+data class BeetEventSyncState(
+    val active: Boolean = false,
+    val downloaded: Int = 0,
+    val total: Int = 0,
+) {
+    val progress: Float
+        get() = if (total <= 0) 0f else downloaded.toFloat() / total.toFloat()
 }
 
 internal data class BeetCommandAckData(
@@ -136,6 +172,10 @@ internal data class BeetEventRequestData(
 
 internal class BeetEmptyCommandData
 
+internal data class BeetSetTimeCommandData(
+    @param:Json(name = "unix_s") val unixSeconds: Long,
+)
+
 data class BeetCommandResult(
     val command: String,
     val pairIndex: Int?,
@@ -145,6 +185,8 @@ data class BeetCommandResult(
     val calibration: BeetCalibration? = null,
     val historySummary: BeetHistorySummary? = null,
     val event: BeetWateringEvent? = null,
+    val systemHistorySummary: BeetSystemHistorySummary? = null,
+    val systemEvent: BeetSystemEvent? = null,
 )
 
 data class BeetRepositoryState(
@@ -168,8 +210,13 @@ data class BeetRepositoryState(
     },
     val calibrations: Map<Int, BeetCalibration> = emptyMap(),
     val historySummary: BeetHistorySummary? = null,
+    val systemHistorySummary: BeetSystemHistorySummary? = null,
     val recentEvents: List<BeetWateringEvent> = emptyList(),
+    val systemEvents: List<BeetSystemEvent> = emptyList(),
     val eventsLoading: Boolean = false,
+    val eventSync: BeetEventSyncState = BeetEventSyncState(),
+    val connectedAtMillis: Long = 0L,
+    val connectedAtControllerUptimeSeconds: Long = 0L,
     val lastCommandMessage: String? = null,
     val selectedAddress: String? = null,
 )
@@ -200,5 +247,22 @@ object BeetEventMappings {
         2 -> "Sensor invalid"
         3 -> "Low battery abort"
         else -> "Unknown"
+    }
+
+    fun systemEventLabel(value: String): String = when (value) {
+        "STARTUP" -> "Startup"
+        "SLEEP" -> "Sleep"
+        "BLE_CONNECT" -> "Bluetooth connected"
+        "BLE_DISCONNECT" -> "Bluetooth disconnected"
+        "BLE_BOND_SUCCESS" -> "Bluetooth bonded"
+        "BLE_BOND_FAILED" -> "Bluetooth bond failed"
+        "BLE_BONDS_CLEARED" -> "Bluetooth bonds cleared"
+        "MQTT_CONNECT" -> "MQTT connected"
+        "MQTT_DISCONNECT" -> "MQTT disconnected"
+        "MQTT_PUBLISH_FAILED" -> "MQTT publish failed"
+        "OTA_STARTED" -> "OTA started"
+        "OTA_FAILED" -> "OTA failed"
+        "OTA_READY" -> "OTA ready"
+        else -> value
     }
 }

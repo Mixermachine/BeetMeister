@@ -78,7 +78,7 @@ Example payload:
 ```json
 {
   "device_id": "beetmeister-01",
-  "protocol_version": 1,
+  "protocol_version": 3,
   "firmware_version": "0.1.0",
   "pair_count": 8
 }
@@ -86,10 +86,11 @@ Example payload:
 
 ## `state_stream` payloads
 
-The controller shall emit two frame types:
+The controller shall emit three frame types:
 
 - device frame
 - pair frame
+- system event frame
 
 ### Device frame
 
@@ -99,10 +100,12 @@ The controller shall emit two frame types:
   "battery_state": "ACTIVE",
   "battery_mv": 3340,
   "time_valid": true,
+  "boot_id": 42,
   "next_check_in_s": 4812,
   "active_pumps": 1,
   "wifi_connected": true,
-  "mqtt_connected": true
+  "mqtt_connected": true,
+  "uptime_s": 12345
 }
 ```
 
@@ -124,6 +127,29 @@ The controller shall emit two frame types:
 
 On subscription to `state_stream`, the controller shall send one device frame followed by one pair frame per pair.
 After that, the controller shall notify only changed frames.
+New system events may also be notified on `state_stream` as `type = "system_event"` while a bonded client is subscribed.
+
+### System event frame
+
+```json
+{
+  "type": "system_event",
+  "data": {
+    "seq": 12,
+    "event_type": "BLE_CONNECT",
+    "reason": 0,
+    "boot_id": 42,
+    "uptime_s": 123,
+    "unix_s": 0,
+    "time_valid": false,
+    "battery_mv": 3340,
+    "peer_addr": "AA:BB:CC:DD:EE:FF",
+    "peer_addr_type": 1,
+    "known_peer": true,
+    "detail": 0
+  }
+}
+```
 
 ## `control_point` commands
 
@@ -212,6 +238,15 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
+### Set time
+
+```json
+{
+  "cmd": "set_time",
+  "unix_s": 1714412345
+}
+```
+
 ## `command_result` semantics
 
 Every accepted or rejected command shall produce one result frame.
@@ -249,9 +284,13 @@ Accepted commands that take time to complete, such as calibration or OTA start, 
 - `manual_start` shall reject `duration_s` values below 1 second or above 1200 seconds.
 - `relay_test_start` shall reject requests while watering, OTA is in progress, or the controller is not in normal active battery state.
 - `store_calibration` shall reject invalid dry or wet values and dry values that are not greater than wet values.
+- `set_time` shall accept the current Unix time from the app, mark controller time valid for the current boot, and backfill unresolved current-boot events.
 - Commands shall be rejected while the controller is in `DEEP_LOW_BATTERY`.
 - Commands that would violate controller safety rules shall be rejected rather than queued indefinitely.
 - Access attempts from an unbonded client shall be rejected before command parsing.
+- `get_system_history_summary` returns `latest_seq_no` and `event_count` for the persistent system-event ring.
+- `get_system_event` returns one system event by `seq_no`.
+- `get_history_summary` and `get_event` remain the watering-history commands.
 
 ## Calibration workflow
 
@@ -297,3 +336,7 @@ Accepted commands that take time to complete, such as calibration or OTA start, 
 - The app shall show `Blocked`, `Low battery`, and `Fault` as explicit user-facing states.
 - The app shall show command failures with the machine-readable reason mapped to a human-readable message.
 - The app shall not assume the controller is continuously awake.
+- The app shall send `set_time` after connect when `time_valid = false` before downloading persisted history.
+- The app shall start background event synchronization after live state is connected and shall not block live device or pair updates while history is downloading.
+- The app shall de-duplicate downloaded events by sequence number and keep a local per-controller cache.
+- Legacy or unresolved persisted events that cannot be placed on a real timeline shall be ignored by the app.

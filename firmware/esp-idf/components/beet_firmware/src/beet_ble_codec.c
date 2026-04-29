@@ -60,14 +60,16 @@ int beet_ble_format_device_frame_json(
         buf,
         len,
         "{\"type\":\"device\",\"data\":{\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
-        "\"next_check_in_s\":%lu,\"active_pumps\":%u,\"wifi_connected\":%s,\"mqtt_connected\":%s}}",
+        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,\"wifi_connected\":%s,\"mqtt_connected\":%s,\"uptime_s\":%lu}}",
         beet_battery_state_name(state->battery_state),
         state->battery_mv,
         state->time_valid ? "true" : "false",
+        (unsigned long)state->boot_id,
         (unsigned long)state->next_check_in_s,
         state->active_pumps,
         state->wifi_connected ? "true" : "false",
-        state->mqtt_connected ? "true" : "false");
+        state->mqtt_connected ? "true" : "false",
+        (unsigned long)state->uptime_s);
 }
 
 int beet_ble_format_pair_frame_json(
@@ -91,6 +93,47 @@ int beet_ble_format_pair_frame_json(
         beet_ble_run_source_name(state->source),
         state->enabled ? "true" : "false",
         state->sensor_valid ? "true" : "false");
+}
+
+static void beet_ble_format_peer_addr(const beet_system_event_record_t *event, char out[18])
+{
+    snprintf(
+        out,
+        18,
+        "%02X:%02X:%02X:%02X:%02X:%02X",
+        event->peer_addr[5],
+        event->peer_addr[4],
+        event->peer_addr[3],
+        event->peer_addr[2],
+        event->peer_addr[1],
+        event->peer_addr[0]);
+}
+
+int beet_ble_format_system_event_frame_json(
+    char *buf,
+    size_t len,
+    const beet_system_event_record_t *event)
+{
+    char peer_addr[18];
+    beet_ble_format_peer_addr(event, peer_addr);
+    return snprintf(
+        buf,
+        len,
+        "{\"type\":\"system_event\",\"data\":{\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,"
+        "\"boot_id\":%lu,\"uptime_s\":%lu,\"unix_s\":%lu,\"time_valid\":%s,\"battery_mv\":%u,"
+        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%s,\"detail\":%lu}}",
+        (unsigned long long)event->seq_no,
+        beet_system_event_type_name((beet_system_event_type_t)event->event_type),
+        event->reason,
+        (unsigned long)event->boot_id,
+        (unsigned long)event->occurred_uptime_s,
+        (unsigned long)event->occurred_unix_s,
+        event->time_valid ? "true" : "false",
+        event->battery_mv,
+        peer_addr,
+        event->peer_addr_type,
+        event->known_peer ? "true" : "false",
+        (unsigned long)event->detail);
 }
 
 int beet_ble_format_command_result_json(
@@ -139,6 +182,20 @@ int beet_ble_format_command_result_json(
             (unsigned long)response->pair_totals_s[7]);
     }
 
+    if ((response->command == BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY) &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_system_history_summary) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"latest_seq_no\":%llu,\"event_count\":%u}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            (unsigned long long)response->latest_system_event_seq_no,
+            response->system_event_count);
+    }
+
     if (response->command == BEET_IFACE_COMMAND_GET_EVENT &&
         response->status == BEET_IFACE_STATUS_ACCEPTED &&
         response->has_event) {
@@ -146,13 +203,14 @@ int beet_ble_format_command_result_json(
             buf,
             len,
             "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"seq\":%llu,\"pair\":%u,"
-            "\"src\":%u,\"start\":%lu,\"end\":%lu,\"tv\":%u,\"mb\":%u,\"ma\":%u,\"sb\":%u,\"sa\":%u,"
-            "\"req\":%u,\"act\":%u,\"stop\":%u,\"block\":%u,\"bs\":%u,\"be\":%u}}",
+            "\"boot_id\":%lu,\"src\":%u,\"start\":%lu,\"end\":%lu,\"tv\":%u,\"mb\":%u,\"ma\":%u,\"sb\":%u,\"sa\":%u,"
+            "\"req\":%u,\"act\":%u,\"stop\":%u,\"block\":%u,\"bs\":%u,\"be\":%u,\"su\":%lu,\"eu\":%lu}}",
             beet_iface_command_name(response->command),
             beet_iface_status_name(response->status),
             beet_iface_reason_name(response->reason),
             (unsigned long long)response->event.seq_no,
             response->event.pair_index,
+            (unsigned long)response->event.boot_id,
             response->event.trigger_source,
             (unsigned long)response->event.started_at_unix_s,
             (unsigned long)response->event.ended_at_unix_s,
@@ -166,7 +224,29 @@ int beet_ble_format_command_result_json(
             response->event.stop_reason,
             response->event.block_reason,
             response->event.battery_start_mv,
-            response->event.battery_end_mv);
+            response->event.battery_end_mv,
+            (unsigned long)response->event.started_uptime_s,
+            (unsigned long)response->event.ended_uptime_s);
+    }
+
+    if (response->command == BEET_IFACE_COMMAND_GET_SYSTEM_EVENT &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_system_event) {
+        char system_json[320];
+        int written = beet_ble_format_system_event_frame_json(system_json, sizeof(system_json), &response->system_event);
+        const char *data_start = strstr(system_json, "\"data\":");
+        if (written < 0 || (size_t)written >= sizeof(system_json) || data_start == NULL) {
+            return -1;
+        }
+        data_start += strlen("\"data\":");
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":%s",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            data_start);
     }
 
     if (response->accepted_duration_s > 0U) {
@@ -385,7 +465,7 @@ bool beet_ble_parse_command_json(
     const char *json,
     beet_iface_command_request_t *request)
 {
-    char cmd[24];
+    char cmd[40];
     char data_json[256];
     uint16_t pair_index;
 
@@ -481,14 +561,31 @@ bool beet_ble_parse_command_json(
         return true;
     }
 
-    if (strcmp(cmd, "get_history_summary") == 0) {
+    if (strcmp(cmd, "get_history_summary") == 0 ||
+        strcmp(cmd, "get_watering_history_summary") == 0) {
         request->command = BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY;
         return true;
     }
 
-    if (strcmp(cmd, "get_event") == 0) {
+    if (strcmp(cmd, "get_event") == 0 ||
+        strcmp(cmd, "get_watering_event") == 0) {
         request->command = BEET_IFACE_COMMAND_GET_EVENT;
         return beet_ble_extract_u64(data_json, "seq_no", &request->seq_no);
+    }
+
+    if (strcmp(cmd, "get_system_history_summary") == 0) {
+        request->command = BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY;
+        return true;
+    }
+
+    if (strcmp(cmd, "get_system_event") == 0) {
+        request->command = BEET_IFACE_COMMAND_GET_SYSTEM_EVENT;
+        return beet_ble_extract_u64(data_json, "seq_no", &request->seq_no);
+    }
+
+    if (strcmp(cmd, "set_time") == 0) {
+        request->command = BEET_IFACE_COMMAND_SET_TIME;
+        return beet_ble_extract_u64(data_json, "unix_s", &request->unix_s);
     }
 
     if (strcmp(cmd, "disable_pair") == 0) {

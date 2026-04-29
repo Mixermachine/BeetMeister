@@ -41,5 +41,7 @@ private fun reasonLabel(reason: String): String = when (reason) {
     "pair_disabled" -> "Pair is disabled"
     "pair_enabled" -> "Pair enabled"
     "moisture_test_started" -> "Moisture response test started"
+    "time_updated" -> "Controller time updated"
+    "invalid_time" -> "Invalid controller time"
     else -> reason.replace('_', ' ').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }

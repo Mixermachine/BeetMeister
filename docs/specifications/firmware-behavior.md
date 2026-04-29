@@ -310,12 +310,13 @@ Current implementation note:
 
 ### Watering event schema
 
-The event ring stores both watering outcomes and controller sleep entries. Watering events use `pair_index` 1 through 8. Controller sleep entries use `pair_index = 0`, record the sleep reason in `stop_reason`, and store the battery voltage at sleep entry in `battery_start_mv` and `battery_end_mv`.
+The watering event ring stores only watering outcomes. Controller lifecycle events such as sleep and BLE transitions belong to the separate system-event ring.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `schema_version` | `u8` | Event record format version |
 | `seq_no` | `u64` | Monotonic sequence number |
+| `boot_id` | `u32` | Monotonic boot identifier for the controller boot that created the event |
 | `pair_index` | `u8` | Pair number 1 through 8 |
 | `trigger_source` | `enum` | `AUTOMATIC` or `MANUAL` |
 | `started_at_unix_s` | `u32` | UTC start time, 0 if unknown |
@@ -331,6 +332,8 @@ The event ring stores both watering outcomes and controller sleep entries. Water
 | `block_reason` | `enum` | Closed block-reason enum or `NONE` |
 | `battery_start_mv` | `u16` | Battery voltage at run start |
 | `battery_end_mv` | `u16` | Battery voltage at run end |
+| `started_uptime_s` | `u32` | Monotonic uptime at run start |
+| `ended_uptime_s` | `u32` | Monotonic uptime at run end |
 
 ### Stop reasons
 
@@ -365,5 +368,8 @@ Exact meanings:
 - Durations, queue ages, and inactivity timers shall use monotonic time.
 - Persisted ordering of watering events shall use `seq_no`, not timestamps.
 - UTC timestamps shall be used only when the controller has a valid time source.
-- When UTC time is unavailable, event timestamps shall be recorded as `0` and `time_valid = false`.
+- Every persisted watering or system event shall always carry both `boot_id` and uptime fields.
+- When UTC time is unavailable, Unix event timestamps shall be recorded as `0` and `time_valid = false`.
+- When UTC becomes valid during the current boot, the controller shall backfill unresolved records from the same `boot_id`.
+- Unresolved records from older boots shall be ignored by history readout.
 - MQTT and BLE payloads shall expose whether wall-clock time is currently valid.

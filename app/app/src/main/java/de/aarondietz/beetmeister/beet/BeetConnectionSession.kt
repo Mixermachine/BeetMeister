@@ -14,6 +14,7 @@ internal class BeetConnectionSession {
     var initialDeviceFrameReceived = false
     var initialSyncCompleted = false
     var controllerInfoReadAttempts = 0
+    var syncedTimeBootId: Long = 0L
     val descriptorQueue = ArrayDeque<Pair<BluetoothGattCharacteristic, ByteArray>>()
 
     private val syncedPairs = linkedSetOf<Int>()
@@ -27,6 +28,7 @@ internal class BeetConnectionSession {
         initialDeviceFrameReceived = false
         initialSyncCompleted = false
         controllerInfoReadAttempts = 0
+        syncedTimeBootId = 0L
         syncedPairs.clear()
     }
 

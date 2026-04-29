@@ -20,7 +20,8 @@ The initial firmware image shall be flashed to `ota_0`.
 | `events` | data | nvs | `0x22000` | `0x4E000` | Dedicated event-ring storage |
 | `ota_0` | app | ota_0 | `0x70000` | `0x600000` | Active or candidate application slot 0 |
 | `ota_1` | app | ota_1 | `0x670000` | `0x600000` | Active or candidate application slot 1 |
-| `reserved` | data | `0x40` | `0xC70000` | `0x390000` | Reserved for future expansion |
+| `sysevents` | data | nvs | `0xC70000` | `0x10000` | Dedicated system-event-ring storage |
+| `reserved` | data | `0x40` | `0xC80000` | `0x380000` | Reserved for future expansion |
 
 The `reserved` partition shall not be used in v1.
 
@@ -28,7 +29,8 @@ The `reserved` partition shall not be used in v1.
 
 - The default `nvs` partition shall not contain BeetMeister-owned configuration, calibration, or event records.
 - `appcfg` is the only application partition for mutable configuration and runtime snapshots.
-- `events` is the only application partition for watering-event history.
+- `events` is the application partition for watering-event history.
+- `sysevents` is the application partition for impactful startup, sleep, Bluetooth lifecycle, and future MQTT or OTA lifecycle events.
 - OTA image swapping and boot selection shall use `otadata`, `ota_0`, and `ota_1` only.
 
 ## Configuration persistence rules
@@ -128,6 +130,7 @@ The serialized event record shall fit in 64 bytes and contain:
 | --- | --- | --- |
 | `schema_version` | `u8` | 1 |
 | `seq_no` | `u64` | 8 |
+| `boot_id` | `u32` | 4 |
 | `pair_index` | `u8` | 1 |
 | `trigger_source` | `u8 enum` | 1 |
 | `started_at_unix_s` | `u32` | 4 |
@@ -143,16 +146,31 @@ The serialized event record shall fit in 64 bytes and contain:
 | `block_reason` | `u8 enum` | 1 |
 | `battery_start_mv` | `u16` | 2 |
 | `battery_end_mv` | `u16` | 2 |
+| `started_uptime_s` | `u32` | 4 |
+| `ended_uptime_s` | `u32` | 4 |
 | `crc32` | `u32` | 4 |
 
-- `pair_index = 0` is reserved for controller sleep events. These records use `stop_reason` to encode whether the controller entered `IDLE_LOW_POWER_SLEEP` or `DEEP_LOW_BATTERY_SLEEP`, and `battery_start_mv` / `battery_end_mv` store the battery voltage at sleep entry.
+- Legacy `v1` watering records shall be ignored by new firmware.
+- New firmware shall write controller sleep records only to `sysevents`, not to the watering ring.
+
+## System Event Record
+
+The serialized system event record shall fit in 64 bytes and contain sequence number, boot identifier, event type, reason, uptime timestamp, optional Unix timestamp, battery voltage, optional raw BLE peer address, and CRC.
+
+- The system event ring shall store exactly 256 records.
+- System event sequence numbers are independent from watering event sequence numbers.
+- `boot_id` shall be monotonic across controller boots and shall be persisted outside the event rings.
+- `occurred_uptime_s` shall always be set. `occurred_unix_s` shall be `0` with `time_valid = false` when no wall-clock source is available.
+- When wall-clock time becomes valid during a boot, unresolved records from the same `boot_id` shall be backfilled in place.
+- Unresolved records from older boots shall remain persisted but shall be ignored by history reads and summaries.
+- Bluetooth connect, disconnect, bond success, bond failure, and bond-clear events shall be logged. MQTT event enum values are reserved until MQTT support is implemented.
 
 ## Reset, sleep, and OTA compatibility
 
-- Application configuration, calibrations, runtime snapshots, and event records shall survive reboot, deep sleep, and OTA.
+- Application configuration, calibrations, runtime snapshots, watering events, and system events shall survive reboot, deep sleep, and OTA.
 - Unsupported future schema versions shall trigger a safe migration path or a hard rejection before normal startup continues.
-- OTA shall never erase `appcfg` or `events`.
-- A failed OTA attempt shall not modify the active-slot application data in a way that invalidates `appcfg` or `events`.
+- OTA shall never erase `appcfg`, `events`, or `sysevents`.
+- A failed OTA attempt shall not modify the active-slot application data in a way that invalidates `appcfg`, `events`, or `sysevents`.
 
 ## Ownership and lifecycle summary
 
@@ -163,3 +181,4 @@ The serialized event record shall fit in 64 bytes and contain:
 | Calibration | BeetMeister app | Successful calibration | Persistent |
 | Runtime snapshot | BeetMeister app | State transition or sleep | Persistent |
 | Watering event | BeetMeister app | End of watering attempt | Persistent until overwritten by ring wrap |
+| System event | BeetMeister app | Startup, sleep, BLE lifecycle, future MQTT/OTA lifecycle | Persistent until overwritten by ring wrap |

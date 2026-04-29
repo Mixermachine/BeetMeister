@@ -5,6 +5,7 @@
 #include "esp_rom_crc.h"
 
 BEET_STATIC_ASSERT(sizeof(beet_event_record_t) == 64U, "event record size must be 64 bytes");
+BEET_STATIC_ASSERT(sizeof(beet_system_event_record_t) == 64U, "system event record size must be 64 bytes");
 
 void beet_default_app_config(beet_app_config_t *config)
 {
@@ -45,6 +46,7 @@ void beet_default_power_runtime_state(beet_power_runtime_state_t *state)
     memset(state, 0, sizeof(*state));
     state->schema_version = BEET_SCHEMA_VERSION;
     state->last_sleep_mode = BEET_SLEEP_MODE_NONE;
+    state->boot_counter = 0U;
 }
 
 bool beet_is_valid_pair_index(uint8_t pair_index)
@@ -80,6 +82,28 @@ bool beet_is_valid_stop_reason(beet_stop_reason_t reason)
 bool beet_is_valid_sleep_mode(beet_sleep_mode_t mode)
 {
     return mode >= BEET_SLEEP_MODE_NONE && mode <= BEET_SLEEP_MODE_DEEP_LOW_BATTERY;
+}
+
+bool beet_is_valid_system_event_type(beet_system_event_type_t type)
+{
+    switch (type) {
+    case BEET_SYSTEM_EVENT_STARTUP:
+    case BEET_SYSTEM_EVENT_SLEEP:
+    case BEET_SYSTEM_EVENT_BLE_CONNECT:
+    case BEET_SYSTEM_EVENT_BLE_DISCONNECT:
+    case BEET_SYSTEM_EVENT_BLE_BOND_SUCCESS:
+    case BEET_SYSTEM_EVENT_BLE_BOND_FAILED:
+    case BEET_SYSTEM_EVENT_BLE_BONDS_CLEARED:
+    case BEET_SYSTEM_EVENT_MQTT_CONNECT:
+    case BEET_SYSTEM_EVENT_MQTT_DISCONNECT:
+    case BEET_SYSTEM_EVENT_MQTT_PUBLISH_FAILED:
+    case BEET_SYSTEM_EVENT_OTA_STARTED:
+    case BEET_SYSTEM_EVENT_OTA_FAILED:
+    case BEET_SYSTEM_EVENT_OTA_READY:
+        return true;
+    default:
+        return false;
+    }
 }
 
 uint16_t beet_correct_moisture_sensor_mv(uint16_t sensor_mv, uint16_t battery_mv)
@@ -253,8 +277,6 @@ uint32_t beet_event_crc32(const beet_event_record_t *record)
 
 bool beet_validate_event_record(const beet_event_record_t *record)
 {
-    bool controller_sleep_event = false;
-
     if (record->schema_version != BEET_EVENT_RECORD_VERSION) {
         return false;
     }
@@ -264,42 +286,66 @@ bool beet_validate_event_record(const beet_event_record_t *record)
     if (!beet_is_valid_block_reason((beet_block_reason_t)record->block_reason)) {
         return false;
     }
-    controller_sleep_event =
-        record->pair_index == 0U &&
-        (beet_stop_reason_t)record->stop_reason >= BEET_STOP_REASON_IDLE_LOW_POWER_SLEEP &&
-        (beet_stop_reason_t)record->stop_reason <= BEET_STOP_REASON_DEEP_LOW_BATTERY_SLEEP;
-
-    if (!controller_sleep_event && !beet_is_valid_pair_index(record->pair_index)) {
+    if (record->boot_id == 0U) {
         return false;
     }
-    if (controller_sleep_event) {
-        if ((beet_run_source_t)record->trigger_source != BEET_RUN_SOURCE_NONE) {
-            return false;
-        }
-        if (record->started_at_unix_s != 0U || record->ended_at_unix_s != 0U || record->time_valid != 0U) {
-            return false;
-        }
-        if (record->moisture_before_pct != 0U || record->moisture_after_pct != 0U) {
-            return false;
-        }
-        if (record->sensor_before_mv != 0U || record->sensor_after_mv != 0U) {
-            return false;
-        }
-        if (record->requested_duration_s != 0U || record->actual_duration_s != 0U) {
-            return false;
-        }
-        if ((beet_block_reason_t)record->block_reason != BEET_BLOCK_REASON_NONE) {
-            return false;
-        }
-        return beet_event_crc32(record) == record->crc32;
+    if (!beet_is_valid_pair_index(record->pair_index)) {
+        return false;
     }
     if (!beet_is_valid_run_source((beet_run_source_t)record->trigger_source)) {
         return false;
     }
-    if ((beet_stop_reason_t)record->stop_reason >= BEET_STOP_REASON_IDLE_LOW_POWER_SLEEP) {
+    if ((beet_stop_reason_t)record->stop_reason >= BEET_STOP_REASON_IDLE_LOW_POWER_SLEEP ||
+        record->time_valid > 1U) {
+        return false;
+    }
+    if (record->time_valid == 0U &&
+        (record->started_at_unix_s != 0U || record->ended_at_unix_s != 0U)) {
         return false;
     }
     return beet_event_crc32(record) == record->crc32;
+}
+
+bool beet_event_record_is_visible(const beet_event_record_t *record, uint32_t current_boot_id)
+{
+    if (!beet_validate_event_record(record)) {
+        return false;
+    }
+    return record->time_valid != 0U || record->boot_id == current_boot_id;
+}
+
+uint32_t beet_system_event_crc32(const beet_system_event_record_t *record)
+{
+    return esp_rom_crc32_le(
+        0U,
+        (const uint8_t *)record,
+        sizeof(beet_system_event_record_t) - sizeof(record->crc32));
+}
+
+bool beet_validate_system_event_record(const beet_system_event_record_t *record)
+{
+    if (record->schema_version != BEET_SYSTEM_EVENT_RECORD_VERSION) {
+        return false;
+    }
+    if (record->boot_id == 0U) {
+        return false;
+    }
+    if (!beet_is_valid_system_event_type((beet_system_event_type_t)record->event_type)) {
+        return false;
+    }
+    if (record->time_valid > 1U ||
+        (record->time_valid == 0U && record->occurred_unix_s != 0U)) {
+        return false;
+    }
+    return beet_system_event_crc32(record) == record->crc32;
+}
+
+bool beet_system_event_record_is_visible(const beet_system_event_record_t *record, uint32_t current_boot_id)
+{
+    if (!beet_validate_system_event_record(record)) {
+        return false;
+    }
+    return record->time_valid != 0U || record->boot_id == current_boot_id;
 }
 
 const char *beet_pair_state_name(beet_pair_state_t state)
@@ -377,6 +423,40 @@ const char *beet_stop_reason_name(beet_stop_reason_t reason)
         return "IDLE_LOW_POWER_SLEEP";
     case BEET_STOP_REASON_DEEP_LOW_BATTERY_SLEEP:
         return "DEEP_LOW_BATTERY_SLEEP";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+const char *beet_system_event_type_name(beet_system_event_type_t type)
+{
+    switch (type) {
+    case BEET_SYSTEM_EVENT_STARTUP:
+        return "STARTUP";
+    case BEET_SYSTEM_EVENT_SLEEP:
+        return "SLEEP";
+    case BEET_SYSTEM_EVENT_BLE_CONNECT:
+        return "BLE_CONNECT";
+    case BEET_SYSTEM_EVENT_BLE_DISCONNECT:
+        return "BLE_DISCONNECT";
+    case BEET_SYSTEM_EVENT_BLE_BOND_SUCCESS:
+        return "BLE_BOND_SUCCESS";
+    case BEET_SYSTEM_EVENT_BLE_BOND_FAILED:
+        return "BLE_BOND_FAILED";
+    case BEET_SYSTEM_EVENT_BLE_BONDS_CLEARED:
+        return "BLE_BONDS_CLEARED";
+    case BEET_SYSTEM_EVENT_MQTT_CONNECT:
+        return "MQTT_CONNECT";
+    case BEET_SYSTEM_EVENT_MQTT_DISCONNECT:
+        return "MQTT_DISCONNECT";
+    case BEET_SYSTEM_EVENT_MQTT_PUBLISH_FAILED:
+        return "MQTT_PUBLISH_FAILED";
+    case BEET_SYSTEM_EVENT_OTA_STARTED:
+        return "OTA_STARTED";
+    case BEET_SYSTEM_EVENT_OTA_FAILED:
+        return "OTA_FAILED";
+    case BEET_SYSTEM_EVENT_OTA_READY:
+        return "OTA_READY";
     default:
         return "UNKNOWN";
     }

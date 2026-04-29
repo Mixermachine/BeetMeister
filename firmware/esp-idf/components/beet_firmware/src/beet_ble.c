@@ -30,7 +30,7 @@
 
 static const char *TAG = "beet_ble";
 
-#define BEET_BLE_PROTOCOL_VERSION 2U
+#define BEET_BLE_PROTOCOL_VERSION 4U
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
 #define BEET_BLE_JSON_MAX_LEN 320U
 #define BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US (30LL * 1000000LL)
@@ -61,6 +61,7 @@ typedef struct {
     uint32_t pairing_display_passkey;
     int64_t pairing_display_expires_at_us;
     int64_t last_activity_us;
+    beet_ble_system_event_callback_t system_event_callback;
 } beet_ble_state_t;
 
 static beet_ble_state_t s_ble;
@@ -101,6 +102,12 @@ static void beet_ble_set_pairing_display(uint16_t conn_handle, uint32_t passkey)
 static void beet_ble_fill_pairing_display(beet_ble_pairing_display_t *display);
 static void beet_ble_service_pairing_display(void);
 static void beet_ble_mark_activity(void);
+static void beet_ble_emit_system_event(
+    beet_system_event_type_t type,
+    uint16_t reason,
+    uint16_t conn_handle,
+    bool known_peer,
+    uint32_t detail);
 
 static const struct ble_gatt_svc_def beet_ble_svcs[] = {
     {
@@ -162,6 +169,7 @@ static bool beet_ble_device_states_equal(
         a->battery_state == b->battery_state &&
         a->battery_mv == b->battery_mv &&
         a->time_valid == b->time_valid &&
+        a->boot_id == b->boot_id &&
         a->next_check_in_s == b->next_check_in_s &&
         a->active_pumps == b->active_pumps &&
         a->wifi_connected == b->wifi_connected &&
@@ -424,6 +432,33 @@ static void beet_ble_mark_activity(void)
     s_ble.last_activity_us = esp_timer_get_time();
 }
 
+static void beet_ble_emit_system_event(
+    beet_system_event_type_t type,
+    uint16_t reason,
+    uint16_t conn_handle,
+    bool known_peer,
+    uint32_t detail)
+{
+    beet_ble_system_event_t event;
+    struct ble_gap_conn_desc desc;
+
+    if (s_ble.system_event_callback == NULL) {
+        return;
+    }
+
+    memset(&event, 0, sizeof(event));
+    event.type = type;
+    event.reason = reason;
+    event.known_peer = known_peer;
+    event.detail = detail;
+    if (conn_handle != BLE_HS_CONN_HANDLE_NONE && ble_gap_conn_find(conn_handle, &desc) == 0) {
+        memcpy(event.peer_addr, desc.peer_id_addr.val, sizeof(event.peer_addr));
+        event.peer_addr_type = desc.peer_id_addr.type;
+    }
+
+    s_ble.system_event_callback(&event);
+}
+
 static void beet_ble_log_advertise_skip(const char *reason)
 {
     ESP_LOGI(
@@ -557,6 +592,12 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             s_ble.have_last_device_state = false;
             s_ble.have_last_pair_states = false;
             ESP_LOGI(TAG, "ble connected handle=%u bonded=%d", s_ble.conn_handle, s_ble.bonded);
+            beet_ble_emit_system_event(
+                BEET_SYSTEM_EVENT_BLE_CONNECT,
+                0U,
+                s_ble.conn_handle,
+                s_ble.bonded,
+                0U);
             beet_ble_log_diag_status("gap_connect");
         } else if (s_ble.enabled) {
             ESP_LOGW(TAG, "ble connect failed status=%d", event->connect.status);
@@ -567,6 +608,12 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
 
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "ble disconnected reason=%d", event->disconnect.reason);
+        beet_ble_emit_system_event(
+            BEET_SYSTEM_EVENT_BLE_DISCONNECT,
+            (uint16_t)event->disconnect.reason,
+            event->disconnect.conn.conn_handle,
+            event->disconnect.conn.sec_state.bonded,
+            0U);
         beet_ble_clear_pairing_display("disconnect");
         s_ble.connected = false;
         s_ble.bonded = false;
@@ -610,6 +657,19 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         ESP_LOGI(TAG, "encryption change status=%d bonded=%d", event->enc_change.status, s_ble.bonded);
         if (event->enc_change.status == 0 && s_ble.bonded) {
             beet_ble_clear_pairing_display("bonded");
+            beet_ble_emit_system_event(
+                BEET_SYSTEM_EVENT_BLE_BOND_SUCCESS,
+                0U,
+                event->enc_change.conn_handle,
+                true,
+                0U);
+        } else if (event->enc_change.status != 0) {
+            beet_ble_emit_system_event(
+                BEET_SYSTEM_EVENT_BLE_BOND_FAILED,
+                (uint16_t)event->enc_change.status,
+                event->enc_change.conn_handle,
+                false,
+                0U);
         }
         beet_ble_log_diag_status("enc_change");
         return 0;
@@ -929,6 +989,29 @@ void beet_ble_set_enabled(bool enabled)
 
     beet_ble_log_diag_status("set_enabled_true");
     beet_ble_advertise();
+}
+
+void beet_ble_set_system_event_callback(beet_ble_system_event_callback_t callback)
+{
+    s_ble.system_event_callback = callback;
+}
+
+void beet_ble_publish_system_event(const beet_system_event_record_t *event)
+{
+    char json[BEET_BLE_JSON_MAX_LEN];
+    int written;
+
+    if (event == NULL || !s_ble.enabled || !s_ble.connected || !s_ble.bonded || !s_ble.state_stream_subscribed) {
+        return;
+    }
+
+    written = beet_ble_format_system_event_frame_json(json, sizeof(json), event);
+    if (written < 0 || (size_t)written >= sizeof(json)) {
+        ESP_LOGW(TAG, "system event frame too large");
+        return;
+    }
+
+    (void)beet_ble_send_notify_json(s_state_stream_handle, json);
 }
 
 void beet_ble_service(void)

@@ -16,6 +16,11 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -27,8 +32,10 @@ import de.aarondietz.beetmeister.ui.composable.PairErrorClearButton
 import de.aarondietz.beetmeister.ui.composable.PairEnabledToggleButton
 import de.aarondietz.beetmeister.ui.composable.ValueGridRow
 import de.aarondietz.beetmeister.ui.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.formatting.formatUnixSeconds
 import de.aarondietz.beetmeister.ui.formatting.yesNo
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun OverviewScreen(
@@ -59,6 +66,18 @@ internal fun OverviewScreen(
 @Composable
 private fun SystemValuesCard(state: BeetRepositoryState) {
     val device = state.deviceState ?: return
+    var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowMillis = System.currentTimeMillis()
+            delay(60_000)
+        }
+    }
+    val runningSinceMillis = if (state.connectedAtMillis > 0L) {
+        state.connectedAtMillis - ((state.connectedAtControllerUptimeSeconds.coerceAtLeast(0L)) * 1000L)
+    } else {
+        nowMillis - (device.uptimeSeconds * 1000L)
+    }
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F1E4)),
         modifier = Modifier.fillMaxWidth(),
@@ -70,6 +89,7 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
             ValueGridRow("Battery state", device.batteryState, "Next check", formatDuration(device.nextCheckInSeconds))
             ValueGridRow("Active pumps", device.activePumps.toString(), "Time valid", yesNo(device.timeValid))
             ValueGridRow("Wi-Fi", yesNo(device.wifiConnected), "MQTT", yesNo(device.mqttConnected))
+            ValueGridRow("Running since", formatUnixSeconds(runningSinceMillis / 1000L), "Uptime", formatDuration(device.uptimeSeconds.toInt()))
         }
     }
 }

@@ -21,6 +21,10 @@ int beet_ble_format_pair_frame_json(
     char *buf,
     size_t len,
     const beet_iface_pair_state_t *state);
+int beet_ble_format_system_event_frame_json(
+    char *buf,
+    size_t len,
+    const beet_system_event_record_t *event);
 int beet_ble_format_command_result_json(
     char *buf,
     size_t len,

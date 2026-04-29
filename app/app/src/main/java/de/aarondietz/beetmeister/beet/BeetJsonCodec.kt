@@ -26,12 +26,16 @@ object BeetJsonCodec {
         moshi.adapter(BeetDeviceState::class.java)
     private val pairStatePayloadAdapter: JsonAdapter<BeetPairState> =
         moshi.adapter(BeetPairState::class.java)
+    private val systemEventPayloadAdapter: JsonAdapter<BeetSystemEvent> =
+        moshi.adapter(BeetSystemEvent::class.java)
     private val commandAckPayloadAdapter: JsonAdapter<BeetCommandAckData> =
         moshi.adapter(BeetCommandAckData::class.java)
     private val calibrationPayloadAdapter: JsonAdapter<BeetCalibration> =
         moshi.adapter(BeetCalibration::class.java)
     private val historySummaryPayloadAdapter: JsonAdapter<BeetHistorySummary> =
         moshi.adapter(BeetHistorySummary::class.java)
+    private val systemHistorySummaryPayloadAdapter: JsonAdapter<BeetSystemHistorySummary> =
+        moshi.adapter(BeetSystemHistorySummary::class.java)
     private val wateringEventPayloadAdapter: JsonAdapter<BeetWateringEvent> =
         moshi.adapter(BeetWateringEvent::class.java)
 
@@ -39,6 +43,7 @@ object BeetJsonCodec {
     private val pairRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairCommandData::class.java)
     private val calibrationRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetCalibrationCommandData::class.java)
     private val eventRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEventRequestData::class.java)
+    private val setTimeRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetSetTimeCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
 
     fun parseControllerInfo(payload: String): BeetControllerInfo {
@@ -68,6 +73,11 @@ object BeetJsonCodec {
                 BeetStateMessage.PairStateUpdate(dto)
             }
 
+            "system_event" -> {
+                val dto = systemEventPayloadAdapter.fromJson(dataJson) ?: return null
+                BeetStateMessage.SystemEventUpdate(dto)
+            }
+
             else -> null
         }
     }
@@ -86,8 +96,18 @@ object BeetJsonCodec {
         } else {
             null
         }
+        val systemHistorySummary = if (header.cmd == "get_system_history_summary" && header.status == "accepted") {
+            systemHistorySummaryPayloadAdapter.fromJson(dataJson) ?: error("Invalid system history summary payload.")
+        } else {
+            null
+        }
         val event = if (header.cmd == "get_event" && header.status == "accepted") {
             wateringEventPayloadAdapter.fromJson(dataJson) ?: error("Invalid event payload.")
+        } else {
+            null
+        }
+        val systemEvent = if (header.cmd == "get_system_event" && header.status == "accepted") {
+            systemEventPayloadAdapter.fromJson(dataJson) ?: error("Invalid system event payload.")
         } else {
             null
         }
@@ -101,6 +121,8 @@ object BeetJsonCodec {
             calibration = calibration,
             historySummary = historySummary,
             event = event,
+            systemHistorySummary = systemHistorySummary,
+            systemEvent = systemEvent,
         )
     }
 
@@ -174,6 +196,38 @@ object BeetJsonCodec {
                 data = BeetEventRequestData(sequenceNumber = sequenceNumber),
             ),
         )
+
+    fun getSystemHistorySummary(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_system_history_summary",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun getSystemEvent(sequenceNumber: Long): String =
+        eventRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_system_event",
+                data = BeetEventRequestData(sequenceNumber = sequenceNumber),
+            ),
+        )
+
+    fun setTime(unixSeconds: Long): String =
+        setTimeRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "set_time",
+                data = BeetSetTimeCommandData(unixSeconds = unixSeconds),
+            ),
+        )
+
+    fun wateringEventToJson(event: BeetWateringEvent): String = wateringEventPayloadAdapter.toJson(event)
+
+    fun wateringEventFromJson(json: String): BeetWateringEvent? = wateringEventPayloadAdapter.fromJson(json)
+
+    fun systemEventToJson(event: BeetSystemEvent): String = systemEventPayloadAdapter.toJson(event)
+
+    fun systemEventFromJson(json: String): BeetSystemEvent? = systemEventPayloadAdapter.fromJson(json)
 
     fun disablePair(pairIndex: Int): String =
         pairRequestEnvelopeAdapter.toJson(

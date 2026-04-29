@@ -17,10 +17,12 @@ class BeetJsonCodecTest {
                 "battery_state":"ACTIVE",
                 "battery_mv":3340,
                 "time_valid":true,
+                "boot_id":11,
                 "next_check_in_s":4812,
                 "active_pumps":1,
                 "wifi_connected":true,
-                "mqtt_connected":false
+                "mqtt_connected":false,
+                "uptime_s":123
               }
             }
         """.trimIndent()
@@ -32,10 +34,12 @@ class BeetJsonCodecTest {
         assertEquals(3340, state.batteryMillivolts)
         assertEquals(48, state.batteryPercentApprox)
         assertTrue(state.timeValid)
+        assertEquals(11L, state.bootId)
         assertEquals(4812, state.nextCheckInSeconds)
         assertEquals(1, state.activePumps)
         assertTrue(state.wifiConnected)
         assertFalse(state.mqttConnected)
+        assertEquals(123L, state.uptimeSeconds)
     }
 
     @Test
@@ -167,6 +171,7 @@ class BeetJsonCodecTest {
               "data":{
                 "seq":77,
                 "pair":5,
+                "boot_id":11,
                 "src":2,
                 "start":0,
                 "end":0,
@@ -180,7 +185,9 @@ class BeetJsonCodecTest {
                 "stop":1,
                 "block":0,
                 "bs":3340,
-                "be":3290
+                "be":3290,
+                "su":12,
+                "eu":132
               }
             }
         """.trimIndent()
@@ -189,9 +196,55 @@ class BeetJsonCodecTest {
 
         assertEquals(77L, result.event!!.sequenceNumber)
         assertEquals(5, result.event!!.pairIndex)
+        assertEquals(11L, result.event!!.bootId)
         assertEquals(2, result.event!!.triggerSource)
         assertEquals(120, result.event!!.actualDurationSeconds)
         assertFalse(result.event!!.timeValid)
+        assertEquals(132L, result.event!!.endedUptimeSeconds)
+    }
+
+    @Test
+    fun parsesSystemEventFrameAndResult() {
+        val frame = """
+            {
+              "type":"system_event",
+              "data":{
+                "seq":9,
+                "event_type":"BLE_CONNECT",
+                "reason":0,
+                "boot_id":11,
+                "uptime_s":123,
+                "unix_s":0,
+                "time_valid":false,
+                "battery_mv":3340,
+                "peer_addr":"AA:BB:CC:DD:EE:FF",
+                "peer_addr_type":1,
+                "known_peer":true,
+                "detail":0
+              }
+            }
+        """.trimIndent()
+
+        val message = BeetJsonCodec.parseStateMessage(frame) as BeetStateMessage.SystemEventUpdate
+
+        assertEquals(9L, message.data.sequenceNumber)
+        assertEquals("BLE_CONNECT", message.data.eventType)
+        assertEquals(11L, message.data.bootId)
+        assertEquals("AA:BB:CC:DD:EE:FF", message.data.peerAddress)
+
+        val result = BeetJsonCodec.parseCommandResult(
+            """
+                {
+                  "cmd":"get_system_history_summary",
+                  "status":"accepted",
+                  "reason":"none",
+                  "data":{"latest_seq_no":9,"event_count":3}
+                }
+            """.trimIndent(),
+        )
+
+        assertEquals(9L, result.systemHistorySummary!!.latestSequenceNumber)
+        assertEquals(3, result.systemHistorySummary!!.eventCount)
     }
 
     @Test
@@ -240,5 +293,10 @@ class BeetJsonCodecTest {
     @Test
     fun buildsMoistureTestCommand() {
         assertEquals("""{"cmd":"moisture_test_start","data":{"pair":4}}""", BeetJsonCodec.moistureTestStart(4))
+    }
+
+    @Test
+    fun buildsSetTimeCommand() {
+        assertEquals("""{"cmd":"set_time","data":{"unix_s":1714412345}}""", BeetJsonCodec.setTime(1714412345))
     }
 }

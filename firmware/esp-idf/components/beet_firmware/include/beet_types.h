@@ -20,9 +20,11 @@
 #endif
 
 #define BEET_SCHEMA_VERSION 1U
-#define BEET_EVENT_RECORD_VERSION 1U
+#define BEET_EVENT_RECORD_VERSION 2U
+#define BEET_SYSTEM_EVENT_RECORD_VERSION 2U
 #define BEET_PAIR_COUNT 8U
 #define BEET_EVENT_RING_CAPACITY 1000U
+#define BEET_SYSTEM_EVENT_RING_CAPACITY 256U
 #define BEET_DEVICE_ID_MAX_LEN 24U
 #define BEET_MQTT_HOST_MAX_LEN 64U
 #define BEET_MQTT_USER_MAX_LEN 32U
@@ -105,6 +107,22 @@ typedef enum {
     BEET_STOP_REASON_DEEP_LOW_BATTERY_SLEEP = 7,
 } beet_stop_reason_t;
 
+typedef enum {
+    BEET_SYSTEM_EVENT_STARTUP = 0,
+    BEET_SYSTEM_EVENT_SLEEP = 1,
+    BEET_SYSTEM_EVENT_BLE_CONNECT = 2,
+    BEET_SYSTEM_EVENT_BLE_DISCONNECT = 3,
+    BEET_SYSTEM_EVENT_BLE_BOND_SUCCESS = 4,
+    BEET_SYSTEM_EVENT_BLE_BOND_FAILED = 5,
+    BEET_SYSTEM_EVENT_BLE_BONDS_CLEARED = 6,
+    BEET_SYSTEM_EVENT_MQTT_CONNECT = 16,
+    BEET_SYSTEM_EVENT_MQTT_DISCONNECT = 17,
+    BEET_SYSTEM_EVENT_MQTT_PUBLISH_FAILED = 18,
+    BEET_SYSTEM_EVENT_OTA_STARTED = 32,
+    BEET_SYSTEM_EVENT_OTA_FAILED = 33,
+    BEET_SYSTEM_EVENT_OTA_READY = 34,
+} beet_system_event_type_t;
+
 typedef struct {
     uint16_t schema_version;
     char device_id[BEET_DEVICE_ID_MAX_LEN + 1U];
@@ -155,6 +173,7 @@ BEET_PACKED_BEGIN
 typedef struct BEET_PACKED {
     uint8_t schema_version;
     uint64_t seq_no;
+    uint32_t boot_id;
     uint8_t pair_index;
     uint8_t trigger_source;
     uint32_t started_at_unix_s;
@@ -170,7 +189,9 @@ typedef struct BEET_PACKED {
     uint8_t block_reason;
     uint16_t battery_start_mv;
     uint16_t battery_end_mv;
-    uint8_t reserved[24];
+    uint32_t started_uptime_s;
+    uint32_t ended_uptime_s;
+    uint8_t reserved[12];
     uint32_t crc32;
 } beet_event_record_t;
 BEET_PACKED_END
@@ -181,11 +202,32 @@ typedef struct {
     uint16_t next_write_slot;
 } beet_event_ring_state_t;
 
+BEET_PACKED_BEGIN
+typedef struct BEET_PACKED {
+    uint8_t schema_version;
+    uint64_t seq_no;
+    uint32_t boot_id;
+    uint8_t event_type;
+    uint16_t reason;
+    uint32_t occurred_uptime_s;
+    uint32_t occurred_unix_s;
+    uint8_t time_valid;
+    uint16_t battery_mv;
+    uint8_t peer_addr[6];
+    uint8_t peer_addr_type;
+    uint8_t known_peer;
+    uint32_t detail;
+    uint8_t reserved[21];
+    uint32_t crc32;
+} beet_system_event_record_t;
+BEET_PACKED_END
+
 typedef struct {
     uint16_t schema_version;
     beet_sleep_mode_t last_sleep_mode;
     uint8_t deep_low_recovery_failures;
     uint8_t reserved0;
+    uint32_t boot_counter;
     uint32_t reserved1;
 } beet_power_runtime_state_t;
 
@@ -200,6 +242,7 @@ bool beet_is_valid_run_source(beet_run_source_t source);
 bool beet_is_valid_block_reason(beet_block_reason_t reason);
 bool beet_is_valid_stop_reason(beet_stop_reason_t reason);
 bool beet_is_valid_sleep_mode(beet_sleep_mode_t mode);
+bool beet_is_valid_system_event_type(beet_system_event_type_t type);
 uint16_t beet_correct_moisture_sensor_mv(uint16_t sensor_mv, uint16_t battery_mv);
 bool beet_is_sensor_mv_plausible(uint16_t corrected_sensor_mv, uint16_t dry_mv, uint16_t wet_mv);
 uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sensor_mv);
@@ -214,11 +257,16 @@ beet_battery_state_t beet_classify_battery_state(
     bool ota_in_progress,
     bool active_watering,
     uint32_t inactivity_s);
+bool beet_event_record_is_visible(const beet_event_record_t *record, uint32_t current_boot_id);
 uint32_t beet_event_crc32(const beet_event_record_t *record);
 bool beet_validate_event_record(const beet_event_record_t *record);
+bool beet_system_event_record_is_visible(const beet_system_event_record_t *record, uint32_t current_boot_id);
+uint32_t beet_system_event_crc32(const beet_system_event_record_t *record);
+bool beet_validate_system_event_record(const beet_system_event_record_t *record);
 const char *beet_pair_state_name(beet_pair_state_t state);
 const char *beet_battery_state_name(beet_battery_state_t state);
 const char *beet_block_reason_name(beet_block_reason_t reason);
 const char *beet_stop_reason_name(beet_stop_reason_t reason);
+const char *beet_system_event_type_name(beet_system_event_type_t type);
 
 #endif

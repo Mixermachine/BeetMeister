@@ -31,6 +31,16 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "enable_pair";
     case BEET_IFACE_COMMAND_MOISTURE_TEST_START:
         return "moisture_test_start";
+    case BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY:
+        return "get_system_history_summary";
+    case BEET_IFACE_COMMAND_GET_SYSTEM_EVENT:
+        return "get_system_event";
+    case BEET_IFACE_COMMAND_GET_WATERING_HISTORY_SUMMARY:
+        return "get_watering_history_summary";
+    case BEET_IFACE_COMMAND_GET_WATERING_EVENT:
+        return "get_watering_event";
+    case BEET_IFACE_COMMAND_SET_TIME:
+        return "set_time";
     default:
         return "unknown";
     }
@@ -107,6 +117,10 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "relay_test_stopped";
     case BEET_IFACE_REASON_MOISTURE_TEST_STARTED:
         return "moisture_test_started";
+    case BEET_IFACE_REASON_TIME_UPDATED:
+        return "time_updated";
+    case BEET_IFACE_REASON_INVALID_TIME:
+        return "invalid_time";
     default:
         return "unknown";
     }

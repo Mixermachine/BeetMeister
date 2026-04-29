@@ -45,3 +45,24 @@ void beet_event_ring_accumulate_summary(
     }
     (*event_count)++;
 }
+
+void beet_system_event_ring_accept_record(
+    beet_event_ring_state_t *state,
+    const beet_system_event_record_t *record)
+{
+    if (!beet_validate_system_event_record(record)) {
+        return;
+    }
+
+    if (!state->has_valid_records || record->seq_no > state->highest_valid_seq_no) {
+        state->has_valid_records = true;
+        state->highest_valid_seq_no = record->seq_no;
+    }
+}
+
+void beet_system_event_ring_finalize(beet_event_ring_state_t *state)
+{
+    state->next_write_slot = state->has_valid_records ?
+        (uint16_t)((state->highest_valid_seq_no + 1U) % BEET_SYSTEM_EVENT_RING_CAPACITY) :
+        1U;
+}

@@ -19,14 +19,18 @@ internal class BeetGattSessionCoordinator(
     private val host: BeetRepositoryCallbacks,
 ) {
     private val commandMutex = Mutex()
+    private val eventCache = BeetEventCache(host.appContext.getSharedPreferences("beetmeister_event_cache", android.content.Context.MODE_PRIVATE))
     private var connectionTimeoutJob: Job? = null
     private var controllerInfoRetryJob: Job? = null
+    private var eventSyncJob: Job? = null
     private val pendingMoistureTests = mutableMapOf<Int, Boolean>()
 
     fun close() {
         Log.d(TAG, "close()")
         disconnectGatt(clearSelection = false, reason = "repository close")
         cancelControllerInfoRetry("repository close")
+        eventSyncJob?.cancel()
+        eventSyncJob = null
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = null
     }
@@ -48,36 +52,11 @@ internal class BeetGattSessionCoordinator(
     }
 
     fun refreshHistorySummary() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            runCatching { sendCommand(BeetJsonCodec.getHistorySummary()) }
-                .onFailure { host.setCommandMessage("History summary could not be loaded.") }
-        }
+        startBackgroundEventSync(force = true)
     }
 
     fun loadRecentEvents(limit: Int = 50) {
-        host.scope.launch {
-            val summary = host.state.value.historySummary ?: run {
-                refreshHistorySummary()
-                delay(250)
-                host.state.value.historySummary
-            } ?: return@launch
-
-            host.updateState { it.copy(eventsLoading = true, recentEvents = emptyList()) }
-            val loadedEvents = mutableListOf<BeetWateringEvent>()
-            var sequence = summary.latestSequenceNumber
-            while (sequence > 0 && loadedEvents.size < limit) {
-                val result = runCatching { sendCommand(BeetJsonCodec.getEvent(sequence)) }.getOrNull()
-                val event = result?.event
-                if (event != null) {
-                    loadedEvents += event
-                }
-                sequence--
-            }
-            host.updateState { it.copy(eventsLoading = false, recentEvents = loadedEvents) }
-        }
+        startBackgroundEventSync(force = true, limit = limit)
     }
 
     fun manualStart(pairIndex: Int, durationSeconds: Int?) {
@@ -187,6 +166,106 @@ internal class BeetGattSessionCoordinator(
             } finally {
                 host.session.pendingCommand = null
             }
+        }
+    }
+
+    private fun startBackgroundEventSync(force: Boolean = false, limit: Int = MAX_BACKGROUND_EVENT_DOWNLOAD) {
+        if (!force && eventSyncJob?.isActive == true) {
+            return
+        }
+        eventSyncJob?.cancel()
+        eventSyncJob = host.scope.launch {
+            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
+                return@launch
+            }
+            synchronizeControllerTimeIfNeeded()
+            val deviceId = host.state.value.controllerInfo?.deviceId ?: return@launch
+            val cachedWatering = eventCache.loadWateringEvents(deviceId)
+            val cachedSystem = eventCache.loadSystemEvents(deviceId)
+            host.updateState {
+                it.copy(
+                    recentEvents = mergeWateringEvents(it.recentEvents, cachedWatering),
+                    systemEvents = mergeSystemEvents(it.systemEvents, cachedSystem),
+                    eventsLoading = true,
+                    eventSync = BeetEventSyncState(active = true),
+                )
+            }
+
+            val wateringSummary = runCatching { sendCommand(BeetJsonCodec.getHistorySummary()) }.getOrNull()?.historySummary
+            val systemSummary = runCatching { sendCommand(BeetJsonCodec.getSystemHistorySummary()) }.getOrNull()?.systemHistorySummary
+            val existingWatering = host.state.value.recentEvents.map { it.sequenceNumber }.toMutableSet()
+            val existingSystem = host.state.value.systemEvents.map { it.sequenceNumber }.toMutableSet()
+            val wateringToLoad = missingSequences(wateringSummary?.latestSequenceNumber ?: 0L, existingWatering, limit)
+            val systemToLoad = missingSequences(systemSummary?.latestSequenceNumber ?: 0L, existingSystem, limit)
+            val total = wateringToLoad.size + systemToLoad.size
+            var downloaded = 0
+
+            host.updateState {
+                it.copy(
+                    historySummary = wateringSummary ?: it.historySummary,
+                    systemHistorySummary = systemSummary ?: it.systemHistorySummary,
+                    eventSync = BeetEventSyncState(active = total > 0, downloaded = 0, total = total),
+                )
+            }
+
+            wateringToLoad.forEach { sequence ->
+                val event = runCatching { sendCommand(BeetJsonCodec.getEvent(sequence)) }.getOrNull()?.event
+                if (event != null) {
+                    eventCache.saveWateringEvent(deviceId, event)
+                    host.updateState { it.copy(recentEvents = mergeWateringEvents(it.recentEvents, listOf(event))) }
+                }
+                downloaded++
+                host.updateState { it.copy(eventSync = BeetEventSyncState(active = downloaded < total, downloaded = downloaded, total = total)) }
+            }
+            systemToLoad.forEach { sequence ->
+                val event = runCatching { sendCommand(BeetJsonCodec.getSystemEvent(sequence)) }.getOrNull()?.systemEvent
+                if (event != null) {
+                    eventCache.saveSystemEvent(deviceId, event)
+                    host.updateState { it.copy(systemEvents = mergeSystemEvents(it.systemEvents, listOf(event))) }
+                }
+                downloaded++
+                host.updateState { it.copy(eventSync = BeetEventSyncState(active = downloaded < total, downloaded = downloaded, total = total)) }
+            }
+
+            host.updateState { it.copy(eventsLoading = false, eventSync = BeetEventSyncState(active = false, downloaded = downloaded, total = total)) }
+        }
+    }
+
+    private fun missingSequences(latest: Long, existing: Set<Long>, limit: Int): List<Long> {
+        if (latest <= 0L) {
+            return emptyList()
+        }
+        return generateSequence(latest) { previous -> (previous - 1).takeIf { it > 0L } }
+            .filterNot(existing::contains)
+            .take(limit)
+            .toList()
+    }
+
+    private fun mergeWateringEvents(current: List<BeetWateringEvent>, incoming: List<BeetWateringEvent>): List<BeetWateringEvent> =
+        (current + incoming)
+            .associateBy { it.sequenceNumber }
+            .values
+            .sortedByDescending { it.sequenceNumber }
+
+    private fun mergeSystemEvents(current: List<BeetSystemEvent>, incoming: List<BeetSystemEvent>): List<BeetSystemEvent> =
+        (current + incoming)
+            .associateBy { it.sequenceNumber }
+            .values
+            .sortedByDescending { it.sequenceNumber }
+
+    private suspend fun synchronizeControllerTimeIfNeeded() {
+        val deviceState = host.state.value.deviceState ?: return
+        if (deviceState.timeValid) {
+            host.session.syncedTimeBootId = deviceState.bootId
+            return
+        }
+        if (deviceState.bootId > 0L && host.session.syncedTimeBootId == deviceState.bootId) {
+            return
+        }
+        val unixSeconds = System.currentTimeMillis() / 1000L
+        val result = runCatching { sendCommand(BeetJsonCodec.setTime(unixSeconds)) }.getOrNull() ?: return
+        if (result.status == "accepted") {
+            host.session.syncedTimeBootId = deviceState.bootId
         }
     }
 
@@ -309,7 +388,7 @@ internal class BeetGattSessionCoordinator(
         Log.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
         host.updateConnection(BeetConnectionPhase.Connected, "Connected to controller.")
         refreshCalibrations()
-        refreshHistorySummary()
+        startBackgroundEventSync()
     }
 
     private fun handleControllerInfo(payload: ByteArray) {
@@ -350,8 +429,17 @@ internal class BeetGattSessionCoordinator(
             is BeetStateMessage.DeviceStateUpdate -> {
                 val deviceState = message.data
                 host.session.initialDeviceFrameReceived = true
+                if (deviceState.timeValid) {
+                    host.session.syncedTimeBootId = deviceState.bootId
+                }
                 Log.d(TAG, "handleStatePayload(deviceFrame battery=${deviceState.batteryMillivolts} activePumps=${deviceState.activePumps})")
-                host.updateState { state -> state.copy(deviceState = deviceState) }
+                host.updateState { state ->
+                    state.copy(
+                        deviceState = deviceState,
+                        connectedAtMillis = if (state.connectedAtMillis == 0L) System.currentTimeMillis() else state.connectedAtMillis,
+                        connectedAtControllerUptimeSeconds = if (state.connectedAtControllerUptimeSeconds == 0L) deviceState.uptimeSeconds else state.connectedAtControllerUptimeSeconds,
+                    )
+                }
                 completeInitialSyncIfReady()
             }
             is BeetStateMessage.PairStateUpdate -> {
@@ -371,6 +459,13 @@ internal class BeetGattSessionCoordinator(
             null -> {
                 Log.w(TAG, "Ignoring unknown state payload: $json")
             }
+            is BeetStateMessage.SystemEventUpdate -> {
+                val deviceId = host.state.value.controllerInfo?.deviceId
+                if (deviceId != null) {
+                    eventCache.saveSystemEvent(deviceId, message.data)
+                }
+                host.updateState { it.copy(systemEvents = mergeSystemEvents(it.systemEvents, listOf(message.data))) }
+            }
         }
     }
 
@@ -389,9 +484,17 @@ internal class BeetGattSessionCoordinator(
             host.updateState { it.copy(historySummary = summary) }
         }
         result.event?.let { event ->
+            host.state.value.controllerInfo?.deviceId?.let { deviceId -> eventCache.saveWateringEvent(deviceId, event) }
+            host.updateState { state -> state.copy(recentEvents = mergeWateringEvents(state.recentEvents, listOf(event))) }
+        }
+        result.systemHistorySummary?.let { summary ->
+            host.updateState { it.copy(systemHistorySummary = summary) }
+        }
+        result.systemEvent?.let { event ->
+            host.state.value.controllerInfo?.deviceId?.let { deviceId -> eventCache.saveSystemEvent(deviceId, event) }
             host.updateState { state ->
-                if (state.recentEvents.any { it.sequenceNumber == event.sequenceNumber }) state
-                else state.copy(recentEvents = state.recentEvents + event)
+                if (state.systemEvents.any { it.sequenceNumber == event.sequenceNumber }) state
+                else state.copy(systemEvents = mergeSystemEvents(state.systemEvents, listOf(event)))
             }
         }
         host.session.pendingCommand?.complete(result)
@@ -408,6 +511,8 @@ internal class BeetGattSessionCoordinator(
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = null
         cancelControllerInfoRetry("disconnect gatt: $reason")
+        eventSyncJob?.cancel()
+        eventSyncJob = null
         pendingMoistureTests.clear()
         val gatt = host.session.currentGatt
         host.session.currentGatt = null
@@ -540,7 +645,8 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DESIRED_MTU = 247
-        private const val EXPECTED_PROTOCOL_VERSION = 2
+        private const val EXPECTED_PROTOCOL_VERSION = 4
+        private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 100
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
     }
 }

@@ -125,8 +125,13 @@ internal class BeetRepository(
                 deviceState = null,
                 calibrations = emptyMap(),
                 historySummary = null,
+                systemHistorySummary = null,
                 recentEvents = emptyList(),
+                systemEvents = emptyList(),
                 eventsLoading = false,
+                eventSync = BeetEventSyncState(),
+                connectedAtMillis = 0L,
+                connectedAtControllerUptimeSeconds = 0L,
                 pairStates = BeetRepositoryState().pairStates,
             )
         }
