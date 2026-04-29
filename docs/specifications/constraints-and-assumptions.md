@@ -9,7 +9,7 @@
 - The battery is intentionally connected directly to the board 3.3 V input in this project and this assumption is not to be normalized away by the documentation.
 - The charger path is assumed to terminate at 3.6 V.
 - Eight relay inputs are driven directly by ESP32 GPIOs.
-- Relay logic is assumed active-high at the signal input.
+- Relay logic is assumed active-low at the signal input.
 - Eight capacitive analog moisture sensors are read through ESP32 ADC channels.
 
 ## Default environmental assumptions
@@ -30,7 +30,7 @@
 
 - Pump power may be 3.3 V through 5.0 V depending on the selected pump rail.
 - A 5.0 V boosted pump rail is preferred for v1 if the selected pump does not produce adequate flow at battery voltage alone.
-- Relay inputs are expected to remain safely off during controller reset through GPIO default state and external pull-down design.
+- Relay inputs are expected to remain safely off during controller reset through GPIO default state and external pull-up design.
 - The documentation assumes no more than three simultaneous pump loads because battery sag, relay-board thermals, and supply noise are not characterized for a higher concurrency limit.
 
 ## Firmware and storage assumptions

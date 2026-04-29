@@ -49,14 +49,14 @@
 <text x="192" y="339" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#1d4ed8" text-anchor="start">Pair 4 moisture</text>
 <line x1="380" y1="334" x2="422" y2="334" stroke="#94a3b8" stroke-width="1" stroke-linecap="round"/>
 <circle cx="430" cy="364" r="5" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1"/>
-<rect x="80" y="349" width="300" height="24" rx="10" fill="#f3f4f6" stroke="#374151" stroke-width="1"/>
+<rect x="80" y="349" width="300" height="24" rx="10" fill="#dcfce7" stroke="#166534" stroke-width="1"/>
 <text x="90" y="366" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="#111827" text-anchor="start">GPIO15</text>
-<text x="192" y="366" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Free expansion</text>
+<text x="192" y="366" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#166534" text-anchor="start">Sensor power EN</text>
 <line x1="380" y1="361" x2="422" y2="361" stroke="#94a3b8" stroke-width="1" stroke-linecap="round"/>
 <circle cx="430" cy="391" r="5" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1"/>
-<rect x="80" y="376" width="300" height="24" rx="10" fill="#f3f4f6" stroke="#374151" stroke-width="1"/>
+<rect x="80" y="376" width="300" height="24" rx="10" fill="#dcfce7" stroke="#166534" stroke-width="1"/>
 <text x="90" y="393" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" fill="#111827" text-anchor="start">GPIO16</text>
-<text x="192" y="393" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#374151" text-anchor="start">Free expansion</text>
+<text x="192" y="393" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#166534" text-anchor="start">Boost enable</text>
 <line x1="380" y1="388" x2="422" y2="388" stroke="#94a3b8" stroke-width="1" stroke-linecap="round"/>
 <circle cx="430" cy="418" r="5" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="1"/>
 <rect x="80" y="403" width="300" height="24" rx="10" fill="#f3f4f6" stroke="#374151" stroke-width="1"/>
@@ -244,5 +244,5 @@
 <rect x="1080" y="800" width="440" height="80" rx="16" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
 <text x="1100" y="826" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700" fill="#111827" text-anchor="start">Board-specific notes</text>
 <text x="1100" y="848" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#111827" text-anchor="start">GPIO48 stays reserved for the onboard RGB LED.</text>
-<text x="1100" y="866" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#111827" text-anchor="start">GPIO11/GPIO12 are active; GPIO13 remains deferred.</text>
+<text x="1100" y="866" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#111827" text-anchor="start">GPIO15/GPIO16 now gate sensor and boost power; GPIO13 remains deferred.</text>
 </svg>

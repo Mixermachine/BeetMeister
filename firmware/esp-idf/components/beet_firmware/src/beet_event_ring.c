@@ -38,7 +38,9 @@ void beet_event_ring_accumulate_summary(
         return;
     }
 
-    if (record->pair_index >= 1U && record->pair_index <= BEET_PAIR_COUNT) {
+    if (record->pair_index >= 1U &&
+        record->pair_index <= BEET_PAIR_COUNT &&
+        record->trigger_source != BEET_RUN_SOURCE_TEST) {
         pair_totals_s[record->pair_index - 1U] += record->actual_duration_s;
     }
     (*event_count)++;

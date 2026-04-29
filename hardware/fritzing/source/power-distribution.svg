@@ -32,7 +32,7 @@
 <rect x="1180" y="360" width="300" height="180" rx="24" fill="#fce7f3" stroke="#be185d" stroke-width="2"/>
 <text x="1330" y="404" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#be185d" text-anchor="middle">8-Channel Relay Board</text>
 <text x="1330" y="438" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" fill="#be185d" text-anchor="middle">logic and switched pump rail</text>
-<text x="1330" y="468" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="400" fill="#9d174d" text-anchor="middle">active-high IN1..IN8 with pull-downs</text>
+<text x="1330" y="468" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="400" fill="#9d174d" text-anchor="middle">active-low IN1..IN8 with pull-ups</text>
 <rect x="1180" y="600" width="300" height="170" rx="24" fill="#fae8ff" stroke="#7e22ce" stroke-width="2"/>
 <text x="1330" y="644" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#7e22ce" text-anchor="middle">8 Pumps</text>
 <text x="1330" y="678" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="600" fill="#7e22ce" text-anchor="middle">switched from direct battery rail</text>

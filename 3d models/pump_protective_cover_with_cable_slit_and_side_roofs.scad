@@ -14,21 +14,21 @@ $fn = 64;
 // -----------------------------
 // User parameters
 // -----------------------------
-outer_width  = 235.5;   // X 228.5 is the plate
-outer_depth  = 41.0;    // Y 34 is the plate
+outer_width  = 235.0;   // X 228.5 is the plate
+outer_depth  = 40.5;    // Y 34 is the plate
 outer_height = 40.0;    // Z
 
 wall_thickness = 3;   // side wall thickness
 top_thickness  = 3;   // top wall thickness
 
 // Cable slit
-cable_slot_x      = outer_width * 0.26;  // center position along width
-cable_slot_width  = 12.0;                // opening width in X
+cable_slot_x      = outer_width * 0.58;  // center position along width
+cable_slot_width  = 100.0;                // opening width in X
 cable_slot_top_z  = 10.0;                // opening top height; bottom is fixed at z = 0
 
 // Rain roof
 roof_clearance    = 1.2;   // gap from slot top to roof underside
-roof_projection   = 6.0;   // how far the roof sticks out
+roof_projection   = 3.0;   // how far the roof sticks out
 roof_drop         = 6.0;   // how much the outer edge drops for runoff
 roof_thickness    = 2.0;   // roof material thickness
 roof_side_margin  = 8.0;   // extra width beyond slot on each side

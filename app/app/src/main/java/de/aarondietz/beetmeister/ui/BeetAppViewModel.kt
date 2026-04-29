@@ -34,6 +34,8 @@ internal class BeetAppViewModel(
 
     fun manualStop(pairIndex: Int) = repository.manualStop(pairIndex)
 
+    fun moistureTestStart(pairIndex: Int) = repository.moistureTestStart(pairIndex)
+
     fun clearPairError(pairIndex: Int) = repository.clearPairError(pairIndex)
 
     fun resetBlock(pairIndex: Int) = clearPairError(pairIndex)

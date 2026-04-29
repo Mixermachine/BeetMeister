@@ -178,6 +178,7 @@ object BeetEventMappings {
     fun triggerSourceLabel(value: Int): String = when (value) {
         1 -> "Automatic"
         2 -> "Manual"
+        3 -> "Moisture test"
         else -> "None"
     }
 
@@ -195,7 +196,7 @@ object BeetEventMappings {
 
     fun blockReasonLabel(value: Int): String = when (value) {
         0 -> "None"
-        1 -> "Sensor delta too small"
+        1 -> "Moisture response test failed"
         2 -> "Sensor invalid"
         3 -> "Low battery abort"
         else -> "Unknown"

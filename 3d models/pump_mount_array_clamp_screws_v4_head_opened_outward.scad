@@ -14,7 +14,7 @@ plate_thickness   = 8;      // mm
 plate_margin_x    = 4;      // mm from outermost hole to plate edge
 
 // Mounting holes on the solid (non-slot) side
-mount_hole_d      = 2.2;    // mm
+mount_hole_d      = 2.3;    // mm
 mount_hole_edge_x = 5;     // mm in from plate ends
 mount_hole_solid_margin = 5.0; // mm from solid outer edge to mounting-hole center
 

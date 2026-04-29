@@ -785,7 +785,9 @@ static void beet_start_sanity_check(uint8_t pair_index, int64_t now_us)
         runtime->run_id = s_state.next_run_id++;
     }
 
-    snapshot->pair_state = BEET_PAIR_STATE_SANITY_CHECK;
+    snapshot->pair_state = runtime->source == BEET_RUN_SOURCE_TEST ?
+        BEET_PAIR_STATE_MOISTURE_TEST :
+        BEET_PAIR_STATE_SANITY_CHECK;
     snapshot->block_reason = BEET_BLOCK_REASON_NONE;
     snapshot->run_started_unix_s = 0U;
     beet_mark_snapshot_dirty(pair_index);
@@ -797,7 +799,12 @@ static void beet_start_sanity_check(uint8_t pair_index, int64_t now_us)
     beet_flush_snapshot(pair_index, true);
     s_state.active_pumps = beet_count_active_pumps();
     beet_controller_sync_boost_output();
-    ESP_LOGI(TAG, "pair %u entered SANITY_CHECK for %us", pair_index, BEET_SANITY_CHECK_DURATION_S);
+    ESP_LOGI(
+        TAG,
+        "pair %u entered %s for %us",
+        pair_index,
+        runtime->source == BEET_RUN_SOURCE_TEST ? "MOISTURE_TEST" : "SANITY_CHECK",
+        BEET_SANITY_CHECK_DURATION_S);
 }
 
 static void beet_start_watering_phase(uint8_t pair_index, int64_t now_us)
@@ -845,9 +852,10 @@ static void beet_queue_run(uint8_t pair_index, beet_run_source_t source, uint16_
 
     ESP_LOGI(
         TAG,
-        "pair %u queued for %s watering (%us requested)",
+        "pair %u queued for %s (%us requested)",
         pair_index,
-        source == BEET_RUN_SOURCE_MANUAL ? "manual" : "automatic",
+        source == BEET_RUN_SOURCE_MANUAL ? "manual watering" :
+            (source == BEET_RUN_SOURCE_TEST ? "moisture test" : "automatic watering"),
         duration_s);
 }
 
@@ -1011,6 +1019,7 @@ static void beet_restore_snapshots(void)
         if (snapshot->active_run_id != 0U ||
             snapshot->pair_state == BEET_PAIR_STATE_WAITING_FOR_SLOT ||
             snapshot->pair_state == BEET_PAIR_STATE_SANITY_CHECK ||
+            snapshot->pair_state == BEET_PAIR_STATE_MOISTURE_TEST ||
             snapshot->pair_state == BEET_PAIR_STATE_WATERING) {
             snapshot->pair_state = BEET_PAIR_STATE_IDLE;
             snapshot->active_run_id = 0U;
@@ -1183,6 +1192,8 @@ static const char *beet_display_pair_state_short(beet_pair_state_t state)
         return "FLT";
     case BEET_PAIR_STATE_DISABLED:
         return "OFF";
+    case BEET_PAIR_STATE_MOISTURE_TEST:
+        return "TEST";
     default:
         return "UNK";
     }
@@ -1468,6 +1479,31 @@ esp_err_t beet_iface_submit_command(
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_RELAY_TEST_STOPPED;
         return ESP_OK;
+
+    case BEET_IFACE_COMMAND_MOISTURE_TEST_START: {
+        beet_iface_reason_t reject_reason = BEET_IFACE_REASON_NONE;
+
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        if (!beet_pair_can_start_manual(request->pair_index, &reject_reason)) {
+            response->reason = reject_reason;
+            return ESP_OK;
+        }
+        if (beet_count_active_pumps() >= BEET_MAX_ACTIVE_PUMPS) {
+            response->reason = BEET_IFACE_REASON_SLOT_UNAVAILABLE;
+            return ESP_OK;
+        }
+
+        beet_mark_activity(now_us);
+        beet_queue_run(request->pair_index, BEET_RUN_SOURCE_TEST, BEET_SANITY_CHECK_DURATION_S, now_us);
+        beet_service_waiting_pairs(now_us);
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->accepted_duration_s = BEET_SANITY_CHECK_DURATION_S;
+        response->reason = BEET_IFACE_REASON_MOISTURE_TEST_STARTED;
+        return ESP_OK;
+    }
 
     case BEET_IFACE_COMMAND_RESET_BLOCK:
         if (!beet_is_valid_pair_index(request->pair_index)) {
@@ -1812,7 +1848,12 @@ static void beet_progress_runs(int64_t now_us)
                     pair,
                     BEET_PAIR_STATE_BLOCKED,
                     BEET_STOP_REASON_SENSOR_SANITY_FAILURE,
-                    BEET_BLOCK_REASON_SENSOR_DELTA_TOO_SMALL);
+                    BEET_BLOCK_REASON_MOISTURE_RESPONSE_TEST_FAILED);
+                continue;
+            }
+
+            if (runtime->source == BEET_RUN_SOURCE_TEST) {
+                beet_finish_pair_state(pair, BEET_PAIR_STATE_IDLE, BEET_STOP_REASON_COMPLETED, BEET_BLOCK_REASON_NONE);
                 continue;
             }
 

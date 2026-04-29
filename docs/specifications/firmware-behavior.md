@@ -76,14 +76,14 @@ The lookup shall use the integer moisture percentage after clamping and any requ
 
 ## Automatic sanity-check flow
 
-The sanity check applies only to automatic watering.
+The sanity check applies to automatic watering and to an operator-triggered moisture response test.
 
 1. Capture a stable pre-run moisture percentage and voltage sample.
 2. Start the pair pump.
 3. Run the pump for 10 seconds.
 4. Stop the pump long enough to capture a stable post-run moisture sample.
 5. Compute `delta_pct = post_run_pct - pre_run_pct`.
-6. If `delta_pct` is greater than 3.0 percentage points, accept the sensor response and continue the remaining automatic watering duration.
+6. If `delta_pct` is greater than 3.0 percentage points, accept the sensor response. Automatic watering continues with the remaining duration; a manual moisture response test returns the pair to `IDLE`.
 7. If `delta_pct` is less than or equal to 3.0 percentage points, block the pair for 24 hours, record the event with stop reason `SENSOR_SANITY_FAILURE`, and do not continue watering.
 
 The 10-second sanity run counts toward delivered pump time and shall be included in the event duration.
@@ -103,6 +103,7 @@ The externally visible pair state enum is:
 - `WATERING` (`RUN`)
 - `BLOCKED` (`BLKD`)
 - `FAULT` (`FLT`)
+- `MOISTURE_TEST` (`TEST`)
 
 ### Allowed transitions
 
@@ -110,6 +111,7 @@ The externally visible pair state enum is:
 | --- | --- | --- |
 | `IDLE` (`IDLE`) | `WAITING_FOR_SLOT` (`WAIT`) | Accepted manual request or automatic watering request when no slot is free |
 | `IDLE` (`IDLE`) | `SANITY_CHECK` (`SANI`) | Automatic request accepted and slot available |
+| `IDLE` (`IDLE`) | `MOISTURE_TEST` (`TEST`) | Moisture response test request accepted and slot available |
 | `IDLE` (`IDLE`) | `WATERING` (`RUN`) | Manual request accepted and slot available |
 | `WAITING_FOR_SLOT` (`WAIT`) | `SANITY_CHECK` (`SANI`) | Automatic request receives a free slot |
 | `WAITING_FOR_SLOT` (`WAIT`) | `WATERING` (`RUN`) | Manual request receives a free slot |
@@ -118,6 +120,9 @@ The externally visible pair state enum is:
 | `SANITY_CHECK` (`SANI`) | `IDLE` (`IDLE`) | Automatic sanity check passes and remaining duration is 0 |
 | `SANITY_CHECK` (`SANI`) | `BLOCKED` (`BLKD`) | Automatic sanity check fails |
 | `SANITY_CHECK` (`SANI`) | `FAULT` (`FLT`) | Sensor or battery failure makes continuation unsafe |
+| `MOISTURE_TEST` (`TEST`) | `IDLE` (`IDLE`) | Moisture response test passes |
+| `MOISTURE_TEST` (`TEST`) | `BLOCKED` (`BLKD`) | Moisture response test fails |
+| `MOISTURE_TEST` (`TEST`) | `FAULT` (`FLT`) | Sensor or battery failure makes continuation unsafe |
 | `WATERING` (`RUN`) | `IDLE` (`IDLE`) | Duration completes normally or manual run is stopped cleanly |
 | `WATERING` (`RUN`) | `BLOCKED` (`BLKD`) | Sensor fault during automatic run escalates to a safety block |
 | `WATERING` (`RUN`) | `FAULT` (`FLT`) | Low battery, relay fault suspicion, or invalid runtime state aborts the run |
@@ -141,7 +146,7 @@ No other transitions are permitted.
 The block reason enum is closed and shall be one of:
 
 - `NONE`
-- `SENSOR_DELTA_TOO_SMALL`
+- `MOISTURE_RESPONSE_TEST_FAILED`
 - `SENSOR_READING_INVALID`
 - `LOW_BATTERY_ABORT`
 
@@ -150,7 +155,7 @@ Exact meanings:
 | Block reason | Meaning |
 | --- | --- |
 | `NONE` | Pair is not currently blocked. |
-| `SENSOR_DELTA_TOO_SMALL` | Automatic 10-second sanity check completed but moisture increase was less than or equal to 3 percentage points. |
+| `MOISTURE_RESPONSE_TEST_FAILED` | A 10-second automatic sanity check or manual moisture response test completed but moisture increase was less than or equal to 3 percentage points. |
 | `SENSOR_READING_INVALID` | Sensor reading was electrically implausible, missing, or disconnected during an automatic safety evaluation. |
 | `LOW_BATTERY_ABORT` | An active watering run was aborted because battery voltage fell below the watering threshold. |
 
@@ -291,11 +296,11 @@ Current implementation note:
 | `last_moisture_pct` | `u8` | Last valid percentage |
 | `last_sensor_mv` | `u16` | Last valid sensor voltage |
 | `sensor_valid` | `bool` | Whether last reading was valid |
-| `block_reason` | `enum` | `NONE`, `SENSOR_DELTA_TOO_SMALL`, or `SENSOR_READING_INVALID` |
+| `block_reason` | `enum` | `NONE`, `MOISTURE_RESPONSE_TEST_FAILED`, or `SENSOR_READING_INVALID` |
 | `block_until_unix_s` | `u32` | UTC expiry, 0 if not blocked or time unknown |
 | `block_remaining_s` | `u32` | Remaining elapsed-time block countdown when UTC is unknown |
 | `active_run_id` | `u32` | Non-zero only when a run was in progress before persistence |
-| `active_run_source` | `enum` | `NONE`, `AUTOMATIC`, `MANUAL` |
+| `active_run_source` | `enum` | `NONE`, `AUTOMATIC`, `MANUAL`, `TEST` |
 | `run_started_unix_s` | `u32` | UTC start time, 0 if unknown |
 | `run_elapsed_s` | `u16` | Elapsed run duration at snapshot time |
 | `run_target_s` | `u16` | Total requested duration |

@@ -54,7 +54,7 @@ bool beet_is_valid_pair_index(uint8_t pair_index)
 
 bool beet_is_valid_pair_state(beet_pair_state_t state)
 {
-    return state >= BEET_PAIR_STATE_IDLE && state <= BEET_PAIR_STATE_DISABLED;
+    return state >= BEET_PAIR_STATE_IDLE && state <= BEET_PAIR_STATE_MOISTURE_TEST;
 }
 
 bool beet_is_valid_battery_state(beet_battery_state_t state)
@@ -64,7 +64,7 @@ bool beet_is_valid_battery_state(beet_battery_state_t state)
 
 bool beet_is_valid_run_source(beet_run_source_t source)
 {
-    return source >= BEET_RUN_SOURCE_NONE && source <= BEET_RUN_SOURCE_MANUAL;
+    return source >= BEET_RUN_SOURCE_NONE && source <= BEET_RUN_SOURCE_TEST;
 }
 
 bool beet_is_valid_block_reason(beet_block_reason_t reason)
@@ -319,6 +319,8 @@ const char *beet_pair_state_name(beet_pair_state_t state)
         return "FAULT";
     case BEET_PAIR_STATE_DISABLED:
         return "DISABLED";
+    case BEET_PAIR_STATE_MOISTURE_TEST:
+        return "MOISTURE_TEST";
     default:
         return "UNKNOWN";
     }
@@ -345,8 +347,8 @@ const char *beet_block_reason_name(beet_block_reason_t reason)
     switch (reason) {
     case BEET_BLOCK_REASON_NONE:
         return "NONE";
-    case BEET_BLOCK_REASON_SENSOR_DELTA_TOO_SMALL:
-        return "SENSOR_DELTA_TOO_SMALL";
+    case BEET_BLOCK_REASON_MOISTURE_RESPONSE_TEST_FAILED:
+        return "MOISTURE_RESPONSE_TEST_FAILED";
     case BEET_BLOCK_REASON_SENSOR_READING_INVALID:
         return "SENSOR_READING_INVALID";
     case BEET_BLOCK_REASON_LOW_BATTERY_ABORT:

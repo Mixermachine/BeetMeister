@@ -21,6 +21,7 @@ internal class BeetGattSessionCoordinator(
     private val commandMutex = Mutex()
     private var connectionTimeoutJob: Job? = null
     private var controllerInfoRetryJob: Job? = null
+    private val pendingMoistureTests = mutableMapOf<Int, Boolean>()
 
     fun close() {
         Log.d(TAG, "close()")
@@ -91,6 +92,23 @@ internal class BeetGattSessionCoordinator(
 
     fun manualStop(pairIndex: Int) {
         host.scope.launch { sendUserCommand(BeetJsonCodec.manualStop(pairIndex)) }
+    }
+
+    fun moistureTestStart(pairIndex: Int) {
+        host.scope.launch {
+            pendingMoistureTests[pairIndex] = false
+            runCatching { sendCommand(BeetJsonCodec.moistureTestStart(pairIndex)) }
+                .onSuccess { result ->
+                    if (result.status != "accepted") {
+                        pendingMoistureTests.remove(pairIndex)
+                    }
+                    host.setCommandMessage(messageForResult(result))
+                }
+                .onFailure { error ->
+                    pendingMoistureTests.remove(pairIndex)
+                    host.setCommandMessage(error.message ?: "Command failed.")
+                }
+        }
     }
 
     fun clearPairError(pairIndex: Int) {
@@ -347,6 +365,7 @@ internal class BeetGattSessionCoordinator(
                         },
                     )
                 }
+                handleMoistureTestState(pairState)
                 completeInitialSyncIfReady()
             }
             null -> {
@@ -389,6 +408,7 @@ internal class BeetGattSessionCoordinator(
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = null
         cancelControllerInfoRetry("disconnect gatt: $reason")
+        pendingMoistureTests.clear()
         val gatt = host.session.currentGatt
         host.session.currentGatt = null
         resetSyncState()
@@ -414,6 +434,23 @@ internal class BeetGattSessionCoordinator(
     }
 
     private fun messageForResult(result: BeetCommandResult): String = commandMessageForResult(result)
+
+    private fun handleMoistureTestState(pairState: BeetPairState) {
+        val hasSeenActiveState = pendingMoistureTests[pairState.pairIndex] ?: return
+        when {
+            pairState.state == "MOISTURE_TEST" -> {
+                pendingMoistureTests[pairState.pairIndex] = true
+            }
+            hasSeenActiveState && pairState.state == "IDLE" -> {
+                pendingMoistureTests.remove(pairState.pairIndex)
+                host.setCommandMessage("Pair ${pairState.pairIndex}: moisture response test passed.")
+            }
+            hasSeenActiveState && (pairState.blocked || pairState.state == "FAULT") -> {
+                pendingMoistureTests.remove(pairState.pairIndex)
+                host.setCommandMessage("Pair ${pairState.pairIndex}: moisture response test failed (${pairState.blockReason}).")
+            }
+        }
+    }
 
     private val gattCallback = beetGattCallback(
         onConnectionStateChange = { gatt, status, newState ->

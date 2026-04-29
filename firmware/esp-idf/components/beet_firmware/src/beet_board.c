@@ -63,6 +63,20 @@ static bool s_initialized;
 #define BEET_OLED_MAX_CHARS_PER_LINE (BEET_OLED_WIDTH / BEET_OLED_CHAR_WIDTH)
 #define BEET_OLED_COLUMN2_X 69
 
+static int beet_relay_inactive_level(void)
+{
+#if CONFIG_BEET_RELAY_ACTIVE_LOW
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+static int beet_relay_active_level(void)
+{
+    return beet_relay_inactive_level() == 0 ? 1 : 0;
+}
+
 static const uint8_t *beet_oled_glyph(char c)
 {
     static const uint8_t blank[5] = { 0, 0, 0, 0, 0 };
@@ -328,8 +342,8 @@ static esp_err_t beet_board_init_relays(void)
     gpio_config_t io_config = {
         .pin_bit_mask = pin_mask,
         .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .pull_up_en = beet_relay_inactive_level() != 0 ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE,
+        .pull_down_en = beet_relay_inactive_level() == 0 ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
 
@@ -473,14 +487,16 @@ void beet_board_deinit(void)
 void beet_board_all_relays_off(void)
 {
     for (size_t i = 0; i < BEET_PAIR_COUNT; ++i) {
-        gpio_set_level(s_pair_pins[i].relay_gpio, 0);
+        gpio_set_level(s_pair_pins[i].relay_gpio, beet_relay_inactive_level());
     }
 }
 
 esp_err_t beet_board_set_relay(uint8_t pair_index, bool enabled)
 {
     ESP_RETURN_ON_FALSE(beet_is_valid_pair_index(pair_index), ESP_ERR_INVALID_ARG, TAG, "invalid pair");
-    return gpio_set_level(s_pair_pins[pair_index - 1U].relay_gpio, enabled ? 1 : 0);
+    return gpio_set_level(
+        s_pair_pins[pair_index - 1U].relay_gpio,
+        enabled ? beet_relay_active_level() : beet_relay_inactive_level());
 }
 
 esp_err_t beet_board_set_sensor_power_enabled(bool enabled)

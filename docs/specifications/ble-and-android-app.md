@@ -170,6 +170,19 @@ This turns on the selected relay GPIO for bench and board verification while int
 }
 ```
 
+### Moisture response test start
+
+```json
+{
+  "cmd": "moisture_test_start",
+  "data": {
+    "pair": 3
+  }
+}
+```
+
+This starts the same 10-second moisture response check that is used before automatic watering, but it does not continue into a full watering cycle after a successful check.
+
 ### Reset block
 
 ```json
@@ -231,6 +244,7 @@ Accepted commands that take time to complete, such as calibration or OTA start, 
 - Commands shall be idempotent where meaningful.
 - `manual_stop` on a non-watering pair shall return `accepted` with reason `already_stopped`.
 - `relay_test_stop` on a non-tested pair shall return `accepted` with reason `already_stopped`.
+- `moisture_test_start` shall reject disabled, blocked, faulted, active, invalid-sensor, low-battery, OTA, pump-output-disabled, or no-slot pairs.
 - `reset_block` on an unblocked pair shall return `accepted` with reason `not_blocked`.
 - `manual_start` shall reject `duration_s` values below 1 second or above 1200 seconds.
 - `relay_test_start` shall reject requests while watering, OTA is in progress, or the controller is not in normal active battery state.

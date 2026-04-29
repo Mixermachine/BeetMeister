@@ -195,8 +195,11 @@ static void test_event_ring_reconstruction_and_summary(void)
     beet_event_record_t b = beet_make_event(7U, 3U, 50U);
     beet_event_record_t sleep = beet_make_sleep_event(8U, BEET_STOP_REASON_DEEP_LOW_BATTERY_SLEEP, 3260U);
     beet_event_record_t c = beet_make_event(999U, 2U, 20U);
+    beet_event_record_t test = beet_make_event(10U, 2U, 10U);
     beet_event_record_t bad = beet_make_event(8U, 4U, 15U);
 
+    test.trigger_source = BEET_RUN_SOURCE_TEST;
+    test.crc32 = beet_event_crc32(&test);
     bad.crc32 ^= 1U;
 
     beet_event_ring_reset(&state);
@@ -222,8 +225,10 @@ static void test_event_ring_reconstruction_and_summary(void)
     beet_event_ring_accumulate_summary(&bad, &event_count, totals);
     beet_event_ring_accumulate_summary(&b, &event_count, totals);
     beet_event_ring_accumulate_summary(&sleep, &event_count, totals);
-    TEST_ASSERT_U32_EQ(3U, event_count);
+    beet_event_ring_accumulate_summary(&test, &event_count, totals);
+    TEST_ASSERT_U32_EQ(4U, event_count);
     TEST_ASSERT_U32_EQ(30U, totals[0]);
+    TEST_ASSERT_U32_EQ(0U, totals[1]);
     TEST_ASSERT_U32_EQ(50U, totals[2]);
     TEST_ASSERT_U32_EQ(0U, totals[3]);
 }
@@ -260,6 +265,11 @@ static void test_ble_command_parsing(void)
         "{\"cmd\":\"relay_test_stop\",\"data\":{\"pair\":4}}", &request));
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_RELAY_TEST_STOP, request.command);
     TEST_ASSERT_U32_EQ(4U, request.pair_index);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"moisture_test_start\",\"data\":{\"pair\":5}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_MOISTURE_TEST_START, request.command);
+    TEST_ASSERT_U32_EQ(5U, request.pair_index);
 
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"manual_start\",\"data\":{\"duration_s\":1200}}", &request));
@@ -329,16 +339,32 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"relay_test_start\",\"status\":\"accepted\",\"reason\":\"relay_test_started\",\"data\":{\"pair\":2}}",
         json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_MOISTURE_TEST_START;
+    response.pair_index = 2U;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_MOISTURE_TEST_STARTED;
+    response.accepted_duration_s = BEET_SANITY_CHECK_DURATION_S;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"moisture_test_start\",\"status\":\"accepted\",\"reason\":\"moisture_test_started\",\"data\":{\"pair\":2,\"duration_s\":10}}",
+        json);
 }
 
 static void test_iface_name_mapping(void)
 {
     TEST_ASSERT_STR_EQ("manual_start", beet_iface_command_name(BEET_IFACE_COMMAND_MANUAL_START));
     TEST_ASSERT_STR_EQ("relay_test_start", beet_iface_command_name(BEET_IFACE_COMMAND_RELAY_TEST_START));
+    TEST_ASSERT_STR_EQ("moisture_test_start", beet_iface_command_name(BEET_IFACE_COMMAND_MOISTURE_TEST_START));
     TEST_ASSERT_STR_EQ("accepted", beet_iface_status_name(BEET_IFACE_STATUS_ACCEPTED));
     TEST_ASSERT_STR_EQ("invalid_duration", beet_iface_reason_name(BEET_IFACE_REASON_INVALID_DURATION));
     TEST_ASSERT_STR_EQ("relay_test_stopped", beet_iface_reason_name(BEET_IFACE_REASON_RELAY_TEST_STOPPED));
+    TEST_ASSERT_STR_EQ("moisture_test_started", beet_iface_reason_name(BEET_IFACE_REASON_MOISTURE_TEST_STARTED));
     TEST_ASSERT_STR_EQ("LOW_BATTERY_ABORT", beet_block_reason_name(BEET_BLOCK_REASON_LOW_BATTERY_ABORT));
+    TEST_ASSERT_STR_EQ(
+        "MOISTURE_RESPONSE_TEST_FAILED",
+        beet_block_reason_name(BEET_BLOCK_REASON_MOISTURE_RESPONSE_TEST_FAILED));
     TEST_ASSERT_STR_EQ("unknown", beet_iface_reason_name((beet_iface_reason_t)255));
 }
 

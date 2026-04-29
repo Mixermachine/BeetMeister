@@ -19,7 +19,7 @@ Start with the board-only measurement pass first. Use [measurement-validation-wo
 - Confirm each sensor signal goes to the intended ADC pin from the pin-assignment table.
 - Confirm the `GPIO2` battery input scales correctly on `ADC1`.
 - Confirm the displaced relay output on `GPIO14` behaves like the right-side relay outputs and remains off during boot.
-- Confirm each relay input goes to the intended relay GPIO and has an external pull-down.
+- Confirm each relay input goes to the intended relay GPIO and has an external pull-up.
 - Confirm battery divider output goes only to the dedicated battery ADC input.
 - Confirm pump wiring polarity and relay contact wiring for each pair.
 

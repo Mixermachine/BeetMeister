@@ -73,6 +73,8 @@ internal class BeetRepository(
 
     fun manualStop(pairIndex: Int) = gattSessionCoordinator.manualStop(pairIndex)
 
+    fun moistureTestStart(pairIndex: Int) = gattSessionCoordinator.moistureTestStart(pairIndex)
+
     fun clearPairError(pairIndex: Int) = gattSessionCoordinator.clearPairError(pairIndex)
 
     fun resetBlock(pairIndex: Int) = clearPairError(pairIndex)

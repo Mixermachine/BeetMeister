@@ -236,4 +236,9 @@ class BeetJsonCodecTest {
         assertEquals("""{"cmd":"disable_pair","data":{"pair":4}}""", BeetJsonCodec.disablePair(4))
         assertEquals("""{"cmd":"enable_pair","data":{"pair":4}}""", BeetJsonCodec.enablePair(4))
     }
+
+    @Test
+    fun buildsMoistureTestCommand() {
+        assertEquals("""{"cmd":"moisture_test_start","data":{"pair":4}}""", BeetJsonCodec.moistureTestStart(4))
+    }
 }

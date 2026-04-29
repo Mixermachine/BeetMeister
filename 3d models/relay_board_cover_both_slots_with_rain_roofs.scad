@@ -23,12 +23,12 @@ pcb_margin     = 5.0;    // mm border around PCB on the plate
 fit_clearance      = 0.6;   // mm clearance around rim outer size
 wall_thickness     = 3.0;   // mm side wall thickness
 top_thickness      = 3.0;   // mm top thickness
-inside_height      = 26.0;  // mm inside height from bottom edge to underside of top
+inside_height      = 35.0;  // mm inside height from bottom edge to underside of top
 
 // Primary cable slit in long side wall
 slot_side          = "front"; // "front" or "back"
-slot_x             = (pcb_width + 2 * pcb_margin) * 0.75; // position relative to INNER rim size
-slot_width         = 12.0;   // mm opening width along X
+slot_x             = (pcb_width + 2 * pcb_margin) * 0.50; // position relative to INNER rim size
+slot_width         = 100.0;   // mm opening width along X
 slot_top_z         = 10.0;   // slit is open from z=0 to this height
 
 // Secondary slit on the OPPOSING long wall, centered in the housing
@@ -38,10 +38,10 @@ control_slot_top_z   = 12.0;  // open from z=0 to this height
 
 // Rain roof above both slits
 roof_clearance       = 1.0;    // gap from slit top to roof underside
-roof_projection      = 6.0;    // how far roof sticks out
+roof_projection      = 3.0;    // how far roof sticks out
 roof_drop            = 6.0;    // how much outer edge drops
 roof_thickness       = 2.0;    // roof material thickness
-roof_side_margin     = 2.5;    // extra width beyond slit
+roof_side_margin     = 8;    // extra width beyond slit
 roof_cheek_thickness = 1.8;    // side cheek thickness
 
 // Optional small overhang lip near the bottom for a cleaner look

@@ -70,8 +70,8 @@ These are preferred for later expansion because they are not strapping pins, are
 
 ## Relay and pump design rules
 
-- The relay board shall expose eight individually driven active-high control inputs.
-- Each relay input shall have an external pull-down so the relay remains off through ESP32 reset and boot.
+- The baseline relay board shall expose eight individually driven active-low control inputs.
+- Each relay input shall have an external pull-up so the relay remains off through ESP32 reset and boot.
 - The controller may expose an app-driven relay test mode that toggles relay GPIOs while keeping the boost converter disabled.
 - Relay outputs shall default to off in hardware and again in firmware at the first executable point.
 - Pump current and relay-coil current budgets shall be validated against the selected power rail before enabling three-pump concurrency.

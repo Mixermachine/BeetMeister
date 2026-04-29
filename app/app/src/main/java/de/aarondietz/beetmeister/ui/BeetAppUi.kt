@@ -193,6 +193,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                         onToggleEnabled = viewModel::togglePairEnabled,
                         onManualStart = viewModel::manualStart,
                         onManualStop = viewModel::manualStop,
+                        onMoistureTestStart = viewModel::moistureTestStart,
                         onClearError = viewModel::clearPairError,
                         modifier = Modifier.fillMaxSize(),
                     )

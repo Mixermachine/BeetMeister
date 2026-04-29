@@ -59,6 +59,7 @@ typedef enum {
     BEET_PAIR_STATE_BLOCKED = 4,
     BEET_PAIR_STATE_FAULT = 5,
     BEET_PAIR_STATE_DISABLED = 6,
+    BEET_PAIR_STATE_MOISTURE_TEST = 7,
 } beet_pair_state_t;
 
 typedef enum {
@@ -78,6 +79,7 @@ typedef enum {
     BEET_RUN_SOURCE_NONE = 0,
     BEET_RUN_SOURCE_AUTOMATIC = 1,
     BEET_RUN_SOURCE_MANUAL = 2,
+    BEET_RUN_SOURCE_TEST = 3,
 } beet_run_source_t;
 
 typedef enum {
@@ -87,7 +89,7 @@ typedef enum {
 
 typedef enum {
     BEET_BLOCK_REASON_NONE = 0,
-    BEET_BLOCK_REASON_SENSOR_DELTA_TOO_SMALL = 1,
+    BEET_BLOCK_REASON_MOISTURE_RESPONSE_TEST_FAILED = 1,
     BEET_BLOCK_REASON_SENSOR_READING_INVALID = 2,
     BEET_BLOCK_REASON_LOW_BATTERY_ABORT = 3,
 } beet_block_reason_t;

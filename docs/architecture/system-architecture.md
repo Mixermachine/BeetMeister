@@ -92,5 +92,6 @@ At pair level the controller state shall be one of:
 - `WATERING` (`RUN`)
 - `BLOCKED` (`BLKD`)
 - `FAULT` (`FLT`)
+- `MOISTURE_TEST` (`TEST`)
 
 No other externally visible pair state names are allowed in MQTT, BLE, hardware notes, or test plans unless this document is revised first.

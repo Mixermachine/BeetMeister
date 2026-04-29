@@ -39,10 +39,15 @@ internal fun PairDetailScreen(
     onToggleEnabled: (Int) -> Unit,
     onManualStart: (Int, Int?) -> Unit,
     onManualStop: (Int) -> Unit,
+    onMoistureTestStart: (Int) -> Unit,
     onClearError: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var durationText by rememberSaveable(pairState.pairIndex) { mutableStateOf("") }
+    val canStartMoistureTest = pairState.enabled &&
+        pairState.sensorValid &&
+        !pairState.blocked &&
+        pairState.state !in setOf("FAULT", "WATERING", "SANITY_CHECK", "MOISTURE_TEST", "WAITING_FOR_SLOT")
 
     LazyColumn(
         modifier = modifier,
@@ -120,6 +125,28 @@ internal fun PairDetailScreen(
                             canClearError = pairState.sensorValid && (pairState.blocked || pairState.state == "FAULT"),
                             onClear = { onClearError(pairState.pairIndex) },
                         )
+                    }
+                }
+            }
+        }
+        item {
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF0E7DA)),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Irrigation detection", style = MaterialTheme.typography.titleLarge)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Runs the short moisture response check without starting a full watering cycle.",
+                        color = Color(0xFF545454),
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { onMoistureTestStart(pairState.pairIndex) },
+                        enabled = canStartMoistureTest,
+                    ) {
+                        Text(if (pairState.state == "MOISTURE_TEST") "Testing..." else "Test detection")
                     }
                 }
             }

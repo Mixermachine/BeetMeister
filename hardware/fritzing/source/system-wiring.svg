@@ -31,7 +31,7 @@
 <text x="1300" y="212" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" fill="#0369a1" text-anchor="middle">SDA GPIO11 / SCL GPIO12</text>
 <rect x="1090" y="290" width="390" height="270" rx="24" fill="#fce7f3" stroke="#be185d" stroke-width="2"/>
 <text x="1285" y="330" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700" fill="#be185d" text-anchor="middle">8-Channel Relay Board</text>
-<text x="1285" y="360" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" fill="#be185d" text-anchor="middle">IN1..IN8 active-high / external pull-downs</text>
+<text x="1285" y="360" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" fill="#be185d" text-anchor="middle">IN1..IN8 active-low / external pull-ups</text>
 <text x="1285" y="388" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#9d174d" text-anchor="middle">Relay 1 GPIO14  Relay 2 GPIO21  Relay 3 GPIO47  Relay 4 GPIO38</text>
 <text x="1285" y="410" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="400" fill="#9d174d" text-anchor="middle">Relay 5 GPIO39  Relay 6 GPIO40  Relay 7 GPIO41  Relay 8 GPIO42</text>
 <rect x="1080" y="600" width="400" height="220" rx="24" fill="#fae8ff" stroke="#7e22ce" stroke-width="2"/>

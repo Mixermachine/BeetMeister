@@ -92,6 +92,14 @@ menu "BeetMeister Configuration"
         help
             GPIO used to enable the pump and relay DC-DC boost converter.
 
+    config BEET_RELAY_ACTIVE_LOW
+        bool "Relay inputs are active-low"
+        default y
+        help
+            When enabled, driving a relay GPIO low energizes the corresponding relay input and
+            driving it high leaves the relay off. Disable this only for relay boards that are
+            electrically active-high.
+
     config BEET_ENABLE_OLED_DISPLAY
         bool "Enable SSD1306 OLED status display"
         default y
@@ -125,10 +133,10 @@ menu "BeetMeister Configuration"
 
     config BEET_ENABLE_PUMP_OUTPUTS
         bool "Enable live pump output actuation"
-        default n
+        default y
         help
-            Keep this disabled during bench bring-up. When disabled, the controller still evaluates
-            sensors and scheduler timing but will not energize relay outputs for watering.
+            Enable this for normal controller operation so watering commands energize relay
+            outputs. Disable it only during bench bring-up when pump actuation must be suppressed.
 
     config BEET_ENABLE_BENCH_DIAGNOSTICS
         bool "Enable bench diagnostics logging"

@@ -14,6 +14,8 @@ static const char *beet_ble_run_source_name(beet_run_source_t source)
         return "AUTOMATIC";
     case BEET_RUN_SOURCE_MANUAL:
         return "MANUAL";
+    case BEET_RUN_SOURCE_TEST:
+        return "TEST";
     case BEET_RUN_SOURCE_NONE:
     default:
         return "NONE";
@@ -424,6 +426,15 @@ bool beet_ble_parse_command_json(
 
     if (strcmp(cmd, "relay_test_stop") == 0) {
         request->command = BEET_IFACE_COMMAND_RELAY_TEST_STOP;
+        if (!beet_ble_extract_u16(data_json, "pair", &pair_index)) {
+            return false;
+        }
+        request->pair_index = (uint8_t)pair_index;
+        return true;
+    }
+
+    if (strcmp(cmd, "moisture_test_start") == 0) {
+        request->command = BEET_IFACE_COMMAND_MOISTURE_TEST_START;
         if (!beet_ble_extract_u16(data_json, "pair", &pair_index)) {
             return false;
         }

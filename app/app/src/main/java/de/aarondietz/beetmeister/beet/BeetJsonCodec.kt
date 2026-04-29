@@ -131,6 +131,14 @@ object BeetJsonCodec {
             ),
         )
 
+    fun moistureTestStart(pairIndex: Int): String =
+        pairRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "moisture_test_start",
+                data = BeetPairCommandData(pairIndex = pairIndex),
+            ),
+        )
+
     fun storeCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int): String =
         calibrationRequestEnvelopeAdapter.toJson(
             CommandRequestEnvelopeDto(

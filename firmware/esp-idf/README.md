@@ -36,10 +36,10 @@ It now contains the first real controller foundation rather than the temporary b
 - `manual_start` accepts an optional per-command `duration_s` override in the range `1..1200`.
 - The transport is built on the shared internal interface layer so the same command and state model can later be reused for MQTT.
 
-## Safety defaults
+## Pump output default
 
-- Live pump actuation is disabled by default through `CONFIG_BEET_ENABLE_PUMP_OUTPUTS=n`.
-- The flashed image will evaluate and log watering need, but it will not energize relays until that Kconfig flag is enabled explicitly.
+- Live pump actuation is enabled by default through `CONFIG_BEET_ENABLE_PUMP_OUTPUTS=y`.
+- Disable that Kconfig flag only for bench bring-up runs where the controller should evaluate watering need without energizing relays.
 - Relay self-test is also disabled by default and must be enabled explicitly through `CONFIG_BEET_ENABLE_RELAY_SELF_TEST`.
 
 ## Bench bring-up behavior

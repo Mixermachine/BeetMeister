@@ -17,7 +17,7 @@ $fn = 72;
 pcb_width              = 135.5;   // X
 pcb_depth              = 52.5;    // Y
 pcb_hole_edge_offset   = 3.0;     // from each PCB edge
-pcb_hole_d             = 1.8;     // M3-ish clearance
+pcb_hole_d             = 1.9;     // M3-ish clearance
 
 // Clearance for solder joints / underside components
 standoff_height        = 4.0;     // gives extra bottom clearance
@@ -27,13 +27,13 @@ standoff_diameter      = 7.5;
 plate_thickness        = 4.0;
 original_hole_spacing  = 27.313;
 original_hole_count    = 6;
-original_hole_d        = 1.8;
+original_hole_d        = 1.9;
 
 // Existing front mounting-lug geometry from your file
 mount_hole_front_margin = 0.0;    // Y distance from front edge to original-hole center
 mount_pad_diameter      = 10.0;   // rounded material around each original hole
 mount_neck_diameter     = 10.0;   // narrow rounded neck connecting each lug to body
-mount_body_start_y      = 20.0;   // where the full relay-board plate body begins
+mount_body_start_y      = 22.0;   // where the full relay-board plate body begins
 
 // Mirrored rear lugs
 rear_lugs_enabled       = true;

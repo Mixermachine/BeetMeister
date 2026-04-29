@@ -29,6 +29,8 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "disable_pair";
     case BEET_IFACE_COMMAND_ENABLE_PAIR:
         return "enable_pair";
+    case BEET_IFACE_COMMAND_MOISTURE_TEST_START:
+        return "moisture_test_start";
     default:
         return "unknown";
     }
@@ -103,6 +105,8 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "relay_test_started";
     case BEET_IFACE_REASON_RELAY_TEST_STOPPED:
         return "relay_test_stopped";
+    case BEET_IFACE_REASON_MOISTURE_TEST_STARTED:
+        return "moisture_test_started";
     default:
         return "unknown";
     }

@@ -120,14 +120,14 @@ Each pair number binds the relay and moisture pin at the same position in those 
 | Future local UI / BLE bond-admit button | GPIO13 | Left header, reserved digital input for later short-press and long-press controls plus bond admission |
 | Sensor power enable | GPIO15 | Left header, digital output for the shared moisture sensor supply rail |
 | Boost converter enable | GPIO16 | Left header, digital output for the pump and relay DC-DC converter |
-| Relay pair 1 | GPIO14 | Left header, digital output, external pull-down, paired with moisture on `GPIO10` |
-| Relay pair 2 | GPIO21 | Right header, digital output, external pull-down, paired with moisture on `GPIO9` |
-| Relay pair 3 | GPIO47 | Right header, digital output, external pull-down, paired with moisture on `GPIO8` |
-| Relay pair 4 | GPIO38 | Right header, digital output, external pull-down, paired with moisture on `GPIO7` |
-| Relay pair 5 | GPIO39 | Right header, digital output, external pull-down, paired with moisture on `GPIO6` |
-| Relay pair 6 | GPIO40 | Right header, digital output, external pull-down, paired with moisture on `GPIO5` |
-| Relay pair 7 | GPIO41 | Right header, digital output, external pull-down, paired with moisture on `GPIO4` |
-| Relay pair 8 | GPIO42 | Right header, digital output, external pull-down, paired with moisture on `GPIO1` |
+| Relay pair 1 | GPIO14 | Left header, digital output, external pull-up, paired with moisture on `GPIO10` |
+| Relay pair 2 | GPIO21 | Right header, digital output, external pull-up, paired with moisture on `GPIO9` |
+| Relay pair 3 | GPIO47 | Right header, digital output, external pull-up, paired with moisture on `GPIO8` |
+| Relay pair 4 | GPIO38 | Right header, digital output, external pull-up, paired with moisture on `GPIO7` |
+| Relay pair 5 | GPIO39 | Right header, digital output, external pull-up, paired with moisture on `GPIO6` |
+| Relay pair 6 | GPIO40 | Right header, digital output, external pull-up, paired with moisture on `GPIO5` |
+| Relay pair 7 | GPIO41 | Right header, digital output, external pull-up, paired with moisture on `GPIO4` |
+| Relay pair 8 | GPIO42 | Right header, digital output, external pull-up, paired with moisture on `GPIO1` |
 | USB D- | GPIO19 | Reserved for USB |
 | USB D+ | GPIO20 | Reserved for USB |
 | Onboard RGB LED | GPIO48 | Reserved, do not use externally |
