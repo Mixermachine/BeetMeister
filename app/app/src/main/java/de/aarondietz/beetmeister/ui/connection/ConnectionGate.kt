@@ -1,6 +1,5 @@
 package de.aarondietz.beetmeister.ui.connection
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,13 +30,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.beet.BeetConnectionPhase
 import de.aarondietz.beetmeister.beet.BeetDiscoveredDevice
 import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.ui.composable.BeetMeisterLogo
 import de.aarondietz.beetmeister.ui.formatting.bondStateLabel
 
 @Composable
@@ -76,11 +75,7 @@ internal fun ConnectionGate(
                 .align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Canvas(modifier = Modifier.size(120.dp)) {
-                drawCircle(Color(0xFF46663E))
-                drawCircle(Color(0xFFD2E5B6), radius = size.minDimension * 0.3f)
-                drawCircle(Color(0xFFB7D487), radius = size.minDimension * 0.45f, style = Stroke(width = 8f))
-            }
+            BeetMeisterLogo(modifier = Modifier.size(120.dp))
             Text(
                 text = "BeetMeister",
                 style = MaterialTheme.typography.headlineLarge,

@@ -4,7 +4,7 @@
 <br />
 <div align="center">
   <a href="https://github.com/Mixermachine/BeetMeister">
-    <img src="docs/media/github-icon.png" alt="BeetMeister Logo" width="160" height="160">
+    <img src="docs/media/github-logo.png" alt="BeetMeister Logo" width="160" height="160">
   </a>
 
   <h3 align="center">BeetMeister</h3>
