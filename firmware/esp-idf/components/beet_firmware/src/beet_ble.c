@@ -24,8 +24,10 @@
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
+#include "host/store/ble_store.h"
 #include "store/config/ble_store_config.h"
 #include "beet_ble_codec.h"
+#include "beet_ble_guard.h"
 #include "beet_iface.h"
 
 static const char *TAG = "beet_ble";
@@ -33,8 +35,11 @@ static const char *TAG = "beet_ble";
 #define BEET_BLE_PROTOCOL_VERSION 4U
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
 #define BEET_BLE_JSON_MAX_LEN 320U
+#define BEET_BLE_COMMAND_RATE_WINDOW_US (1000000LL)
+#define BEET_BLE_COMMAND_RATE_MAX_PER_WINDOW 4U
 #define BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US (30LL * 1000000LL)
 #define BEET_BLE_PAIRING_CODE_MAX 1000000U
+#define BEET_BLE_BOND_SCAN_CAPACITY 16U
 
 typedef struct {
     bool initialized;
@@ -61,6 +66,7 @@ typedef struct {
     uint32_t pairing_display_passkey;
     int64_t pairing_display_expires_at_us;
     int64_t last_activity_us;
+    beet_ble_rate_guard_t command_rate_guard;
     beet_ble_system_event_callback_t system_event_callback;
 } beet_ble_state_t;
 
@@ -102,6 +108,10 @@ static void beet_ble_set_pairing_display(uint16_t conn_handle, uint32_t passkey)
 static void beet_ble_fill_pairing_display(beet_ble_pairing_display_t *display);
 static void beet_ble_service_pairing_display(void);
 static void beet_ble_mark_activity(void);
+static bool beet_ble_allow_command_now(void);
+static void beet_ble_set_immediate_rejection(
+    const beet_iface_command_request_t *request,
+    beet_iface_reason_t reason);
 static void beet_ble_emit_system_event(
     beet_system_event_type_t type,
     uint16_t reason,
@@ -289,8 +299,16 @@ static int beet_ble_write_control_point(struct ble_gatt_access_ctxt *ctxt)
         return BLE_ATT_ERR_UNLIKELY;
     }
 
+    if (!beet_ble_allow_command_now()) {
+        beet_ble_set_immediate_rejection(&request, BEET_IFACE_REASON_RATE_LIMITED);
+        beet_ble_mark_activity();
+        return 0;
+    }
+
     if (xQueueSend(s_ble.command_queue, &request, 0) != pdTRUE) {
-        return BLE_ATT_ERR_INSUFFICIENT_RES;
+        beet_ble_set_immediate_rejection(&request, BEET_IFACE_REASON_BUSY);
+        beet_ble_mark_activity();
+        return 0;
     }
 
     beet_ble_mark_activity();
@@ -351,10 +369,9 @@ static void beet_ble_clear_pairing_display(const char *reason)
 
     ESP_LOGI(
         TAG,
-        "pairing display cleared reason=%s handle=%u passkey=%06" PRIu32,
+        "pairing display cleared reason=%s handle=%u",
         reason,
-        (unsigned)s_ble.pairing_display_conn_handle,
-        s_ble.pairing_display_passkey);
+        (unsigned)s_ble.pairing_display_conn_handle);
     s_ble.pairing_display_active = false;
     s_ble.pairing_display_conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s_ble.pairing_display_passkey = 0U;
@@ -369,9 +386,8 @@ static void beet_ble_set_pairing_display(uint16_t conn_handle, uint32_t passkey)
     s_ble.pairing_display_expires_at_us = esp_timer_get_time() + BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US;
     ESP_LOGI(
         TAG,
-        "pairing display active handle=%u passkey=%06" PRIu32 " timeout_s=30",
-        (unsigned)conn_handle,
-        passkey);
+        "pairing display active handle=%u timeout_s=30",
+        (unsigned)conn_handle);
 }
 
 static void beet_ble_fill_pairing_display(beet_ble_pairing_display_t *display)
@@ -430,6 +446,19 @@ static void beet_ble_service_pairing_display(void)
 static void beet_ble_mark_activity(void)
 {
     s_ble.last_activity_us = esp_timer_get_time();
+}
+
+static bool beet_ble_allow_command_now(void)
+{
+    return beet_ble_rate_guard_allow(&s_ble.command_rate_guard, esp_timer_get_time());
+}
+
+static void beet_ble_set_immediate_rejection(
+    const beet_iface_command_request_t *request,
+    beet_iface_reason_t reason)
+{
+    beet_ble_build_rejection(request, reason, &s_ble.pending_result);
+    s_ble.pending_result_valid = true;
 }
 
 static void beet_ble_emit_system_event(
@@ -913,6 +942,10 @@ esp_err_t beet_ble_init(const char *device_name)
 
     memset(&s_ble, 0, sizeof(s_ble));
     s_ble.conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    beet_ble_rate_guard_init(
+        &s_ble.command_rate_guard,
+        BEET_BLE_COMMAND_RATE_WINDOW_US,
+        BEET_BLE_COMMAND_RATE_MAX_PER_WINDOW);
     s_ble.command_queue = xQueueCreate(BEET_BLE_COMMAND_QUEUE_LEN, sizeof(beet_iface_command_request_t));
     ESP_RETURN_ON_FALSE(s_ble.command_queue != NULL, ESP_ERR_NO_MEM, TAG, "ble queue create failed");
     strncpy(s_ble.device_name, device_name, sizeof(s_ble.device_name) - 1U);
@@ -994,6 +1027,46 @@ void beet_ble_set_enabled(bool enabled)
 void beet_ble_set_system_event_callback(beet_ble_system_event_callback_t callback)
 {
     s_ble.system_event_callback = callback;
+}
+
+esp_err_t beet_ble_clear_bonds(uint16_t *removed_count)
+{
+    ble_addr_t bonded_peers[BEET_BLE_BOND_SCAN_CAPACITY];
+    int peer_count = 0;
+    bool truncated = false;
+    int rc;
+
+    ESP_RETURN_ON_FALSE(s_ble.initialized, ESP_ERR_INVALID_STATE, TAG, "ble not initialized");
+
+    rc = ble_store_util_bonded_peers(
+        bonded_peers,
+        &peer_count,
+        (int)BEET_BLE_BOND_SCAN_CAPACITY);
+    if (rc != 0 && rc != BLE_HS_ENOMEM) {
+        ESP_LOGW(TAG, "bonded peer enumeration failed rc=%d", rc);
+        return ESP_FAIL;
+    }
+    truncated = (rc == BLE_HS_ENOMEM);
+
+    rc = ble_store_clear();
+    if (rc != 0) {
+        ESP_LOGW(TAG, "bond clear failed rc=%d", rc);
+        return ESP_FAIL;
+    }
+
+    if (removed_count != NULL) {
+        *removed_count = (uint16_t)(truncated ? BEET_BLE_BOND_SCAN_CAPACITY : peer_count);
+    }
+
+    s_ble.bonded = false;
+    s_ble.state_stream_subscribed = false;
+    s_ble.command_result_subscribed = false;
+    s_ble.have_last_device_state = false;
+    s_ble.have_last_pair_states = false;
+    s_ble.initial_sync_pending = false;
+    beet_ble_clear_pairing_display("bonds_cleared");
+    beet_ble_disconnect();
+    return ESP_OK;
 }
 
 void beet_ble_publish_system_event(const beet_system_event_record_t *event)

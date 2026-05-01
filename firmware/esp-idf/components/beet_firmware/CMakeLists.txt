@@ -3,6 +3,7 @@ idf_component_register(
         "src/beet_board.c"
         "src/beet_ble.c"
         "src/beet_ble_codec.c"
+        "src/beet_ble_guard.c"
         "src/beet_controller.c"
         "src/beet_core.c"
         "src/beet_event_ring.c"

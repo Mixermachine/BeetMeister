@@ -15,6 +15,7 @@ add_executable(
     beet_host_tests
     ${CMAKE_CURRENT_LIST_DIR}/host_tests.c
     ${FW_ROOT}/src/beet_ble_codec.c
+    ${FW_ROOT}/src/beet_ble_guard.c
     ${FW_ROOT}/src/beet_core.c
     ${FW_ROOT}/src/beet_event_ring.c
     ${FW_ROOT}/src/beet_iface_names.c

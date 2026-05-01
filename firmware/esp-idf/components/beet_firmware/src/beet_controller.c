@@ -1702,12 +1702,15 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_CALIBRATION_SAVED;
         return ESP_OK;
 
-    case BEET_IFACE_COMMAND_CLEAR_BLE_BONDS:
+    case BEET_IFACE_COMMAND_CLEAR_BLE_BONDS: {
+        uint16_t removed_bonds = 0U;
         beet_mark_activity(now_us);
+        ESP_RETURN_ON_ERROR(beet_ble_clear_bonds(&removed_bonds), TAG, "clear ble bonds failed");
         beet_log_system_event(BEET_SYSTEM_EVENT_BLE_BONDS_CLEARED, 0U, NULL, 0U, false, 0U);
         response->status = BEET_IFACE_STATUS_ACCEPTED;
-        response->reason = BEET_IFACE_REASON_NO_BONDS;
+        response->reason = removed_bonds > 0U ? BEET_IFACE_REASON_BONDS_CLEARED : BEET_IFACE_REASON_NO_BONDS;
         return ESP_OK;
+    }
 
     case BEET_IFACE_COMMAND_GET_CALIBRATION:
         if (!beet_is_valid_pair_index(request->pair_index)) {

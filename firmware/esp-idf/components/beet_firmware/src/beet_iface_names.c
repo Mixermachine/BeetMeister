@@ -121,6 +121,10 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "time_updated";
     case BEET_IFACE_REASON_INVALID_TIME:
         return "invalid_time";
+    case BEET_IFACE_REASON_BUSY:
+        return "busy";
+    case BEET_IFACE_REASON_RATE_LIMITED:
+        return "rate_limited";
     default:
         return "unknown";
     }

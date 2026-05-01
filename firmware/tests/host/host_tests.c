@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "beet_ble_codec.h"
+#include "beet_ble_guard.h"
 #include "beet_event_ring.h"
 #include "beet_iface.h"
 #include "beet_types.h"
@@ -311,10 +312,67 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_MOISTURE_TEST_START, request.command);
     TEST_ASSERT_U32_EQ(5U, request.pair_index);
 
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"clear_ble_bonds\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_CLEAR_BLE_BONDS, request.command);
+
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"manual_start\",\"data\":{\"duration_s\":1200}}", &request));
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_watering_history_summary\",\"data\":{}}", &request));
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_watering_event\",\"data\":{\"seq_no\":42}}", &request));
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"manual_start\",\"data\":{\"pair\":3,\"duration_s\":10},\"x\":1}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_MANUAL_START, request.command);
+    TEST_ASSERT_U32_EQ(3U, request.pair_index);
+    TEST_ASSERT_TRUE(request.has_duration_s);
+    TEST_ASSERT_U32_EQ(10U, request.duration_s);
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"manual_start\",\"data\":{\"pair\":3,\"duration_s\":10,\"future\":{}}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_MANUAL_START, request.command);
+    TEST_ASSERT_U32_EQ(3U, request.pair_index);
+    TEST_ASSERT_TRUE(request.has_duration_s);
+    TEST_ASSERT_U32_EQ(10U, request.duration_s);
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"manual_start\",\"data\":{\"pair\":3,\"duration_s\":10},\"data\":{}}", &request));
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"manual_start\",\"data\":{\"pair\":3,\"pair\":4}}", &request));
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"manual_start\",\"data\":{\"pair\":3,\"duration_s\":10}} trailing", &request));
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"unknown\",\"data\":{\"pair\":1}}", &request));
+}
+
+static void test_ble_rate_guard_windowing(void)
+{
+    beet_ble_rate_guard_t guard;
+
+    beet_ble_rate_guard_init(&guard, 1000000LL, 2U);
+    TEST_ASSERT_TRUE(beet_ble_rate_guard_allow(&guard, 1000LL));
+    TEST_ASSERT_TRUE(beet_ble_rate_guard_allow(&guard, 2000LL));
+    TEST_ASSERT_FALSE(beet_ble_rate_guard_allow(&guard, 3000LL));
+    TEST_ASSERT_TRUE(beet_ble_rate_guard_allow(&guard, 1003000LL));
+}
+
+static void test_ble_rejection_response_builder(void)
+{
+    beet_iface_command_request_t request;
+    beet_iface_command_response_t response;
+
+    memset(&request, 0, sizeof(request));
+    memset(&response, 0, sizeof(response));
+    request.command = BEET_IFACE_COMMAND_MANUAL_START;
+    request.pair_index = 3U;
+
+    beet_ble_build_rejection(&request, BEET_IFACE_REASON_BUSY, &response);
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_MANUAL_START, response.command);
+    TEST_ASSERT_U32_EQ(3U, response.pair_index);
+    TEST_ASSERT_U32_EQ(BEET_IFACE_STATUS_REJECTED, response.status);
+    TEST_ASSERT_U32_EQ(BEET_IFACE_REASON_BUSY, response.reason);
+
+    beet_ble_build_rejection(&request, BEET_IFACE_REASON_RATE_LIMITED, &response);
+    TEST_ASSERT_U32_EQ(BEET_IFACE_REASON_RATE_LIMITED, response.reason);
 }
 
 static void test_ble_json_formatting(void)
@@ -410,6 +468,8 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ("moisture_test_started", beet_iface_reason_name(BEET_IFACE_REASON_MOISTURE_TEST_STARTED));
     TEST_ASSERT_STR_EQ("set_time", beet_iface_command_name(BEET_IFACE_COMMAND_SET_TIME));
     TEST_ASSERT_STR_EQ("time_updated", beet_iface_reason_name(BEET_IFACE_REASON_TIME_UPDATED));
+    TEST_ASSERT_STR_EQ("busy", beet_iface_reason_name(BEET_IFACE_REASON_BUSY));
+    TEST_ASSERT_STR_EQ("rate_limited", beet_iface_reason_name(BEET_IFACE_REASON_RATE_LIMITED));
     TEST_ASSERT_STR_EQ("LOW_BATTERY_ABORT", beet_block_reason_name(BEET_BLOCK_REASON_LOW_BATTERY_ABORT));
     TEST_ASSERT_STR_EQ(
         "MOISTURE_RESPONSE_TEST_FAILED",
@@ -428,6 +488,8 @@ int main(void)
         {"event_record_validation", test_event_record_validation},
         {"event_ring_reconstruction_and_summary", test_event_ring_reconstruction_and_summary},
         {"ble_command_parsing", test_ble_command_parsing},
+        {"ble_rate_guard_windowing", test_ble_rate_guard_windowing},
+        {"ble_rejection_response_builder", test_ble_rejection_response_builder},
         {"ble_json_formatting", test_ble_json_formatting},
         {"iface_name_mapping", test_iface_name_mapping},
     };
