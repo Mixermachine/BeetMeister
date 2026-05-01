@@ -221,6 +221,14 @@ object BeetJsonCodec {
             ),
         )
 
+    fun clearBleBonds(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "clear_ble_bonds",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
     fun wateringEventToJson(event: BeetWateringEvent): String = wateringEventPayloadAdapter.toJson(event)
 
     fun wateringEventFromJson(json: String): BeetWateringEvent? = wateringEventPayloadAdapter.fromJson(json)

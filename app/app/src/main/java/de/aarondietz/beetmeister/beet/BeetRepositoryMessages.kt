@@ -11,6 +11,12 @@ internal fun commandMessageForResult(result: BeetCommandResult): String {
             "Pair ${result.pairIndex} disabled."
         result.command == "enable_pair" && result.pairIndex != null ->
             "Pair ${result.pairIndex} enabled."
+        result.command == "clear_ble_bonds" ->
+            when (result.reason) {
+                "bonds_cleared" -> "Bluetooth bonds cleared."
+                "no_bonds" -> "No Bluetooth bonds to clear."
+                else -> base
+            }
         result.command == "reset_block" && result.pairIndex != null ->
             "Pair ${result.pairIndex}: $base."
         result.pairIndex != null -> "Pair ${result.pairIndex}: $base."
@@ -33,6 +39,8 @@ private fun reasonLabel(reason: String): String = when (reason) {
     "invalid_calibration" -> "Invalid calibration values"
     "invalid_duration" -> "Invalid duration"
     "ota_in_progress" -> "OTA is in progress"
+    "bonds_cleared" -> "Bluetooth bonds cleared"
+    "no_bonds" -> "No Bluetooth bonds to clear"
     "outputs_disabled" -> "Pump outputs are disabled"
     "sensor_invalid" -> "Sensor reading is invalid"
     "already_active" -> "Already active"
@@ -43,5 +51,7 @@ private fun reasonLabel(reason: String): String = when (reason) {
     "moisture_test_started" -> "Moisture response test started"
     "time_updated" -> "Controller time updated"
     "invalid_time" -> "Invalid controller time"
+    "busy" -> "Controller is busy"
+    "rate_limited" -> "Too many commands; try again"
     else -> reason.replace('_', ' ').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 }

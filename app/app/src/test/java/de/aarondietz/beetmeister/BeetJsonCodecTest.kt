@@ -299,4 +299,9 @@ class BeetJsonCodecTest {
     fun buildsSetTimeCommand() {
         assertEquals("""{"cmd":"set_time","data":{"unix_s":1714412345}}""", BeetJsonCodec.setTime(1714412345))
     }
+
+    @Test
+    fun buildsClearBleBondsCommand() {
+        assertEquals("""{"cmd":"clear_ble_bonds","data":{}}""", BeetJsonCodec.clearBleBonds())
+    }
 }
