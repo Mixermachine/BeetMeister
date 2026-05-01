@@ -1,0 +1,7 @@
+# Release profile for firmware distribution builds.
+#
+# Deliberate exception for this cycle:
+# - No flash/NVS encryption enforcement yet.
+# - No secure boot enforcement yet.
+
+CONFIG_BEET_ENABLE_BENCH_DIAGNOSTICS=n

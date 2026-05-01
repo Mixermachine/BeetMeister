@@ -31,9 +31,25 @@ It now contains the first real controller foundation rather than the temporary b
 - Implemented BLE commands:
   - `manual_start`
   - `manual_stop`
+  - `moisture_test_start`
   - `reset_block`
   - `store_calibration`
+  - `get_calibration`
+  - `get_history_summary`
+  - `get_event`
+  - `get_system_history_summary`
+  - `get_system_event`
+  - `set_time`
+  - `disable_pair`
+  - `enable_pair`
+  - `clear_ble_bonds`
 - `manual_start` accepts an optional per-command `duration_s` override in the range `1..1200`.
+- `clear_ble_bonds` now clears stored NimBLE bonds. Command result reason is:
+  - `bonds_cleared` when at least one stored bond was removed
+  - `no_bonds` when none were stored
+- BLE command parsing is strict and canonical:
+  - unknown keys, duplicate keys, malformed numeric fields, and trailing payload bytes are rejected
+  - legacy aliases such as `get_watering_history_summary` and `get_watering_event` are not accepted
 - The transport is built on the shared internal interface layer so the same command and state model can later be reused for MQTT.
 
 ## Pump output default
@@ -51,7 +67,7 @@ It now contains the first real controller foundation rather than the temporary b
 - Battery scaling uses a clean two-stage model:
   - measured divider factor on `GPIO2`
   - battery-path calibration factor
-- Bench diagnostics are enabled by default and emit lines such as:
+- Bench diagnostics emit lines such as:
   - `bench battery raw=... sensed_mv=... divider_mv=... scaled_mv=... filtered_mv=...`
   - `bench pair=... relay_gpio=... moisture_gpio=... raw=... mv=... corrected_mv=... pct=...`
 - Moisture conversion uses a sane default calibration for every pair even before app-side calibration exists.
@@ -69,6 +85,17 @@ cd C:\git\BeetMeister\firmware\esp-idf
 powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 build
 powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM7 flash
 ```
+
+For release-profile builds (bench diagnostics disabled by default):
+
+```powershell
+cd C:\git\BeetMeister\firmware\esp-idf
+$env:SDKCONFIG_DEFAULTS = "sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.release.defaults"
+powershell -ExecutionPolicy Bypass -File ..\..\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 build
+powershell -ExecutionPolicy Bypass -File ..\..\scripts\dev\verify-firmware-release-config.ps1 -SdkconfigPath .\sdkconfig
+```
+
+Current release profile intentionally does **not** enforce flash encryption or secure boot.
 
 For serial logs:
 
