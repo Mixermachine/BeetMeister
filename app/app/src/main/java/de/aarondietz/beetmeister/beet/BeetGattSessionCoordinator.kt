@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import java.nio.charset.StandardCharsets
+import kotlin.math.max
 
 internal class BeetGattSessionCoordinator(
     private val host: BeetRepositoryCallbacks,
@@ -23,6 +24,8 @@ internal class BeetGattSessionCoordinator(
     private var connectionTimeoutJob: Job? = null
     private var controllerInfoRetryJob: Job? = null
     private var eventSyncJob: Job? = null
+    @Volatile
+    private var syncPauseRequested = false
     private val pendingMoistureTests = mutableMapOf<Int, Boolean>()
 
     fun close() {
@@ -76,7 +79,9 @@ internal class BeetGattSessionCoordinator(
     fun moistureTestStart(pairIndex: Int) {
         host.scope.launch {
             pendingMoistureTests[pairIndex] = false
-            runCatching { sendCommand(BeetJsonCodec.moistureTestStart(pairIndex)) }
+            runCatching {
+                withSyncPausedForCommand { sendCommand(BeetJsonCodec.moistureTestStart(pairIndex)) }
+            }
                 .onSuccess { result ->
                     if (result.status != "accepted") {
                         pendingMoistureTests.remove(pairIndex)
@@ -140,9 +145,25 @@ internal class BeetGattSessionCoordinator(
     }
 
     private suspend fun sendUserCommand(payload: String) {
-        runCatching { sendCommand(payload) }
+        runCatching { withSyncPausedForCommand { sendCommand(payload) } }
             .onSuccess { result -> host.setCommandMessage(messageForResult(result)) }
             .onFailure { error -> host.setCommandMessage(error.message ?: "Command failed.") }
+    }
+
+    private suspend fun <T> withSyncPausedForCommand(block: suspend () -> T): T {
+        syncPauseRequested = true
+        host.updateState { state ->
+            if (state.eventSync.active) {
+                state.copy(eventSync = state.eventSync.copy(phase = BeetEventSyncPhase.PausedForCommand))
+            } else {
+                state
+            }
+        }
+        return try {
+            block()
+        } finally {
+            syncPauseRequested = false
+        }
     }
 
     private suspend fun sendCommand(payload: String): BeetCommandResult {
@@ -187,71 +208,132 @@ internal class BeetGattSessionCoordinator(
                     recentEvents = mergeWateringEvents(it.recentEvents, cachedWatering),
                     systemEvents = mergeSystemEvents(it.systemEvents, cachedSystem),
                     eventsLoading = true,
-                    eventSync = BeetEventSyncState(active = true),
+                    eventSync = BeetEventSyncState(active = true, phase = BeetEventSyncPhase.CatchingUp),
                 )
             }
 
             val wateringSummary = runCatching { sendCommand(BeetJsonCodec.getHistorySummary()) }.getOrNull()?.historySummary
             val systemSummary = runCatching { sendCommand(BeetJsonCodec.getSystemHistorySummary()) }.getOrNull()?.systemHistorySummary
-            val existingWatering = host.state.value.recentEvents.map { it.sequenceNumber }.toMutableSet()
-            val existingSystem = host.state.value.systemEvents.map { it.sequenceNumber }.toMutableSet()
-            val wateringToLoad = missingSequences(wateringSummary?.latestSequenceNumber ?: 0L, existingWatering, limit)
-            val systemToLoad = missingSequences(systemSummary?.latestSequenceNumber ?: 0L, existingSystem, limit)
-            val total = wateringToLoad.size + systemToLoad.size
-            var downloaded = 0
-
             host.updateState {
                 it.copy(
                     historySummary = wateringSummary ?: it.historySummary,
                     systemHistorySummary = systemSummary ?: it.systemHistorySummary,
-                    eventSync = BeetEventSyncState(active = total > 0, downloaded = 0, total = total),
                 )
             }
 
-            wateringToLoad.forEach { sequence ->
-                val event = runCatching { sendCommand(BeetJsonCodec.getEvent(sequence)) }.getOrNull()?.event
-                if (event != null) {
-                    eventCache.saveWateringEvent(deviceId, event)
-                    host.updateState { it.copy(recentEvents = mergeWateringEvents(it.recentEvents, listOf(event))) }
-                }
-                downloaded++
-                host.updateState { it.copy(eventSync = BeetEventSyncState(active = downloaded < total, downloaded = downloaded, total = total)) }
-            }
-            systemToLoad.forEach { sequence ->
-                val event = runCatching { sendCommand(BeetJsonCodec.getSystemEvent(sequence)) }.getOrNull()?.systemEvent
-                if (event != null) {
-                    eventCache.saveSystemEvent(deviceId, event)
-                    host.updateState { it.copy(systemEvents = mergeSystemEvents(it.systemEvents, listOf(event))) }
-                }
-                downloaded++
-                host.updateState { it.copy(eventSync = BeetEventSyncState(active = downloaded < total, downloaded = downloaded, total = total)) }
-            }
+            val runner = BeetBacklogSyncRunner(
+                config = BeetBacklogSyncConfig(
+                    retentionSeconds = EVENT_RETENTION_SECONDS,
+                    initialBatchSize = INITIAL_SYNC_BATCH_SIZE,
+                    maxBatchSize = MAX_SYNC_BATCH_SIZE,
+                    batchGrowthStep = SYNC_BATCH_GROWTH_STEP,
+                    burstDelayMs = SYNC_BURST_DELAY_MS,
+                    pausePollDelayMs = SYNC_PAUSE_POLL_MS,
+                    congestionDelayMs = SYNC_CONGESTION_DELAY_MS,
+                    transientFailurePerSequenceLimit = SYNC_TRANSIENT_FAILURE_LIMIT,
+                ),
+                nowUnixSeconds = { System.currentTimeMillis() / 1000L },
+                sleep = { delay(it) },
+            )
 
-            host.updateState { it.copy(eventsLoading = false, eventSync = BeetEventSyncState(active = false, downloaded = downloaded, total = total)) }
+            runner.run(
+                input = BeetBacklogSyncInput(
+                    wateringSummary = wateringSummary,
+                    systemSummary = systemSummary,
+                    existingWateringSequences = host.state.value.recentEvents.map { event -> event.sequenceNumber }.toSet(),
+                    existingSystemSequences = host.state.value.systemEvents.map { event -> event.sequenceNumber }.toSet(),
+                    limit = limit,
+                ),
+                isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
+                isPauseRequested = { syncPauseRequested },
+                onProgress = { progress ->
+                    host.updateState {
+                        it.copy(
+                            eventSync = it.eventSync.copy(
+                                active = progress.active,
+                                downloaded = progress.downloaded,
+                                total = max(it.eventSync.total, progress.total),
+                                phase = progress.phase,
+                            ),
+                        )
+                    }
+                },
+                onWateringEvent = { event -> ingestWateringEvent(deviceId, event) },
+                onSystemEvent = { event -> ingestSystemEvent(deviceId, event) },
+                fetchWateringEvent = { sequence -> fetchWateringEventForSync(sequence) },
+                fetchSystemEvent = { sequence -> fetchSystemEventForSync(sequence) },
+            )
+
+            host.updateState { state ->
+                state.copy(
+                    eventsLoading = false,
+                    eventSync = state.eventSync.copy(active = false, phase = BeetEventSyncPhase.Completed),
+                )
+            }
         }
     }
 
-    private fun missingSequences(latest: Long, existing: Set<Long>, limit: Int): List<Long> {
-        if (latest <= 0L) {
-            return emptyList()
+    private suspend fun fetchWateringEventForSync(sequence: Long): BeetBacklogFetchResult<BeetWateringEvent> {
+        val result = runCatching { sendCommand(BeetJsonCodec.getEvent(sequence)) }.getOrNull()
+            ?: return BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Failed)
+        val reason = result.reason.lowercase()
+        return when {
+            result.status == "accepted" && result.event != null ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Accepted, event = result.event)
+            reason == "busy" ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Busy)
+            reason == "rate_limited" ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.RateLimited)
+            reason == "event_not_found" ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.NotFound)
+            else ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Failed)
         }
-        return generateSequence(latest) { previous -> (previous - 1).takeIf { it > 0L } }
-            .filterNot(existing::contains)
-            .take(limit)
-            .toList()
+    }
+
+    private suspend fun fetchSystemEventForSync(sequence: Long): BeetBacklogFetchResult<BeetSystemEvent> {
+        val result = runCatching { sendCommand(BeetJsonCodec.getSystemEvent(sequence)) }.getOrNull()
+            ?: return BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Failed)
+        val reason = result.reason.lowercase()
+        return when {
+            result.status == "accepted" && result.systemEvent != null ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Accepted, event = result.systemEvent)
+            reason == "busy" ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Busy)
+            reason == "rate_limited" ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.RateLimited)
+            reason == "event_not_found" ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.NotFound)
+            else ->
+                BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Failed)
+        }
     }
 
     private fun mergeWateringEvents(current: List<BeetWateringEvent>, incoming: List<BeetWateringEvent>): List<BeetWateringEvent> =
         (current + incoming)
+            .filter { it.timeValid }
+            .filter { it.endedAtUnixSeconds >= ((System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS) }
             .associateBy { it.sequenceNumber }
             .values
             .sortedByDescending { it.sequenceNumber }
 
     private fun mergeSystemEvents(current: List<BeetSystemEvent>, incoming: List<BeetSystemEvent>): List<BeetSystemEvent> =
         (current + incoming)
+            .filter { it.timeValid }
+            .filter { it.unixSeconds >= ((System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS) }
             .associateBy { it.sequenceNumber }
             .values
             .sortedByDescending { it.sequenceNumber }
+
+    private fun ingestWateringEvent(deviceId: String, event: BeetWateringEvent) {
+        eventCache.saveWateringEvent(deviceId, event)
+        host.updateState { state -> state.copy(recentEvents = mergeWateringEvents(state.recentEvents, listOf(event))) }
+    }
+
+    private fun ingestSystemEvent(deviceId: String, event: BeetSystemEvent) {
+        eventCache.saveSystemEvent(deviceId, event)
+        host.updateState { state -> state.copy(systemEvents = mergeSystemEvents(state.systemEvents, listOf(event))) }
+    }
 
     private suspend fun synchronizeControllerTimeIfNeeded() {
         val deviceState = host.state.value.deviceState ?: return
@@ -462,9 +544,10 @@ internal class BeetGattSessionCoordinator(
             is BeetStateMessage.SystemEventUpdate -> {
                 val deviceId = host.state.value.controllerInfo?.deviceId
                 if (deviceId != null) {
-                    eventCache.saveSystemEvent(deviceId, message.data)
+                    ingestSystemEvent(deviceId, message.data)
+                } else {
+                    host.updateState { it.copy(systemEvents = mergeSystemEvents(it.systemEvents, listOf(message.data))) }
                 }
-                host.updateState { it.copy(systemEvents = mergeSystemEvents(it.systemEvents, listOf(message.data))) }
             }
         }
     }
@@ -484,17 +567,22 @@ internal class BeetGattSessionCoordinator(
             host.updateState { it.copy(historySummary = summary) }
         }
         result.event?.let { event ->
-            host.state.value.controllerInfo?.deviceId?.let { deviceId -> eventCache.saveWateringEvent(deviceId, event) }
-            host.updateState { state -> state.copy(recentEvents = mergeWateringEvents(state.recentEvents, listOf(event))) }
+            val deviceId = host.state.value.controllerInfo?.deviceId
+            if (deviceId != null) {
+                ingestWateringEvent(deviceId, event)
+            } else {
+                host.updateState { state -> state.copy(recentEvents = mergeWateringEvents(state.recentEvents, listOf(event))) }
+            }
         }
         result.systemHistorySummary?.let { summary ->
             host.updateState { it.copy(systemHistorySummary = summary) }
         }
         result.systemEvent?.let { event ->
-            host.state.value.controllerInfo?.deviceId?.let { deviceId -> eventCache.saveSystemEvent(deviceId, event) }
-            host.updateState { state ->
-                if (state.systemEvents.any { it.sequenceNumber == event.sequenceNumber }) state
-                else state.copy(systemEvents = mergeSystemEvents(state.systemEvents, listOf(event)))
+            val deviceId = host.state.value.controllerInfo?.deviceId
+            if (deviceId != null) {
+                ingestSystemEvent(deviceId, event)
+            } else {
+                host.updateState { state -> state.copy(systemEvents = mergeSystemEvents(state.systemEvents, listOf(event))) }
             }
         }
         host.session.pendingCommand?.complete(result)
@@ -646,7 +734,15 @@ internal class BeetGattSessionCoordinator(
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DESIRED_MTU = 247
         private const val EXPECTED_PROTOCOL_VERSION = 4
-        private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 100
+        private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
+        private const val INITIAL_SYNC_BATCH_SIZE = 20
+        private const val MAX_SYNC_BATCH_SIZE = 160
+        private const val SYNC_BATCH_GROWTH_STEP = 20
+        private const val SYNC_BURST_DELAY_MS = 120L
+        private const val SYNC_PAUSE_POLL_MS = 200L
+        private const val SYNC_CONGESTION_DELAY_MS = 500L
+        private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
+        private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
     }
 }

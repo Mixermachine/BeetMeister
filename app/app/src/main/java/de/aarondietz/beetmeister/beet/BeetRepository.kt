@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.update
 
 internal class BeetRepository(
     context: Context,
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : BeetRepositoryCallbacks {
     override val appContext: Context = context.applicationContext
     private val bluetoothManager = appContext.getSystemService(android.bluetooth.BluetoothManager::class.java)
