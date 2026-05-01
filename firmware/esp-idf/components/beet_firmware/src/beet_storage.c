@@ -10,6 +10,8 @@
 #include "beet_event_ring.h"
 
 static const char *TAG = "beet_storage";
+static const char *BOOT_EPOCH_NS = "btm";
+static const char *BOOT_EPOCH_INDEX_KEY = "idx";
 
 static esp_err_t beet_open_namespace(
     const char *partition,
@@ -30,9 +32,9 @@ static void beet_event_key(char *buffer, size_t buffer_len, uint16_t slot_index)
     snprintf(buffer, buffer_len, "s%03u", (unsigned int)slot_index);
 }
 
-static uint32_t beet_resolve_unix_from_uptime(uint32_t boot_epoch_unix_s, uint32_t uptime_s)
+static void beet_boot_epoch_key(char *buffer, size_t buffer_len, uint16_t slot_index)
 {
-    return boot_epoch_unix_s + uptime_s;
+    snprintf(buffer, buffer_len, "b%03u", (unsigned int)slot_index);
 }
 
 static esp_err_t beet_save_blob(
@@ -339,45 +341,6 @@ esp_err_t beet_storage_summarize_events(uint32_t current_boot_id, uint16_t *even
     return ESP_OK;
 }
 
-esp_err_t beet_storage_backfill_event_times(uint32_t current_boot_id, uint32_t boot_epoch_unix_s, uint16_t *updated_count)
-{
-    nvs_handle_t handle = 0;
-    bool changed = false;
-
-    ESP_RETURN_ON_FALSE(updated_count != NULL, ESP_ERR_INVALID_ARG, TAG, "updated_count is null");
-    ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
-
-    *updated_count = 0U;
-    for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
-        beet_event_record_t record;
-        size_t required_size = sizeof(record);
-        char key[8];
-
-        beet_event_key(key, sizeof(key), slot);
-        if (nvs_get_blob(handle, key, &record, &required_size) != ESP_OK ||
-            required_size != sizeof(record) ||
-            !beet_validate_event_record(&record) ||
-            record.boot_id != current_boot_id ||
-            record.time_valid != 0U) {
-            continue;
-        }
-
-        record.started_at_unix_s = beet_resolve_unix_from_uptime(boot_epoch_unix_s, record.started_uptime_s);
-        record.ended_at_unix_s = beet_resolve_unix_from_uptime(boot_epoch_unix_s, record.ended_uptime_s);
-        record.time_valid = 1U;
-        record.crc32 = beet_event_crc32(&record);
-        ESP_RETURN_ON_ERROR(nvs_set_blob(handle, key, &record, sizeof(record)), TAG, "event backfill write failed");
-        changed = true;
-        (*updated_count)++;
-    }
-
-    if (changed) {
-        ESP_RETURN_ON_ERROR(nvs_commit(handle), TAG, "event backfill commit failed");
-    }
-    nvs_close(handle);
-    return ESP_OK;
-}
-
 esp_err_t beet_storage_scan_system_event_ring(beet_event_ring_state_t *state)
 {
     nvs_handle_t handle = 0;
@@ -494,40 +457,117 @@ esp_err_t beet_storage_summarize_system_events(uint32_t current_boot_id, uint16_
     return ESP_OK;
 }
 
-esp_err_t beet_storage_backfill_system_event_times(uint32_t current_boot_id, uint32_t boot_epoch_unix_s, uint16_t *updated_count)
+esp_err_t beet_storage_load_boot_epoch_cache(
+    beet_boot_epoch_record_t records[BEET_BOOT_EPOCH_RING_CAPACITY],
+    uint16_t *record_count)
 {
     nvs_handle_t handle = 0;
-    bool changed = false;
+    uint16_t count = 0U;
 
-    ESP_RETURN_ON_FALSE(updated_count != NULL, ESP_ERR_INVALID_ARG, TAG, "updated_count is null");
-    ESP_RETURN_ON_ERROR(beet_open_namespace("sysevents", "ring", NVS_READWRITE, &handle), TAG, "system event namespace open failed");
+    ESP_RETURN_ON_FALSE(records != NULL, ESP_ERR_INVALID_ARG, TAG, "records is null");
+    ESP_RETURN_ON_FALSE(record_count != NULL, ESP_ERR_INVALID_ARG, TAG, "record_count is null");
+    ESP_RETURN_ON_ERROR(beet_open_namespace("appcfg", BOOT_EPOCH_NS, NVS_READWRITE, &handle), TAG, "boot epoch namespace open failed");
 
-    *updated_count = 0U;
-    for (uint16_t slot = 0U; slot < BEET_SYSTEM_EVENT_RING_CAPACITY; ++slot) {
-        beet_system_event_record_t record;
+    for (uint16_t slot = 0U; slot < BEET_BOOT_EPOCH_RING_CAPACITY; ++slot) {
+        beet_boot_epoch_record_t record;
         size_t required_size = sizeof(record);
         char key[8];
 
-        beet_event_key(key, sizeof(key), slot);
+        beet_boot_epoch_key(key, sizeof(key), slot);
         if (nvs_get_blob(handle, key, &record, &required_size) != ESP_OK ||
             required_size != sizeof(record) ||
-            !beet_validate_system_event_record(&record) ||
-            record.boot_id != current_boot_id ||
-            record.time_valid != 0U) {
+            !beet_validate_boot_epoch_record(&record)) {
+            continue;
+        }
+        records[count++] = record;
+    }
+
+    nvs_close(handle);
+    *record_count = count;
+    return ESP_OK;
+}
+
+esp_err_t beet_storage_save_boot_epoch(uint32_t boot_id, uint32_t boot_epoch_unix_s)
+{
+    nvs_handle_t handle = 0;
+    uint16_t write_slot = 0U;
+    uint16_t next_slot = 0U;
+    beet_boot_epoch_record_t record;
+    esp_err_t err;
+
+    ESP_RETURN_ON_FALSE(boot_id != 0U, ESP_ERR_INVALID_ARG, TAG, "boot_id is zero");
+    ESP_RETURN_ON_FALSE(boot_epoch_unix_s != 0U, ESP_ERR_INVALID_ARG, TAG, "boot_epoch_unix_s is zero");
+    ESP_RETURN_ON_ERROR(beet_open_namespace("appcfg", BOOT_EPOCH_NS, NVS_READWRITE, &handle), TAG, "boot epoch namespace open failed");
+
+    for (uint16_t slot = 0U; slot < BEET_BOOT_EPOCH_RING_CAPACITY; ++slot) {
+        beet_boot_epoch_record_t candidate;
+        size_t required_size = sizeof(candidate);
+        char key[8];
+
+        beet_boot_epoch_key(key, sizeof(key), slot);
+        err = nvs_get_blob(handle, key, &candidate, &required_size);
+        if (err == ESP_OK &&
+            required_size == sizeof(candidate) &&
+            beet_validate_boot_epoch_record(&candidate) &&
+            candidate.boot_id == boot_id) {
+            write_slot = slot;
+            goto write_record;
+        }
+    }
+
+    err = nvs_get_u16(handle, BOOT_EPOCH_INDEX_KEY, &next_slot);
+    if (err != ESP_OK) {
+        next_slot = 0U;
+    }
+    if (next_slot >= BEET_BOOT_EPOCH_RING_CAPACITY) {
+        next_slot = 0U;
+    }
+    write_slot = next_slot;
+    next_slot = (uint16_t)((next_slot + 1U) % BEET_BOOT_EPOCH_RING_CAPACITY);
+
+write_record:
+    memset(&record, 0, sizeof(record));
+    record.boot_id = boot_id;
+    record.boot_epoch_unix_s = boot_epoch_unix_s;
+    record.flags = 0x01U;
+    record.crc32 = beet_boot_epoch_crc32(&record);
+
+    {
+        char key[8];
+        beet_boot_epoch_key(key, sizeof(key), write_slot);
+        ESP_RETURN_ON_ERROR(nvs_set_blob(handle, key, &record, sizeof(record)), TAG, "boot epoch write failed");
+    }
+    ESP_RETURN_ON_ERROR(nvs_set_u16(handle, BOOT_EPOCH_INDEX_KEY, next_slot), TAG, "boot epoch index write failed");
+    ESP_RETURN_ON_ERROR(nvs_commit(handle), TAG, "boot epoch commit failed");
+    nvs_close(handle);
+    return ESP_OK;
+}
+
+esp_err_t beet_storage_resolve_boot_epoch(uint32_t boot_id, uint32_t *boot_epoch_unix_s)
+{
+    nvs_handle_t handle = 0;
+
+    ESP_RETURN_ON_FALSE(boot_epoch_unix_s != NULL, ESP_ERR_INVALID_ARG, TAG, "boot_epoch_unix_s is null");
+    ESP_RETURN_ON_ERROR(beet_open_namespace("appcfg", BOOT_EPOCH_NS, NVS_READWRITE, &handle), TAG, "boot epoch namespace open failed");
+
+    for (uint16_t slot = 0U; slot < BEET_BOOT_EPOCH_RING_CAPACITY; ++slot) {
+        beet_boot_epoch_record_t record;
+        size_t required_size = sizeof(record);
+        char key[8];
+
+        beet_boot_epoch_key(key, sizeof(key), slot);
+        if (nvs_get_blob(handle, key, &record, &required_size) != ESP_OK ||
+            required_size != sizeof(record) ||
+            !beet_validate_boot_epoch_record(&record) ||
+            record.boot_id != boot_id) {
             continue;
         }
 
-        record.occurred_unix_s = beet_resolve_unix_from_uptime(boot_epoch_unix_s, record.occurred_uptime_s);
-        record.time_valid = 1U;
-        record.crc32 = beet_system_event_crc32(&record);
-        ESP_RETURN_ON_ERROR(nvs_set_blob(handle, key, &record, sizeof(record)), TAG, "system event backfill write failed");
-        changed = true;
-        (*updated_count)++;
+        *boot_epoch_unix_s = record.boot_epoch_unix_s;
+        nvs_close(handle);
+        return ESP_OK;
     }
 
-    if (changed) {
-        ESP_RETURN_ON_ERROR(nvs_commit(handle), TAG, "system event backfill commit failed");
-    }
     nvs_close(handle);
-    return ESP_OK;
+    return ESP_ERR_NOT_FOUND;
 }

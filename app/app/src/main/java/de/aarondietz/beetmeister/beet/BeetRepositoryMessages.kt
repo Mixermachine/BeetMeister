@@ -51,6 +51,7 @@ private fun reasonLabel(reason: String): String = when (reason) {
     "moisture_test_started" -> "Moisture response test started"
     "time_updated" -> "Controller time updated"
     "invalid_time" -> "Invalid controller time"
+    "time_not_set" -> "Controller time is not set yet"
     "busy" -> "Controller is busy"
     "rate_limited" -> "Too many commands; try again"
     else -> reason.replace('_', ' ').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }

@@ -295,12 +295,7 @@ bool beet_validate_event_record(const beet_event_record_t *record)
     if (!beet_is_valid_run_source((beet_run_source_t)record->trigger_source)) {
         return false;
     }
-    if ((beet_stop_reason_t)record->stop_reason >= BEET_STOP_REASON_IDLE_LOW_POWER_SLEEP ||
-        record->time_valid > 1U) {
-        return false;
-    }
-    if (record->time_valid == 0U &&
-        (record->started_at_unix_s != 0U || record->ended_at_unix_s != 0U)) {
+    if ((beet_stop_reason_t)record->stop_reason >= BEET_STOP_REASON_IDLE_LOW_POWER_SLEEP) {
         return false;
     }
     return beet_event_crc32(record) == record->crc32;
@@ -308,10 +303,11 @@ bool beet_validate_event_record(const beet_event_record_t *record)
 
 bool beet_event_record_is_visible(const beet_event_record_t *record, uint32_t current_boot_id)
 {
+    (void)current_boot_id;
     if (!beet_validate_event_record(record)) {
         return false;
     }
-    return record->time_valid != 0U || record->boot_id == current_boot_id;
+    return true;
 }
 
 uint32_t beet_system_event_crc32(const beet_system_event_record_t *record)
@@ -333,19 +329,35 @@ bool beet_validate_system_event_record(const beet_system_event_record_t *record)
     if (!beet_is_valid_system_event_type((beet_system_event_type_t)record->event_type)) {
         return false;
     }
-    if (record->time_valid > 1U ||
-        (record->time_valid == 0U && record->occurred_unix_s != 0U)) {
-        return false;
-    }
     return beet_system_event_crc32(record) == record->crc32;
 }
 
 bool beet_system_event_record_is_visible(const beet_system_event_record_t *record, uint32_t current_boot_id)
 {
+    (void)current_boot_id;
     if (!beet_validate_system_event_record(record)) {
         return false;
     }
-    return record->time_valid != 0U || record->boot_id == current_boot_id;
+    return true;
+}
+
+uint32_t beet_boot_epoch_crc32(const beet_boot_epoch_record_t *record)
+{
+    return esp_rom_crc32_le(
+        0U,
+        (const uint8_t *)record,
+        sizeof(beet_boot_epoch_record_t) - sizeof(record->crc32));
+}
+
+bool beet_validate_boot_epoch_record(const beet_boot_epoch_record_t *record)
+{
+    if ((record->flags & 0x01U) == 0U) {
+        return false;
+    }
+    if (record->boot_id == 0U || record->boot_epoch_unix_s == 0U) {
+        return false;
+    }
+    return beet_boot_epoch_crc32(record) == record->crc32;
 }
 
 const char *beet_pair_state_name(beet_pair_state_t state)

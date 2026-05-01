@@ -67,6 +67,7 @@ typedef enum {
     BEET_IFACE_REASON_INVALID_TIME = 29,
     BEET_IFACE_REASON_BUSY = 30,
     BEET_IFACE_REASON_RATE_LIMITED = 31,
+    BEET_IFACE_REASON_TIME_NOT_SET = 32,
 } beet_iface_reason_t;
 
 typedef struct {
@@ -94,11 +95,14 @@ typedef struct {
     uint32_t pair_totals_s[BEET_PAIR_COUNT];
     bool has_event;
     beet_event_record_t event;
+    uint32_t event_started_unix_s;
+    uint32_t event_ended_unix_s;
     bool has_system_history_summary;
     uint64_t latest_system_event_seq_no;
     uint16_t system_event_count;
     bool has_system_event;
     beet_system_event_record_t system_event;
+    uint32_t system_event_unix_s;
 } beet_iface_command_response_t;
 
 typedef struct {

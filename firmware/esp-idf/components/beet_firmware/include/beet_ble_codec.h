@@ -24,7 +24,8 @@ int beet_ble_format_pair_frame_json(
 int beet_ble_format_system_event_frame_json(
     char *buf,
     size_t len,
-    const beet_system_event_record_t *event);
+    const beet_system_event_record_t *event,
+    uint32_t unix_s);
 int beet_ble_format_command_result_json(
     char *buf,
     size_t len,

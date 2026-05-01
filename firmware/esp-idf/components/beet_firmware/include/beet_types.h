@@ -20,11 +20,12 @@
 #endif
 
 #define BEET_SCHEMA_VERSION 1U
-#define BEET_EVENT_RECORD_VERSION 2U
-#define BEET_SYSTEM_EVENT_RECORD_VERSION 2U
+#define BEET_EVENT_RECORD_VERSION 3U
+#define BEET_SYSTEM_EVENT_RECORD_VERSION 3U
 #define BEET_PAIR_COUNT 8U
 #define BEET_EVENT_RING_CAPACITY 1000U
 #define BEET_SYSTEM_EVENT_RING_CAPACITY 256U
+#define BEET_BOOT_EPOCH_RING_CAPACITY 64U
 #define BEET_DEVICE_ID_MAX_LEN 24U
 #define BEET_MQTT_HOST_MAX_LEN 64U
 #define BEET_MQTT_USER_MAX_LEN 32U
@@ -176,9 +177,6 @@ typedef struct BEET_PACKED {
     uint32_t boot_id;
     uint8_t pair_index;
     uint8_t trigger_source;
-    uint32_t started_at_unix_s;
-    uint32_t ended_at_unix_s;
-    uint8_t time_valid;
     uint8_t moisture_before_pct;
     uint8_t moisture_after_pct;
     uint16_t sensor_before_mv;
@@ -191,7 +189,7 @@ typedef struct BEET_PACKED {
     uint16_t battery_end_mv;
     uint32_t started_uptime_s;
     uint32_t ended_uptime_s;
-    uint8_t reserved[12];
+    uint8_t reserved[21];
     uint32_t crc32;
 } beet_event_record_t;
 BEET_PACKED_END
@@ -210,16 +208,24 @@ typedef struct BEET_PACKED {
     uint8_t event_type;
     uint16_t reason;
     uint32_t occurred_uptime_s;
-    uint32_t occurred_unix_s;
-    uint8_t time_valid;
     uint16_t battery_mv;
     uint8_t peer_addr[6];
     uint8_t peer_addr_type;
     uint8_t known_peer;
     uint32_t detail;
-    uint8_t reserved[21];
+    uint8_t reserved[26];
     uint32_t crc32;
 } beet_system_event_record_t;
+BEET_PACKED_END
+
+BEET_PACKED_BEGIN
+typedef struct BEET_PACKED {
+    uint32_t boot_id;
+    uint32_t boot_epoch_unix_s;
+    uint8_t flags;
+    uint8_t reserved[3];
+    uint32_t crc32;
+} beet_boot_epoch_record_t;
 BEET_PACKED_END
 
 typedef struct {
@@ -263,6 +269,8 @@ bool beet_validate_event_record(const beet_event_record_t *record);
 bool beet_system_event_record_is_visible(const beet_system_event_record_t *record, uint32_t current_boot_id);
 uint32_t beet_system_event_crc32(const beet_system_event_record_t *record);
 bool beet_validate_system_event_record(const beet_system_event_record_t *record);
+uint32_t beet_boot_epoch_crc32(const beet_boot_epoch_record_t *record);
+bool beet_validate_boot_epoch_record(const beet_boot_epoch_record_t *record);
 const char *beet_pair_state_name(beet_pair_state_t state);
 const char *beet_battery_state_name(beet_battery_state_t state);
 const char *beet_block_reason_name(beet_block_reason_t reason);

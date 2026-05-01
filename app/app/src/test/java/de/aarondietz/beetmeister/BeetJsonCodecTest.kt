@@ -175,7 +175,6 @@ class BeetJsonCodecTest {
                 "src":2,
                 "start":0,
                 "end":0,
-                "tv":0,
                 "mb":40,
                 "ma":60,
                 "sb":1450,
@@ -199,7 +198,6 @@ class BeetJsonCodecTest {
         assertEquals(11L, result.event!!.bootId)
         assertEquals(2, result.event!!.triggerSource)
         assertEquals(120, result.event!!.actualDurationSeconds)
-        assertFalse(result.event!!.timeValid)
         assertEquals(132L, result.event!!.endedUptimeSeconds)
     }
 
@@ -215,7 +213,6 @@ class BeetJsonCodecTest {
                 "boot_id":11,
                 "uptime_s":123,
                 "unix_s":0,
-                "time_valid":false,
                 "battery_mv":3340,
                 "peer_addr":"AA:BB:CC:DD:EE:FF",
                 "peer_addr_type":1,
@@ -260,7 +257,6 @@ class BeetJsonCodecTest {
                 "src":0,
                 "start":0,
                 "end":0,
-                "tv":0,
                 "mb":0,
                 "ma":0,
                 "sb":0,

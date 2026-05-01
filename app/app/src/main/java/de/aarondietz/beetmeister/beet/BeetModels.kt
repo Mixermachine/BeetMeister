@@ -101,7 +101,6 @@ data class BeetWateringEvent(
     @param:Json(name = "src") val triggerSource: Int,
     @param:Json(name = "start") val startedAtUnixSeconds: Long,
     @param:Json(name = "end") val endedAtUnixSeconds: Long,
-    @param:Json(name = "tv") val timeValidRaw: Int,
     @param:Json(name = "mb") val moistureBeforePercent: Int,
     @param:Json(name = "ma") val moistureAfterPercent: Int,
     @param:Json(name = "sb") val sensorBeforeMillivolts: Int,
@@ -116,7 +115,7 @@ data class BeetWateringEvent(
     @param:Json(name = "eu") val endedUptimeSeconds: Long = 0L,
 ) {
     val timeValid: Boolean
-        get() = timeValidRaw != 0
+        get() = startedAtUnixSeconds > 0L && endedAtUnixSeconds > 0L
 
     val isControllerSleepEvent: Boolean
         get() = pairIndex == 0
@@ -129,13 +128,15 @@ data class BeetSystemEvent(
     @param:Json(name = "boot_id") val bootId: Long = 0L,
     @param:Json(name = "uptime_s") val uptimeSeconds: Long,
     @param:Json(name = "unix_s") val unixSeconds: Long,
-    @param:Json(name = "time_valid") val timeValid: Boolean,
     @param:Json(name = "battery_mv") val batteryMillivolts: Int,
     @param:Json(name = "peer_addr") val peerAddress: String,
     @param:Json(name = "peer_addr_type") val peerAddressType: Int,
     @param:Json(name = "known_peer") val knownPeer: Boolean,
     val detail: Long,
-)
+) {
+    val timeValid: Boolean
+        get() = unixSeconds > 0L
+}
 
 enum class BeetEventSyncPhase {
     Idle,

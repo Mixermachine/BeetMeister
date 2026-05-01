@@ -32,7 +32,7 @@
 
 static const char *TAG = "beet_ble";
 
-#define BEET_BLE_PROTOCOL_VERSION 4U
+#define BEET_BLE_PROTOCOL_VERSION 5U
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
 #define BEET_BLE_JSON_MAX_LEN 320U
 #define BEET_BLE_COMMAND_RATE_WINDOW_US (1000000LL)
@@ -1069,7 +1069,7 @@ esp_err_t beet_ble_clear_bonds(uint16_t *removed_count)
     return ESP_OK;
 }
 
-void beet_ble_publish_system_event(const beet_system_event_record_t *event)
+void beet_ble_publish_system_event(const beet_system_event_record_t *event, uint32_t unix_s)
 {
     char json[BEET_BLE_JSON_MAX_LEN];
     int written;
@@ -1078,7 +1078,7 @@ void beet_ble_publish_system_event(const beet_system_event_record_t *event)
         return;
     }
 
-    written = beet_ble_format_system_event_frame_json(json, sizeof(json), event);
+    written = beet_ble_format_system_event_frame_json(json, sizeof(json), event, unix_s);
     if (written < 0 || (size_t)written >= sizeof(json)) {
         ESP_LOGW(TAG, "system event frame too large");
         return;

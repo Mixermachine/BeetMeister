@@ -125,6 +125,8 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "busy";
     case BEET_IFACE_REASON_RATE_LIMITED:
         return "rate_limited";
+    case BEET_IFACE_REASON_TIME_NOT_SET:
+        return "time_not_set";
     default:
         return "unknown";
     }

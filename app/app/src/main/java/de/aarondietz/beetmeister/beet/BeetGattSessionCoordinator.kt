@@ -199,7 +199,20 @@ internal class BeetGattSessionCoordinator(
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
                 return@launch
             }
-            synchronizeControllerTimeIfNeeded()
+            if (!synchronizeControllerTimeIfNeeded()) {
+                host.updateState {
+                    it.copy(
+                        eventsLoading = false,
+                        eventSync = BeetEventSyncState(
+                            active = false,
+                            downloaded = 0,
+                            total = 0,
+                            phase = BeetEventSyncPhase.PausedForCommand,
+                        ),
+                    )
+                }
+                return@launch
+            }
             val deviceId = host.state.value.controllerInfo?.deviceId ?: return@launch
             val cachedWatering = eventCache.loadWateringEvents(deviceId)
             val cachedSystem = eventCache.loadSystemEvents(deviceId)
@@ -311,7 +324,6 @@ internal class BeetGattSessionCoordinator(
 
     private fun mergeWateringEvents(current: List<BeetWateringEvent>, incoming: List<BeetWateringEvent>): List<BeetWateringEvent> =
         (current + incoming)
-            .filter { it.timeValid }
             .filter { it.endedAtUnixSeconds >= ((System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS) }
             .associateBy { it.sequenceNumber }
             .values
@@ -319,7 +331,6 @@ internal class BeetGattSessionCoordinator(
 
     private fun mergeSystemEvents(current: List<BeetSystemEvent>, incoming: List<BeetSystemEvent>): List<BeetSystemEvent> =
         (current + incoming)
-            .filter { it.timeValid }
             .filter { it.unixSeconds >= ((System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS) }
             .associateBy { it.sequenceNumber }
             .values
@@ -335,20 +346,28 @@ internal class BeetGattSessionCoordinator(
         host.updateState { state -> state.copy(systemEvents = mergeSystemEvents(state.systemEvents, listOf(event))) }
     }
 
-    private suspend fun synchronizeControllerTimeIfNeeded() {
-        val deviceState = host.state.value.deviceState ?: return
+    private suspend fun synchronizeControllerTimeIfNeeded(): Boolean {
+        val deviceState = host.state.value.deviceState ?: return false
         if (deviceState.timeValid) {
             host.session.syncedTimeBootId = deviceState.bootId
-            return
+            return true
         }
         if (deviceState.bootId > 0L && host.session.syncedTimeBootId == deviceState.bootId) {
-            return
+            return false
         }
         val unixSeconds = System.currentTimeMillis() / 1000L
-        val result = runCatching { sendCommand(BeetJsonCodec.setTime(unixSeconds)) }.getOrNull() ?: return
+        val result = runCatching { sendCommand(BeetJsonCodec.setTime(unixSeconds)) }.getOrNull() ?: return false
         if (result.status == "accepted") {
-            host.session.syncedTimeBootId = deviceState.bootId
+            repeat(10) {
+                val refreshed = host.state.value.deviceState
+                if (refreshed?.timeValid == true) {
+                    host.session.syncedTimeBootId = refreshed.bootId
+                    return true
+                }
+                delay(150L)
+            }
         }
+        return false
     }
 
     private fun configureServices(gatt: BluetoothGatt): Boolean {
@@ -733,7 +752,7 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DESIRED_MTU = 247
-        private const val EXPECTED_PROTOCOL_VERSION = 4
+        private const val EXPECTED_PROTOCOL_VERSION = 5
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
         private const val INITIAL_SYNC_BATCH_SIZE = 20
         private const val MAX_SYNC_BATCH_SIZE = 160

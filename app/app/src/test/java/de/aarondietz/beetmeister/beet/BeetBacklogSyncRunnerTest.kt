@@ -8,7 +8,7 @@ import org.junit.Test
 class BeetBacklogSyncRunnerTest {
     @Test
     fun downloadsNewestEventsFirstAndStopsAtRetentionBoundary() = runBlocking {
-        val now = 1_000_000L
+        val now = 5_000_000L
         val cutoff = now - RETENTION_SECONDS
         val fetched = mutableListOf<Long>()
         val ingested = mutableListOf<Long>()
@@ -223,7 +223,6 @@ class BeetBacklogSyncRunnerTest {
             triggerSource = 1,
             startedAtUnixSeconds = endedAtUnixSeconds - 10,
             endedAtUnixSeconds = endedAtUnixSeconds,
-            timeValidRaw = 1,
             moistureBeforePercent = 45,
             moistureAfterPercent = 55,
             sensorBeforeMillivolts = 1450,

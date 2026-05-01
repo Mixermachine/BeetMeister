@@ -61,9 +61,6 @@ static beet_event_record_t beet_make_event(uint64_t seq_no, uint8_t pair_index, 
     record.boot_id = 9U;
     record.pair_index = pair_index;
     record.trigger_source = BEET_RUN_SOURCE_MANUAL;
-    record.started_at_unix_s = 1000U;
-    record.ended_at_unix_s = 1100U;
-    record.time_valid = 1U;
     record.moisture_before_pct = 15U;
     record.moisture_after_pct = 25U;
     record.sensor_before_mv = 2100U;
@@ -214,14 +211,8 @@ static void test_event_ring_reconstruction_and_summary(void)
 
     test.trigger_source = BEET_RUN_SOURCE_TEST;
     test.crc32 = beet_event_crc32(&test);
-    unresolved_current.time_valid = 0U;
-    unresolved_current.started_at_unix_s = 0U;
-    unresolved_current.ended_at_unix_s = 0U;
     unresolved_current.crc32 = beet_event_crc32(&unresolved_current);
-    unresolved_old.time_valid = 0U;
     unresolved_old.boot_id = 3U;
-    unresolved_old.started_at_unix_s = 0U;
-    unresolved_old.ended_at_unix_s = 0U;
     unresolved_old.crc32 = beet_event_crc32(&unresolved_old);
     bad.crc32 ^= 1U;
 
@@ -251,7 +242,7 @@ static void test_event_ring_reconstruction_and_summary(void)
     if (beet_event_record_is_visible(&unresolved_current, 9U)) {
         beet_event_ring_accumulate_summary(&unresolved_current, &event_count, totals);
     }
-    TEST_ASSERT_FALSE(beet_event_record_is_visible(&unresolved_old, 9U));
+    TEST_ASSERT_TRUE(beet_event_record_is_visible(&unresolved_old, 9U));
     beet_event_ring_accumulate_summary(&test, &event_count, totals);
     TEST_ASSERT_U32_EQ(4U, event_count);
     TEST_ASSERT_U32_EQ(30U, totals[0]);
@@ -451,9 +442,9 @@ static void test_ble_json_formatting(void)
         json);
 
     beet_system_event_record_t system = beet_make_system_event(9U, BEET_SYSTEM_EVENT_BLE_CONNECT);
-    TEST_ASSERT_TRUE(beet_ble_format_system_event_frame_json(json, sizeof(json), &system) > 0);
+    TEST_ASSERT_TRUE(beet_ble_format_system_event_frame_json(json, sizeof(json), &system, 0U) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"time_valid\":false,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":true,\"detail\":0}}",
+        "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":true,\"detail\":0}}",
         json);
 }
 

@@ -112,7 +112,8 @@ static void beet_ble_format_peer_addr(const beet_system_event_record_t *event, c
 int beet_ble_format_system_event_frame_json(
     char *buf,
     size_t len,
-    const beet_system_event_record_t *event)
+    const beet_system_event_record_t *event,
+    uint32_t unix_s)
 {
     char peer_addr[18];
     beet_ble_format_peer_addr(event, peer_addr);
@@ -120,15 +121,14 @@ int beet_ble_format_system_event_frame_json(
         buf,
         len,
         "{\"type\":\"system_event\",\"data\":{\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,"
-        "\"boot_id\":%lu,\"uptime_s\":%lu,\"unix_s\":%lu,\"time_valid\":%s,\"battery_mv\":%u,"
+        "\"boot_id\":%lu,\"uptime_s\":%lu,\"unix_s\":%lu,\"battery_mv\":%u,"
         "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%s,\"detail\":%lu}}",
         (unsigned long long)event->seq_no,
         beet_system_event_type_name((beet_system_event_type_t)event->event_type),
         event->reason,
         (unsigned long)event->boot_id,
         (unsigned long)event->occurred_uptime_s,
-        (unsigned long)event->occurred_unix_s,
-        event->time_valid ? "true" : "false",
+        (unsigned long)unix_s,
         event->battery_mv,
         peer_addr,
         event->peer_addr_type,
@@ -203,7 +203,7 @@ int beet_ble_format_command_result_json(
             buf,
             len,
             "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"seq\":%llu,\"pair\":%u,"
-            "\"boot_id\":%lu,\"src\":%u,\"start\":%lu,\"end\":%lu,\"tv\":%u,\"mb\":%u,\"ma\":%u,\"sb\":%u,\"sa\":%u,"
+            "\"boot_id\":%lu,\"src\":%u,\"start\":%lu,\"end\":%lu,\"mb\":%u,\"ma\":%u,\"sb\":%u,\"sa\":%u,"
             "\"req\":%u,\"act\":%u,\"stop\":%u,\"block\":%u,\"bs\":%u,\"be\":%u,\"su\":%lu,\"eu\":%lu}}",
             beet_iface_command_name(response->command),
             beet_iface_status_name(response->status),
@@ -212,9 +212,8 @@ int beet_ble_format_command_result_json(
             response->event.pair_index,
             (unsigned long)response->event.boot_id,
             response->event.trigger_source,
-            (unsigned long)response->event.started_at_unix_s,
-            (unsigned long)response->event.ended_at_unix_s,
-            response->event.time_valid,
+            (unsigned long)response->event_started_unix_s,
+            (unsigned long)response->event_ended_unix_s,
             response->event.moisture_before_pct,
             response->event.moisture_after_pct,
             response->event.sensor_before_mv,
@@ -233,7 +232,11 @@ int beet_ble_format_command_result_json(
         response->status == BEET_IFACE_STATUS_ACCEPTED &&
         response->has_system_event) {
         char system_json[320];
-        int written = beet_ble_format_system_event_frame_json(system_json, sizeof(system_json), &response->system_event);
+        int written = beet_ble_format_system_event_frame_json(
+            system_json,
+            sizeof(system_json),
+            &response->system_event,
+            response->system_event_unix_s);
         const char *data_start = strstr(system_json, "\"data\":");
         if (written < 0 || (size_t)written >= sizeof(system_json) || data_start == NULL) {
             return -1;

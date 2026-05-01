@@ -80,6 +80,8 @@ typedef struct {
     bool snapshot_dirty[BEET_PAIR_COUNT];
     int64_t last_snapshot_flush_us[BEET_PAIR_COUNT];
     beet_event_ring_state_t system_event_ring;
+    beet_boot_epoch_record_t boot_epoch_cache[BEET_BOOT_EPOCH_RING_CAPACITY];
+    uint16_t boot_epoch_cache_count;
 } beet_controller_state_t;
 
 static beet_controller_state_t s_state;
@@ -112,8 +114,8 @@ static void beet_controller_sync_boost_output(void);
 static void beet_stop_relay_test(bool log_stop);
 static esp_err_t beet_start_relay_test(uint8_t pair_index);
 static uint32_t beet_current_uptime_s(void);
-static uint32_t beet_resolve_unix_s(uint32_t uptime_s);
 static esp_err_t beet_apply_time_update(uint32_t unix_s);
+static bool beet_lookup_boot_epoch(uint32_t boot_id, uint32_t *boot_epoch_unix_s);
 
 static int64_t beet_now_us(void)
 {
@@ -143,9 +145,20 @@ static uint32_t beet_current_uptime_s(void)
     return beet_elapsed_s(s_state.boot_time_us, beet_now_us());
 }
 
-static uint32_t beet_resolve_unix_s(uint32_t uptime_s)
+static bool beet_lookup_boot_epoch(uint32_t boot_id, uint32_t *boot_epoch_unix_s)
 {
-    return s_state.time_valid ? (s_state.boot_epoch_unix_s + uptime_s) : 0U;
+    if (boot_id == 0U || boot_epoch_unix_s == NULL) {
+        return false;
+    }
+    for (uint16_t i = 0U; i < s_state.boot_epoch_cache_count; ++i) {
+        const beet_boot_epoch_record_t *record = &s_state.boot_epoch_cache[i];
+        if (!beet_validate_boot_epoch_record(record) || record->boot_id != boot_id) {
+            continue;
+        }
+        *boot_epoch_unix_s = record->boot_epoch_unix_s;
+        return true;
+    }
+    return false;
 }
 
 static uint32_t beet_abs_diff_u16(uint16_t a, uint16_t b)
@@ -699,9 +712,6 @@ static void beet_log_event(
     record.battery_end_mv = s_state.battery_mv;
     record.started_uptime_s = beet_elapsed_s(s_state.boot_time_us, runtime->phase_started_us);
     record.ended_uptime_s = beet_elapsed_s(s_state.boot_time_us, beet_now_us());
-    record.time_valid = s_state.time_valid ? 1U : 0U;
-    record.started_at_unix_s = beet_resolve_unix_s(record.started_uptime_s);
-    record.ended_at_unix_s = beet_resolve_unix_s(record.ended_uptime_s);
 
     if (beet_storage_append_event(&s_state.event_ring, &record) != ESP_OK) {
         ESP_LOGW(TAG, "event append failed for pair %u", pair_index);
@@ -749,14 +759,14 @@ static void beet_log_system_event(
     uint32_t detail)
 {
     beet_system_event_record_t record;
+    uint32_t event_unix_s = 0U;
+    uint32_t boot_epoch_unix_s = 0U;
 
     memset(&record, 0, sizeof(record));
     record.boot_id = s_state.boot_id;
     record.event_type = (uint8_t)type;
     record.reason = reason;
     record.occurred_uptime_s = beet_current_uptime_s();
-    record.occurred_unix_s = beet_resolve_unix_s(record.occurred_uptime_s);
-    record.time_valid = s_state.time_valid ? 1U : 0U;
     record.battery_mv = s_state.battery_mv;
     if (peer_addr != NULL) {
         memcpy(record.peer_addr, peer_addr, sizeof(record.peer_addr));
@@ -770,7 +780,10 @@ static void beet_log_system_event(
         return;
     }
 
-    beet_ble_publish_system_event(&record);
+    if (beet_lookup_boot_epoch(record.boot_id, &boot_epoch_unix_s)) {
+        event_unix_s = boot_epoch_unix_s + record.occurred_uptime_s;
+    }
+    beet_ble_publish_system_event(&record, event_unix_s);
     ESP_LOGI(
         TAG,
         "system event seq=%" PRIu64 " type=%s reason=%u battery=%umV uptime=%lus",
@@ -797,31 +810,55 @@ static void beet_on_ble_system_event(const beet_ble_system_event_t *event)
 
 static esp_err_t beet_apply_time_update(uint32_t unix_s)
 {
-    uint16_t updated_watering = 0U;
-    uint16_t updated_system = 0U;
     uint32_t current_uptime_s = beet_current_uptime_s();
+    bool replaced = false;
 
     ESP_RETURN_ON_FALSE(unix_s >= current_uptime_s, ESP_ERR_INVALID_ARG, TAG, "unix time predates current boot uptime");
 
     s_state.boot_epoch_unix_s = unix_s - current_uptime_s;
     s_state.time_valid = true;
+    ESP_RETURN_ON_ERROR(
+        beet_storage_save_boot_epoch(s_state.boot_id, s_state.boot_epoch_unix_s),
+        TAG,
+        "boot epoch save failed");
 
-    ESP_RETURN_ON_ERROR(
-        beet_storage_backfill_event_times(s_state.boot_id, s_state.boot_epoch_unix_s, &updated_watering),
-        TAG,
-        "watering event backfill failed");
-    ESP_RETURN_ON_ERROR(
-        beet_storage_backfill_system_event_times(s_state.boot_id, s_state.boot_epoch_unix_s, &updated_system),
-        TAG,
-        "system event backfill failed");
+    for (uint16_t i = 0U; i < s_state.boot_epoch_cache_count; ++i) {
+        if (s_state.boot_epoch_cache[i].boot_id != s_state.boot_id) {
+            continue;
+        }
+        s_state.boot_epoch_cache[i].boot_epoch_unix_s = s_state.boot_epoch_unix_s;
+        s_state.boot_epoch_cache[i].flags = 0x01U;
+        s_state.boot_epoch_cache[i].crc32 = beet_boot_epoch_crc32(&s_state.boot_epoch_cache[i]);
+        replaced = true;
+        break;
+    }
+    if (!replaced) {
+        if (s_state.boot_epoch_cache_count < BEET_BOOT_EPOCH_RING_CAPACITY) {
+            beet_boot_epoch_record_t *record = &s_state.boot_epoch_cache[s_state.boot_epoch_cache_count++];
+            memset(record, 0, sizeof(*record));
+            record->boot_id = s_state.boot_id;
+            record->boot_epoch_unix_s = s_state.boot_epoch_unix_s;
+            record->flags = 0x01U;
+            record->crc32 = beet_boot_epoch_crc32(record);
+        } else {
+            memmove(
+                &s_state.boot_epoch_cache[0],
+                &s_state.boot_epoch_cache[1],
+                sizeof(s_state.boot_epoch_cache[0]) * (BEET_BOOT_EPOCH_RING_CAPACITY - 1U));
+            memset(&s_state.boot_epoch_cache[BEET_BOOT_EPOCH_RING_CAPACITY - 1U], 0, sizeof(s_state.boot_epoch_cache[0]));
+            s_state.boot_epoch_cache[BEET_BOOT_EPOCH_RING_CAPACITY - 1U].boot_id = s_state.boot_id;
+            s_state.boot_epoch_cache[BEET_BOOT_EPOCH_RING_CAPACITY - 1U].boot_epoch_unix_s = s_state.boot_epoch_unix_s;
+            s_state.boot_epoch_cache[BEET_BOOT_EPOCH_RING_CAPACITY - 1U].flags = 0x01U;
+            s_state.boot_epoch_cache[BEET_BOOT_EPOCH_RING_CAPACITY - 1U].crc32 =
+                beet_boot_epoch_crc32(&s_state.boot_epoch_cache[BEET_BOOT_EPOCH_RING_CAPACITY - 1U]);
+        }
+    }
 
     ESP_LOGI(
         TAG,
-        "time updated boot=%lu epoch=%lu backfilled watering=%u system=%u",
+        "time updated boot=%lu epoch=%lu",
         (unsigned long)s_state.boot_id,
-        (unsigned long)s_state.boot_epoch_unix_s,
-        updated_watering,
-        updated_system);
+        (unsigned long)s_state.boot_epoch_unix_s);
     return ESP_OK;
 }
 
@@ -1726,6 +1763,10 @@ esp_err_t beet_iface_submit_command(
 
     case BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY:
     case BEET_IFACE_COMMAND_GET_WATERING_HISTORY_SUMMARY:
+        if (!s_state.time_valid) {
+            response->reason = BEET_IFACE_REASON_TIME_NOT_SET;
+            return ESP_OK;
+        }
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_history_summary = true;
@@ -1739,8 +1780,13 @@ esp_err_t beet_iface_submit_command(
     case BEET_IFACE_COMMAND_GET_EVENT:
     case BEET_IFACE_COMMAND_GET_WATERING_EVENT: {
         beet_iface_event_t event = { 0 };
+        uint32_t boot_epoch_unix_s = 0U;
         if (beet_iface_get_event(request->seq_no, &event) != ESP_OK) {
             response->reason = BEET_IFACE_REASON_EVENT_NOT_FOUND;
+            return ESP_OK;
+        }
+        if (!beet_lookup_boot_epoch(event.record.boot_id, &boot_epoch_unix_s)) {
+            response->reason = BEET_IFACE_REASON_TIME_NOT_SET;
             return ESP_OK;
         }
 
@@ -1748,10 +1794,16 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_event = true;
         response->event = event.record;
+        response->event_started_unix_s = boot_epoch_unix_s + event.record.started_uptime_s;
+        response->event_ended_unix_s = boot_epoch_unix_s + event.record.ended_uptime_s;
         return ESP_OK;
     }
 
     case BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY:
+        if (!s_state.time_valid) {
+            response->reason = BEET_IFACE_REASON_TIME_NOT_SET;
+            return ESP_OK;
+        }
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_system_history_summary = true;
@@ -1764,8 +1816,13 @@ esp_err_t beet_iface_submit_command(
 
     case BEET_IFACE_COMMAND_GET_SYSTEM_EVENT: {
         beet_iface_system_event_t event = { 0 };
+        uint32_t boot_epoch_unix_s = 0U;
         if (beet_iface_get_system_event(request->seq_no, &event) != ESP_OK) {
             response->reason = BEET_IFACE_REASON_EVENT_NOT_FOUND;
+            return ESP_OK;
+        }
+        if (!beet_lookup_boot_epoch(event.record.boot_id, &boot_epoch_unix_s)) {
+            response->reason = BEET_IFACE_REASON_TIME_NOT_SET;
             return ESP_OK;
         }
 
@@ -1773,6 +1830,7 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_system_event = true;
         response->system_event = event.record;
+        response->system_event_unix_s = boot_epoch_unix_s + event.record.occurred_uptime_s;
         return ESP_OK;
     }
 
@@ -2153,6 +2211,10 @@ esp_err_t beet_controller_init(void)
     ESP_RETURN_ON_ERROR(beet_storage_save_power_state(&s_state.power_state), TAG, "boot counter save failed");
     ESP_RETURN_ON_ERROR(beet_storage_scan_event_ring(&s_state.event_ring), TAG, "event scan failed");
     ESP_RETURN_ON_ERROR(beet_storage_scan_system_event_ring(&s_state.system_event_ring), TAG, "system event scan failed");
+    ESP_RETURN_ON_ERROR(
+        beet_storage_load_boot_epoch_cache(s_state.boot_epoch_cache, &s_state.boot_epoch_cache_count),
+        TAG,
+        "boot epoch cache load failed");
     ESP_RETURN_ON_ERROR(beet_board_init(), TAG, "board init failed");
 
     beet_board_all_relays_off();
