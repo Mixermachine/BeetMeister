@@ -2,17 +2,18 @@ package de.aarondietz.beetmeister.ui.composable
 
 import android.graphics.PathMeasure
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
@@ -25,8 +26,7 @@ import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.ui.Alignment
+import de.aarondietz.beetmeister.beet.BeetConnectionPhase
 import de.aarondietz.beetmeister.beet.BeetRepositoryState
 
 @Composable
@@ -51,16 +51,8 @@ internal fun Header(state: BeetRepositoryState) {
             )
         }
         ConnectedStatusChip(
-            label = if (state.connection.phase == de.aarondietz.beetmeister.beet.BeetConnectionPhase.Connected) {
-                "Connected"
-            } else {
-                state.connection.phase.name
-            },
-            syncLabel = if (state.eventSync.active) {
-                "${state.eventSync.downloaded}/${state.eventSync.total}"
-            } else {
-                null
-            },
+            label = if (state.connection.phase == BeetConnectionPhase.Connected) "Connected" else state.connection.phase.name,
+            syncLabel = if (state.eventSync.active) "${state.eventSync.downloaded}/${state.eventSync.total}" else null,
             progress = state.eventSync.progress,
             progressActive = state.eventSync.active,
         )
@@ -133,40 +125,5 @@ private fun ConnectedStatusChip(
                 )
             }
         }
-    }
-}
-
-@Composable
-internal fun ValueGridRow(leftLabel: String, leftValue: String, rightLabel: String, rightValue: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ValueCell(label = leftLabel, value = leftValue, modifier = Modifier.weight(1f))
-        ValueCell(label = rightLabel, value = rightValue, modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun ValueCell(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-internal fun PairEnabledToggleButton(pairEnabled: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
-    Button(onClick = onToggle, modifier = modifier) {
-        Text(if (pairEnabled) "Disable pair" else "Enable pair")
-    }
-}
-
-@Composable
-internal fun PairErrorClearButton(canClearError: Boolean, onClear: () -> Unit, modifier: Modifier = Modifier) {
-    Button(onClick = onClear, enabled = canClearError, modifier = modifier) {
-        Text("Clear error")
     }
 }
