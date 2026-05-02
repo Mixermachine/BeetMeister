@@ -24,7 +24,7 @@
 #include "os/os_mbuf.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
-#include "host/store/ble_store.h"
+#include "host/ble_store.h"
 #include "store/config/ble_store_config.h"
 #include "beet_ble_codec.h"
 #include "beet_ble_guard.h"
