@@ -2,7 +2,6 @@ package de.aarondietz.beetmeister.ui.events
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -12,7 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -28,15 +26,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import de.aarondietz.beetmeister.beet.BeetEventMappings
 import de.aarondietz.beetmeister.beet.BeetRepositoryState
-import de.aarondietz.beetmeister.beet.BeetSystemEvent
-import de.aarondietz.beetmeister.beet.BeetWateringEvent
-import de.aarondietz.beetmeister.ui.composable.ValueGridRow
-import de.aarondietz.beetmeister.ui.formatting.formatDuration
-import kotlin.math.max
+import de.aarondietz.beetmeister.ui.events.composable.DurationBarChart
+import de.aarondietz.beetmeister.ui.events.composable.SystemEventRow
+import de.aarondietz.beetmeister.ui.events.composable.WateringEventRow
 
 @Composable
 internal fun EventsScreen(
@@ -143,75 +137,6 @@ internal fun EventDetailScreen(
         }
         items(state.recentEvents.sortedByDescending { it.sequenceNumber }, key = { "wat${it.sequenceNumber}" }) { event ->
             WateringEventRow(event = event, state = state)
-        }
-    }
-}
-
-@Composable
-private fun DurationBarChart(pairTotalsSeconds: List<Int>) {
-    val maxValue = max(pairTotalsSeconds.maxOrNull() ?: 0, 1)
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        pairTotalsSeconds.forEachIndexed { index, totalSeconds ->
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text("Pair ${index + 1}")
-                    Text(formatDuration(totalSeconds))
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(18.dp)
-                        .background(Color(0xFFDDE4D7), RoundedCornerShape(50)),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(totalSeconds.toFloat() / maxValue.toFloat())
-                            .height(18.dp)
-                            .background(Color(0xFF6B8F52), RoundedCornerShape(50)),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SystemEventRow(event: BeetSystemEvent, state: BeetRepositoryState) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFFDFBF6)),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Seq ${event.sequenceNumber}", fontWeight = FontWeight.SemiBold)
-                Text(BeetEventMappings.systemEventLabel(event.eventType))
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            ValueGridRow("Time", formatSystemEventTime(event, state), "Battery", "${event.batteryMillivolts} mV")
-            ValueGridRow("Reason", systemEventReasonLabel(event), "Client", systemEventPeerLabel(event))
-        }
-    }
-}
-
-@Composable
-private fun WateringEventRow(event: BeetWateringEvent, state: BeetRepositoryState) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF7F3EA)),
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Seq ${event.sequenceNumber}", fontWeight = FontWeight.SemiBold)
-                Text("Pair ${event.pairIndex}")
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            ValueGridRow("Source", BeetEventMappings.triggerSourceLabel(event.triggerSource), "Actual", formatDuration(event.actualDurationSeconds))
-            ValueGridRow("Requested", formatDuration(event.requestedDurationSeconds), "Stop", BeetEventMappings.stopReasonLabel(event.stopReason))
-            ValueGridRow("Block", BeetEventMappings.blockReasonLabel(event.blockReason), "Time", formatWateringTime(event, state))
-            ValueGridRow("Before", "${event.moistureBeforePercent}% / ${event.sensorBeforeMillivolts} mV", "After", "${event.moistureAfterPercent}% / ${event.sensorAfterMillivolts} mV")
         }
     }
 }
