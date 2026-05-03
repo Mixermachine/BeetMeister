@@ -6,6 +6,14 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.util.Log
+import de.aarondietz.beetmeister.beet.model.command.BeetCommandResult
+import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.beet.model.controller.BeetPairState
+import de.aarondietz.beetmeister.beet.model.event.BeetSystemEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.stream.BeetEventSyncPhase
+import de.aarondietz.beetmeister.beet.model.stream.BeetEventSyncState
+import de.aarondietz.beetmeister.beet.model.stream.BeetStateMessage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

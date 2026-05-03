@@ -3,6 +3,8 @@ package de.aarondietz.beetmeister.beet
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
+import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 

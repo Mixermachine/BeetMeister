@@ -7,6 +7,23 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import de.aarondietz.beetmeister.beet.dto.CommandEnvelopeHeaderDto
 import de.aarondietz.beetmeister.beet.dto.CommandRequestEnvelopeDto
 import de.aarondietz.beetmeister.beet.dto.StateEnvelopeHeaderDto
+import de.aarondietz.beetmeister.beet.model.command.BeetCalibrationCommandData
+import de.aarondietz.beetmeister.beet.model.command.BeetCommandAckData
+import de.aarondietz.beetmeister.beet.model.command.BeetCommandResult
+import de.aarondietz.beetmeister.beet.model.command.BeetEmptyCommandData
+import de.aarondietz.beetmeister.beet.model.command.BeetEventRequestData
+import de.aarondietz.beetmeister.beet.model.command.BeetManualStartCommandData
+import de.aarondietz.beetmeister.beet.model.command.BeetPairCommandData
+import de.aarondietz.beetmeister.beet.model.command.BeetSetTimeCommandData
+import de.aarondietz.beetmeister.beet.model.controller.BeetCalibration
+import de.aarondietz.beetmeister.beet.model.controller.BeetControllerInfo
+import de.aarondietz.beetmeister.beet.model.controller.BeetDeviceState
+import de.aarondietz.beetmeister.beet.model.controller.BeetPairState
+import de.aarondietz.beetmeister.beet.model.event.BeetHistorySummary
+import de.aarondietz.beetmeister.beet.model.event.BeetSystemEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetSystemHistorySummary
+import de.aarondietz.beetmeister.beet.model.event.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.stream.BeetStateMessage
 
 object BeetJsonCodec {
     private val moshi: Moshi = Moshi.Builder()

@@ -1,6 +1,7 @@
 package de.aarondietz.beetmeister.beet
 
 import android.bluetooth.le.ScanResult
+import de.aarondietz.beetmeister.beet.model.connection.BeetDiscoveredDevice
 
 internal class BeetDiscoveredDeviceStore {
     private val devices = linkedMapOf<String, BeetDiscoveredDevice>()

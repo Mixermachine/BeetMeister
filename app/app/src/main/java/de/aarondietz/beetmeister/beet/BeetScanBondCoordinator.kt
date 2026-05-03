@@ -13,6 +13,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.ParcelUuid
 import android.util.Log
+import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionPhase
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch

@@ -1,7 +1,7 @@
 package de.aarondietz.beetmeister
 
 import de.aarondietz.beetmeister.beet.BeetJsonCodec
-import de.aarondietz.beetmeister.beet.BeetStateMessage
+import de.aarondietz.beetmeister.beet.model.stream.BeetStateMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

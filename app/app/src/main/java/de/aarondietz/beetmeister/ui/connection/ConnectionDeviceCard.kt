@@ -22,7 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import de.aarondietz.beetmeister.beet.BeetDiscoveredDevice
+import de.aarondietz.beetmeister.beet.model.connection.BeetDiscoveredDevice
 import de.aarondietz.beetmeister.ui.formatting.bondStateLabel
 
 @Composable

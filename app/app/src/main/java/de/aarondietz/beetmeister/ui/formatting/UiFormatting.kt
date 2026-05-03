@@ -1,7 +1,7 @@
 package de.aarondietz.beetmeister.ui.formatting
 
 import android.bluetooth.BluetoothDevice
-import de.aarondietz.beetmeister.beet.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetWateringEvent
 import java.time.Instant
 import java.time.ZoneId
 

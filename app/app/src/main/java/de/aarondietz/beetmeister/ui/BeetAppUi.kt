@@ -29,8 +29,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import de.aarondietz.beetmeister.beet.BeetConnectionPhase
 import de.aarondietz.beetmeister.beet.BeetRepository
+import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.composable.AppMainContentRouter
 import de.aarondietz.beetmeister.ui.composable.TopLevelScreen
 import de.aarondietz.beetmeister.ui.composable.Header
@@ -175,7 +176,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
 
 @Composable
 private fun rememberPermissionController(
-    state: de.aarondietz.beetmeister.beet.BeetRepositoryState,
+    state: BeetRepositoryState,
     activity: android.app.Activity?,
     contextPackageName: String,
     hasPermission: (String) -> Boolean,

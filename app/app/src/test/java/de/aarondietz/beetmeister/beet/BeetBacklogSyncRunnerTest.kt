@@ -1,5 +1,8 @@
 package de.aarondietz.beetmeister.beet
 
+import de.aarondietz.beetmeister.beet.model.event.BeetHistorySummary
+import de.aarondietz.beetmeister.beet.model.event.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.stream.BeetEventSyncPhase
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

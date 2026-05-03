@@ -26,8 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import de.aarondietz.beetmeister.beet.BeetPairState
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.beet.model.controller.BeetPairState
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.composable.PairErrorClearButton
 import de.aarondietz.beetmeister.ui.composable.PairEnabledToggleButton
 import de.aarondietz.beetmeister.ui.composable.ValueGridRow

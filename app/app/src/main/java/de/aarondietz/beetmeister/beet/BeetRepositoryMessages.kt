@@ -1,5 +1,7 @@
 package de.aarondietz.beetmeister.beet
 
+import de.aarondietz.beetmeister.beet.model.command.BeetCommandResult
+
 internal fun commandMessageForResult(result: BeetCommandResult): String {
     val base = reasonLabel(result.reason)
     return when {

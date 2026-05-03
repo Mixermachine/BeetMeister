@@ -3,7 +3,7 @@ package de.aarondietz.beetmeister.ui.composable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.calibration.CalibrationScreen
 import de.aarondietz.beetmeister.ui.events.EventDetailScreen
 import de.aarondietz.beetmeister.ui.events.EventsScreen

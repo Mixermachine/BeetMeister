@@ -26,8 +26,8 @@ import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import de.aarondietz.beetmeister.beet.BeetConnectionPhase
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 
 @Composable
 internal fun Header(state: BeetRepositoryState) {

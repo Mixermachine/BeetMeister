@@ -27,8 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import de.aarondietz.beetmeister.beet.BeetPairState
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.beet.model.controller.BeetPairState
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.formatting.formatUnixSeconds
 
 @Composable

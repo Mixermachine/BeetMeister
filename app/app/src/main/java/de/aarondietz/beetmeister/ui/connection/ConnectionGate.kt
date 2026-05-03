@@ -27,8 +27,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import de.aarondietz.beetmeister.beet.BeetConnectionPhase
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.composable.BeetMeisterLogo
 
 @Composable

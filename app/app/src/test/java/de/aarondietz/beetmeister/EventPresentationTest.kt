@@ -1,9 +1,9 @@
 package de.aarondietz.beetmeister
 
-import de.aarondietz.beetmeister.beet.BeetDeviceState
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
-import de.aarondietz.beetmeister.beet.BeetSystemEvent
-import de.aarondietz.beetmeister.beet.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.controller.BeetDeviceState
+import de.aarondietz.beetmeister.beet.model.event.BeetSystemEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.events.EventFilter
 import de.aarondietz.beetmeister.ui.events.WateringWindow
 import de.aarondietz.beetmeister.ui.events.acceptsSystem

@@ -14,10 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import de.aarondietz.beetmeister.beet.BeetEventMappings
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
-import de.aarondietz.beetmeister.beet.BeetSystemEvent
-import de.aarondietz.beetmeister.beet.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetEventMappings
+import de.aarondietz.beetmeister.beet.model.event.BeetSystemEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.composable.ValueGridRow
 import de.aarondietz.beetmeister.ui.events.formatSystemEventTime
 import de.aarondietz.beetmeister.ui.events.formatWateringTime

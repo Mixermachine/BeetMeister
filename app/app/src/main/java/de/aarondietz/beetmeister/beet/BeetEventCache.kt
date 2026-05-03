@@ -1,6 +1,8 @@
 package de.aarondietz.beetmeister.beet
 
 import android.content.SharedPreferences
+import de.aarondietz.beetmeister.beet.model.event.BeetSystemEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetWateringEvent
 
 internal class BeetEventCache(
     private val prefs: SharedPreferences,

@@ -1,9 +1,9 @@
 package de.aarondietz.beetmeister.ui.events
 
-import de.aarondietz.beetmeister.beet.BeetEventMappings
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
-import de.aarondietz.beetmeister.beet.BeetSystemEvent
-import de.aarondietz.beetmeister.beet.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetEventMappings
+import de.aarondietz.beetmeister.beet.model.event.BeetSystemEvent
+import de.aarondietz.beetmeister.beet.model.event.BeetWateringEvent
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.formatting.formatEventTime
 import de.aarondietz.beetmeister.ui.formatting.formatUnixSeconds
 

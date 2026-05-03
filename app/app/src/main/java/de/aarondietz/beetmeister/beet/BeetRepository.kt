@@ -5,6 +5,10 @@ import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionState
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.beet.model.stream.BeetEventSyncState
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

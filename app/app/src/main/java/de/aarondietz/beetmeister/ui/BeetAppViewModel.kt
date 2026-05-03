@@ -1,7 +1,7 @@
 package de.aarondietz.beetmeister.ui
 
 import de.aarondietz.beetmeister.beet.BeetRepository
-import de.aarondietz.beetmeister.beet.BeetRepositoryState
+import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
 import kotlinx.coroutines.flow.StateFlow
 import androidx.lifecycle.ViewModel
 

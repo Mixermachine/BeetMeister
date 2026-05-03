@@ -2,6 +2,7 @@ package de.aarondietz.beetmeister.beet
 
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
+import de.aarondietz.beetmeister.beet.model.command.BeetCommandResult
 import kotlinx.coroutines.CompletableDeferred
 
 internal class BeetConnectionSession {

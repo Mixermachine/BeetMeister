@@ -1,7 +1,7 @@
 package de.aarondietz.beetmeister
 
-import de.aarondietz.beetmeister.beet.BeetCommandResult
 import de.aarondietz.beetmeister.beet.commandMessageForResult
+import de.aarondietz.beetmeister.beet.model.command.BeetCommandResult
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
