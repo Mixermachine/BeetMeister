@@ -27,7 +27,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.feature.events.component.DurationBarChart
 import de.aarondietz.beetmeister.ui.feature.events.component.SystemEventRow
 import de.aarondietz.beetmeister.ui.feature.events.component.WateringEventRow
@@ -39,6 +42,7 @@ internal fun EventsScreen(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = rememberBeetStringResolver()
     var window by remember { mutableStateOf(WateringWindow.Day) }
     var filter by remember { mutableStateOf(EventFilter.All) }
     val nowSeconds = System.currentTimeMillis() / 1000L
@@ -55,8 +59,8 @@ internal fun EventsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Events", style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = onRefresh) { Text("Refresh") }
+                Text(strings.get(R.string.events_title), style = MaterialTheme.typography.headlineSmall)
+                TextButton(onClick = onRefresh) { Text(strings.get(R.string.common_refresh)) }
             }
         }
         item {
@@ -65,23 +69,23 @@ internal fun EventsScreen(
                 colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEDF2F5)),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Watering time by pair", style = MaterialTheme.typography.titleLarge)
+                    Text(strings.get(R.string.events_watering_time_by_pair), style = MaterialTheme.typography.titleLarge)
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WateringWindow.entries.forEach { option ->
                             FilterChip(
                                 selected = window == option,
                                 onClick = { window = option },
-                                label = { Text(option.label) },
+                                label = { Text(strings.get(option.labelRes)) },
                             )
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     DurationBarChart(totals)
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Synced ${state.eventSync.downloaded}/${state.eventSync.total} events")
+                    Text(strings.get(R.string.events_synced_count, state.eventSync.downloaded, state.eventSync.total))
                     Spacer(modifier = Modifier.height(12.dp))
-                    Button(onClick = onLoadDetails) { Text("Details") }
+                    Button(onClick = onLoadDetails) { Text(strings.get(R.string.common_details)) }
                 }
             }
         }
@@ -91,7 +95,7 @@ internal fun EventsScreen(
                     FilterChip(
                         selected = filter == option,
                         onClick = { filter = option },
-                        label = { Text(option.label) },
+                        label = { Text(strings.get(option.labelRes)) },
                     )
                 }
             }
@@ -115,6 +119,7 @@ internal fun EventDetailScreen(
     onReload: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = rememberBeetStringResolver()
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -125,12 +130,12 @@ internal fun EventDetailScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onBack) { Text("Back") }
-                TextButton(onClick = onReload) { Text("Reload") }
+                TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
+                TextButton(onClick = onReload) { Text(strings.get(R.string.common_reload)) }
             }
         }
         item {
-            Text("Event table", style = MaterialTheme.typography.headlineSmall)
+            Text(strings.get(R.string.events_detail_title), style = MaterialTheme.typography.headlineSmall)
         }
         items(state.systemEvents.sortedByDescending { it.sequenceNumber }, key = { "sys${it.sequenceNumber}" }) { event ->
             SystemEventRow(event = event, state = state)
@@ -139,4 +144,20 @@ internal fun EventDetailScreen(
             WateringEventRow(event = event, state = state)
         }
     }
+}
+
+internal enum class WateringWindow(@StringRes val labelRes: Int, val seconds: Long) {
+    Day(R.string.events_window_day, 24L * 60L * 60L),
+    Week(R.string.events_window_week, 7L * 24L * 60L * 60L),
+}
+
+internal enum class EventFilter(@StringRes val labelRes: Int) {
+    All(R.string.events_filter_all),
+    System(R.string.events_filter_system),
+    Watering(R.string.events_filter_watering),
+    Bluetooth(R.string.events_filter_bluetooth),
+    Sleep(R.string.events_filter_sleep),
+    Startup(R.string.events_filter_startup),
+    MQTT(R.string.events_filter_mqtt),
+    Ota(R.string.events_filter_ota),
 }

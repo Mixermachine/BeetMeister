@@ -13,11 +13,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
+import de.aarondietz.beetmeister.R
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
 import kotlin.math.max
 
 @Composable
 internal fun DurationBarChart(pairTotalsSeconds: List<Int>) {
+    val strings = rememberBeetStringResolver()
     val maxValue = max(pairTotalsSeconds.maxOrNull() ?: 0, 1)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         pairTotalsSeconds.forEachIndexed { index, totalSeconds ->
@@ -26,8 +29,8 @@ internal fun DurationBarChart(pairTotalsSeconds: List<Int>) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("Pair ${index + 1}")
-                    Text(formatDuration(totalSeconds))
+                    Text(strings.get(R.string.common_pair_number, index + 1))
+                    Text(formatDuration(totalSeconds, strings))
                 }
                 Box(
                     modifier = Modifier

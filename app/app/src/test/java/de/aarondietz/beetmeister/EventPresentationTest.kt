@@ -19,6 +19,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EventPresentationTest {
+    private val strings = TestBeetStringResolver()
+
     @Test
     fun wateringTotalsUsesOnlyResolvedEventsInsideSelectedWindow() {
         val nowSeconds = 1_000_000L
@@ -55,10 +57,10 @@ class EventPresentationTest {
         val disconnect = systemEvent(eventType = "BLE_DISCONNECT", reason = 531, peer = "AA:BB:CC:DD:EE:FF", knownPeer = true)
         val newPeer = systemEvent(eventType = "BLE_CONNECT", reason = 0, peer = "11:22:33:44:55:66", knownPeer = false)
 
-        assertEquals("Idle low-power sleep", systemEventReasonLabel(sleep))
-        assertEquals("Disconnect code 531", systemEventReasonLabel(disconnect))
-        assertEquals("Known AA:BB:CC:DD:EE:FF", systemEventPeerLabel(disconnect))
-        assertEquals("New 11:22:33:44:55:66", systemEventPeerLabel(newPeer))
+        assertEquals("Idle low-power sleep", systemEventReasonLabel(sleep, strings))
+        assertEquals("Disconnect code 531", systemEventReasonLabel(disconnect, strings))
+        assertEquals("Known AA:BB:CC:DD:EE:FF", systemEventPeerLabel(disconnect, strings))
+        assertEquals("New 11:22:33:44:55:66", systemEventPeerLabel(newPeer, strings))
     }
 
     @Test
@@ -81,10 +83,10 @@ class EventPresentationTest {
         val currentBootWatering = wateringEvent(seq = 10, pair = 2, bootId = 41, endUnix = 0, actualDuration = 30, timeValid = false, triggerSource = 2)
         val oldBootWatering = wateringEvent(seq = 11, pair = 2, bootId = 40, endUnix = 0, actualDuration = 30, timeValid = false, triggerSource = 2)
 
-        assertEquals("Pending time sync", formatSystemEventTime(currentBootSystem, state))
-        assertEquals("Ignored legacy", formatSystemEventTime(oldBootSystem, state))
-        assertEquals("Pending time sync", formatWateringTime(currentBootWatering, state))
-        assertEquals("Ignored legacy", formatWateringTime(oldBootWatering, state))
+        assertEquals("Pending time sync", formatSystemEventTime(currentBootSystem, state, strings))
+        assertEquals("Ignored legacy", formatSystemEventTime(oldBootSystem, state, strings))
+        assertEquals("Pending time sync", formatWateringTime(currentBootWatering, state, strings))
+        assertEquals("Ignored legacy", formatWateringTime(oldBootWatering, state, strings))
     }
 
     @Test

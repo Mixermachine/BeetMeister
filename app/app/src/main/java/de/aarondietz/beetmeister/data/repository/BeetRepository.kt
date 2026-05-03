@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.data.ble.BeetBluetoothSupport
 import de.aarondietz.beetmeister.data.ble.BeetConnectionSession
 import de.aarondietz.beetmeister.data.ble.BeetDiscoveredDeviceStore
@@ -14,6 +15,8 @@ import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.connection.BeetConnectionState
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
+import de.aarondietz.beetmeister.strings.AndroidBeetStringResolver
+import de.aarondietz.beetmeister.strings.BeetStringResolver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,7 @@ internal class BeetRepository(
     override val appContext: Context = context.applicationContext
     private val bluetoothManager = appContext.getSystemService(android.bluetooth.BluetoothManager::class.java)
     override val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
+    override val strings: BeetStringResolver = AndroidBeetStringResolver(appContext)
     private val prefs: SharedPreferences = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     override val scope: CoroutineScope = CoroutineScope(SupervisorJob() + ioDispatcher)
     private val _state = MutableStateFlow(BeetRepositoryState())
@@ -54,7 +58,7 @@ internal class BeetRepository(
     fun refreshEnvironment() = scanBondCoordinator.refreshEnvironment()
 
     fun startScan(
-        detail: String = "Searching for nearby BeetMeister controllers.",
+        detail: String = strings.get(R.string.scan_searching_nearby),
         clearResults: Boolean = false,
     ) = scanBondCoordinator.startScan(detail, clearResults)
 
@@ -69,7 +73,7 @@ internal class BeetRepository(
         scanBondCoordinator.disconnect()
         gattSessionCoordinator.disconnect(clearSelection = true, reason = "manual disconnect")
         clearSession()
-        updateConnection(BeetConnectionPhase.Disconnected, "Disconnected from controller.")
+        updateConnection(BeetConnectionPhase.Disconnected, strings.get(R.string.runtime_disconnected_from_controller))
     }
 
     fun refreshCalibrations() = gattSessionCoordinator.refreshCalibrations()

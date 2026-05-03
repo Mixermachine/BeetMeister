@@ -27,8 +27,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.strings.BeetStringResolver
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
+import de.aarondietz.beetmeister.ui.core.formatting.calibrationSourceLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatUnixSeconds
 
 @Composable
@@ -38,6 +42,7 @@ internal fun CalibrationScreen(
     onSave: (Int, Int, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = rememberBeetStringResolver()
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -48,8 +53,8 @@ internal fun CalibrationScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Calibration", style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = onRefresh) { Text("Reload") }
+                Text(strings.get(R.string.calibration_title), style = MaterialTheme.typography.headlineSmall)
+                TextButton(onClick = onRefresh) { Text(strings.get(R.string.common_reload)) }
             }
         }
         items(state.pairStates, key = { pair -> pair.pairIndex }) { pair ->
@@ -58,9 +63,10 @@ internal fun CalibrationScreen(
                 pairState = pair,
                 dryValue = calibration?.dryMillivolts,
                 wetValue = calibration?.wetMillivolts,
-                source = calibration?.source ?: "UNKNOWN",
+                source = calibration?.source,
                 calibratedAtUnixSeconds = calibration?.calibratedAtUnixSeconds ?: 0L,
                 onSave = { dry, wet -> onSave(pair.pairIndex, dry, wet) },
+                strings = strings,
             )
         }
     }
@@ -71,9 +77,10 @@ private fun CalibrationCard(
     pairState: BeetPairState,
     dryValue: Int?,
     wetValue: Int?,
-    source: String,
+    source: String?,
     calibratedAtUnixSeconds: Long,
     onSave: (Int, Int) -> Unit,
+    strings: BeetStringResolver,
 ) {
     var dryText by rememberSaveable(pairState.pairIndex, dryValue) { mutableStateOf(dryValue?.toString().orEmpty()) }
     var wetText by rememberSaveable(pairState.pairIndex, wetValue) { mutableStateOf(wetValue?.toString().orEmpty()) }
@@ -88,35 +95,38 @@ private fun CalibrationCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Pair ${pairState.pairIndex}", style = MaterialTheme.typography.titleLarge)
-                AssistChip(onClick = {}, label = { Text(source) })
+                Text(strings.get(R.string.common_pair_number, pairState.pairIndex), style = MaterialTheme.typography.titleLarge)
+                AssistChip(
+                    onClick = {},
+                    label = { Text(source?.let { calibrationSourceLabel(it, strings) } ?: strings.get(R.string.common_unknown)) },
+                )
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Live sensor value: ${pairState.sensorMillivolts} mV")
+            Text(strings.get(R.string.calibration_live_sensor_value, pairState.sensorMillivolts))
             if (calibratedAtUnixSeconds > 0) {
-                Text("Calibrated at: ${formatUnixSeconds(calibratedAtUnixSeconds)}")
+                Text(strings.get(R.string.calibration_calibrated_at, formatUnixSeconds(calibratedAtUnixSeconds, strings)))
             }
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedTextField(
                 value = dryText,
                 onValueChange = { input -> dryText = input.filter(Char::isDigit) },
-                label = { Text("Dry reference (mV)") },
+                label = { Text(strings.get(R.string.calibration_dry_reference)) },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = wetText,
                 onValueChange = { input -> wetText = input.filter(Char::isDigit) },
-                label = { Text("Wet reference (mV)") },
+                label = { Text(strings.get(R.string.calibration_wet_reference)) },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilledTonalButton(onClick = { dryText = pairState.sensorMillivolts.toString() }) {
-                    Text("Capture as dry")
+                    Text(strings.get(R.string.calibration_capture_dry))
                 }
                 FilledTonalButton(onClick = { wetText = pairState.sensorMillivolts.toString() }) {
-                    Text("Capture as wet")
+                    Text(strings.get(R.string.calibration_capture_wet))
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
@@ -129,7 +139,7 @@ private fun CalibrationCard(
                     }
                 },
             ) {
-                Text("Save calibration")
+                Text(strings.get(R.string.calibration_save))
             }
         }
     }

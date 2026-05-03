@@ -8,6 +8,9 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,13 +25,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.stringResource
 import de.aarondietz.beetmeister.data.repository.BeetRepository
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
@@ -120,7 +121,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
             TopLevelScreen.entries.forEach { destination ->
                 item(
                     icon = destination.icon,
-                    label = { Text(destination.label) },
+                    label = { Text(stringResource(destination.labelRes)) },
                     selected = topLevelScreen == destination,
                     onClick = {
                         topLevelScreen = destination

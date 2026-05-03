@@ -6,6 +6,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class BeetRepositoryMessagesTest {
+    private val strings = TestBeetStringResolver()
+
     @Test
     fun clearBleBondsMessageUsesExplicitReasons() {
         val cleared = BeetCommandResult(
@@ -21,8 +23,8 @@ class BeetRepositoryMessagesTest {
             reason = "no_bonds",
         )
 
-        assertEquals("Bluetooth bonds cleared.", commandMessageForResult(cleared))
-        assertEquals("No Bluetooth bonds to clear.", commandMessageForResult(none))
+        assertEquals("Bluetooth bonds cleared.", commandMessageForResult(cleared, strings))
+        assertEquals("No Bluetooth bonds to clear.", commandMessageForResult(none, strings))
     }
 
     @Test
@@ -40,7 +42,7 @@ class BeetRepositoryMessagesTest {
             reason = "rate_limited",
         )
 
-        assertEquals("Pair 2: Controller is busy.", commandMessageForResult(busy))
-        assertEquals("Pair 2: Too many commands; try again.", commandMessageForResult(rateLimited))
+        assertEquals("Pair 2: Controller is busy.", commandMessageForResult(busy, strings))
+        assertEquals("Pair 2: Too many commands; try again.", commandMessageForResult(rateLimited, strings))
     }
 }

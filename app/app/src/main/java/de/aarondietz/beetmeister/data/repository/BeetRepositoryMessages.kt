@@ -1,60 +1,64 @@
 package de.aarondietz.beetmeister.data.repository
 
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.command.BeetCommandResult
+import de.aarondietz.beetmeister.strings.BeetStringResolver
 
-internal fun commandMessageForResult(result: BeetCommandResult): String {
-    val base = reasonLabel(result.reason)
+internal fun commandMessageForResult(result: BeetCommandResult, strings: BeetStringResolver): String {
+    val base = reasonLabel(result.reason, strings)
     return when {
         result.command == "manual_start" && result.acceptedDurationSeconds != null ->
-            "$base (${result.acceptedDurationSeconds}s)"
+            strings.get(R.string.command_message_duration, base, result.acceptedDurationSeconds)
         result.command == "store_calibration" && result.pairIndex != null ->
-            "Calibration saved for pair ${result.pairIndex}."
+            strings.get(R.string.command_message_calibration_saved_for_pair, result.pairIndex)
         result.command == "disable_pair" && result.pairIndex != null ->
-            "Pair ${result.pairIndex} disabled."
+            strings.get(R.string.command_message_pair_disabled, result.pairIndex)
         result.command == "enable_pair" && result.pairIndex != null ->
-            "Pair ${result.pairIndex} enabled."
+            strings.get(R.string.command_message_pair_enabled, result.pairIndex)
         result.command == "clear_ble_bonds" ->
             when (result.reason) {
-                "bonds_cleared" -> "Bluetooth bonds cleared."
-                "no_bonds" -> "No Bluetooth bonds to clear."
+                "bonds_cleared" -> strings.get(R.string.command_message_bonds_cleared)
+                "no_bonds" -> strings.get(R.string.command_message_no_bonds)
                 else -> base
             }
-        result.command == "reset_block" && result.pairIndex != null ->
-            "Pair ${result.pairIndex}: $base."
-        result.pairIndex != null -> "Pair ${result.pairIndex}: $base."
+        result.pairIndex != null ->
+            strings.get(R.string.command_message_pair_prefix, result.pairIndex, base)
         else -> base
     }
 }
 
-private fun reasonLabel(reason: String): String = when (reason) {
-    "slot_allocated" -> "Watering started"
-    "queued_waiting_for_slot" -> "Queued until a pump slot is free"
-    "already_stopped" -> "Already stopped"
-    "stopped" -> "Stopped"
-    "not_blocked" -> "No error to clear"
-    "block_reset" -> "Error cleared"
-    "calibration_saved" -> "Calibration saved"
-    "pair_blocked" -> "Pair is blocked"
-    "pair_faulted" -> "Pair is faulted"
-    "low_battery" -> "Battery too low"
-    "slot_unavailable" -> "No pump slot available"
-    "invalid_calibration" -> "Invalid calibration values"
-    "invalid_duration" -> "Invalid duration"
-    "ota_in_progress" -> "OTA is in progress"
-    "bonds_cleared" -> "Bluetooth bonds cleared"
-    "no_bonds" -> "No Bluetooth bonds to clear"
-    "outputs_disabled" -> "Pump outputs are disabled"
-    "sensor_invalid" -> "Sensor reading is invalid"
-    "already_active" -> "Already active"
-    "invalid_pair" -> "Invalid pair"
-    "event_not_found" -> "Event not found"
-    "pair_disabled" -> "Pair is disabled"
-    "pair_enabled" -> "Pair enabled"
-    "moisture_test_started" -> "Moisture response test started"
-    "time_updated" -> "Controller time updated"
-    "invalid_time" -> "Invalid controller time"
-    "time_not_set" -> "Controller time is not set yet"
-    "busy" -> "Controller is busy"
-    "rate_limited" -> "Too many commands; try again"
-    else -> reason.replace('_', ' ').replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+private fun reasonLabel(reason: String, strings: BeetStringResolver): String {
+    val resId = when (reason) {
+        "slot_allocated" -> R.string.command_reason_slot_allocated
+        "queued_waiting_for_slot" -> R.string.command_reason_queued_waiting_for_slot
+        "already_stopped" -> R.string.command_reason_already_stopped
+        "stopped" -> R.string.command_reason_stopped
+        "not_blocked" -> R.string.command_reason_not_blocked
+        "block_reset" -> R.string.command_reason_block_reset
+        "calibration_saved" -> R.string.command_reason_calibration_saved
+        "pair_blocked" -> R.string.command_reason_pair_blocked
+        "pair_faulted" -> R.string.command_reason_pair_faulted
+        "low_battery" -> R.string.command_reason_low_battery
+        "slot_unavailable" -> R.string.command_reason_slot_unavailable
+        "invalid_calibration" -> R.string.command_reason_invalid_calibration
+        "invalid_duration" -> R.string.command_reason_invalid_duration
+        "ota_in_progress" -> R.string.command_reason_ota_in_progress
+        "bonds_cleared" -> R.string.command_reason_bonds_cleared
+        "no_bonds" -> R.string.command_reason_no_bonds
+        "outputs_disabled" -> R.string.command_reason_outputs_disabled
+        "sensor_invalid" -> R.string.command_reason_sensor_invalid
+        "already_active" -> R.string.command_reason_already_active
+        "invalid_pair" -> R.string.command_reason_invalid_pair
+        "event_not_found" -> R.string.command_reason_event_not_found
+        "pair_disabled" -> R.string.command_reason_pair_disabled
+        "pair_enabled" -> R.string.command_reason_pair_enabled
+        "moisture_test_started" -> R.string.command_reason_moisture_test_started
+        "time_updated" -> R.string.command_reason_time_updated
+        "invalid_time" -> R.string.command_reason_invalid_time
+        "time_not_set" -> R.string.command_reason_time_not_set
+        "busy" -> R.string.command_reason_busy
+        "rate_limited" -> R.string.command_reason_rate_limited
+        else -> return strings.get(R.string.common_unknown_with_code, reason)
+    }
+    return strings.get(resId)
 }

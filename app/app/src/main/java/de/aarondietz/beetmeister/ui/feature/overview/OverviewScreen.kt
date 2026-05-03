@@ -28,11 +28,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.R
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.PairErrorClearButton
 import de.aarondietz.beetmeister.ui.core.component.PairEnabledToggleButton
 import de.aarondietz.beetmeister.ui.core.component.ValueGridRow
+import de.aarondietz.beetmeister.ui.core.formatting.batteryStateLabel
+import de.aarondietz.beetmeister.ui.core.formatting.blockReasonCodeLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.core.formatting.formatMillivolts
+import de.aarondietz.beetmeister.ui.core.formatting.formatPercent
 import de.aarondietz.beetmeister.ui.core.formatting.formatUnixSeconds
+import de.aarondietz.beetmeister.ui.core.formatting.pairStateLabel
+import de.aarondietz.beetmeister.ui.core.formatting.runSourceLabel
 import de.aarondietz.beetmeister.ui.core.formatting.yesNo
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -45,6 +53,7 @@ internal fun OverviewScreen(
     onToggleEnabled: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = rememberBeetStringResolver()
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -58,6 +67,7 @@ internal fun OverviewScreen(
                 onDetails = { onPairSelected(pair.pairIndex) },
                 onClearError = { onClearError(pair.pairIndex) },
                 onToggleEnabled = { onToggleEnabled(pair.pairIndex) },
+                strings = strings,
             )
         }
     }
@@ -65,6 +75,7 @@ internal fun OverviewScreen(
 
 @Composable
 private fun SystemValuesCard(state: BeetRepositoryState) {
+    val strings = rememberBeetStringResolver()
     val device = state.deviceState ?: return
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -84,13 +95,38 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Current system values", style = MaterialTheme.typography.titleLarge)
+            Text(strings.get(R.string.overview_title_system_values), style = MaterialTheme.typography.titleLarge)
             Spacer(modifier = Modifier.height(12.dp))
-            ValueGridRow("Battery", "${device.batteryMillivolts} mV", "Approx.", "${device.batteryPercentApprox}%")
-            ValueGridRow("Battery state", device.batteryState, "Next check", formatDuration(device.nextCheckInSeconds))
-            ValueGridRow("Active pumps", device.activePumps.toString(), "Time valid", yesNo(device.timeValid))
-            ValueGridRow("Wi-Fi", yesNo(device.wifiConnected), "MQTT", yesNo(device.mqttConnected))
-            ValueGridRow("Running since", formatUnixSeconds(runningSinceUnixSeconds), "Uptime", formatDuration(device.uptimeSeconds.toInt()))
+            ValueGridRow(
+                strings.get(R.string.overview_label_battery),
+                formatMillivolts(device.batteryMillivolts, strings),
+                strings.get(R.string.overview_label_approx),
+                formatPercent(device.batteryPercentApprox, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.overview_label_battery_state),
+                batteryStateLabel(device.batteryState, strings),
+                strings.get(R.string.overview_label_next_check),
+                formatDuration(device.nextCheckInSeconds, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.overview_label_active_pumps),
+                device.activePumps.toString(),
+                strings.get(R.string.overview_label_time_valid),
+                yesNo(device.timeValid, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.overview_label_wifi),
+                yesNo(device.wifiConnected, strings),
+                strings.get(R.string.overview_label_mqtt),
+                yesNo(device.mqttConnected, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.overview_label_running_since),
+                formatUnixSeconds(runningSinceUnixSeconds, strings),
+                strings.get(R.string.overview_label_uptime),
+                formatDuration(device.uptimeSeconds.toInt(), strings),
+            )
         }
     }
 }
@@ -101,6 +137,7 @@ private fun PairOverviewCard(
     onDetails: () -> Unit,
     onClearError: () -> Unit,
     onToggleEnabled: () -> Unit,
+    strings: de.aarondietz.beetmeister.strings.BeetStringResolver,
 ) {
     val tone = when {
         !pair.enabled -> Color(0xFFE3E0DA)
@@ -121,30 +158,40 @@ private fun PairOverviewCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Pair ${pair.pairIndex}", style = MaterialTheme.typography.titleLarge)
-                AssistChip(onClick = {}, label = { Text(pair.state) })
+                Text(strings.get(R.string.common_pair_number, pair.pairIndex), style = MaterialTheme.typography.titleLarge)
+                AssistChip(onClick = {}, label = { Text(pairStateLabel(pair.state, strings)) })
             }
             Spacer(modifier = Modifier.height(10.dp))
-            ValueGridRow("Moisture", "${pair.moisturePercent}%", "Sensor", "${pair.sensorMillivolts} mV")
-            ValueGridRow("Source", pair.source, "Remaining", formatDuration(pair.remainingSeconds))
+            ValueGridRow(
+                strings.get(R.string.overview_label_moisture),
+                formatPercent(pair.moisturePercent, strings),
+                strings.get(R.string.overview_label_sensor),
+                formatMillivolts(pair.sensorMillivolts, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.overview_label_source),
+                runSourceLabel(pair.source, strings),
+                strings.get(R.string.overview_label_remaining),
+                formatDuration(pair.remainingSeconds, strings),
+            )
             if (!pair.enabled) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Disabled: excluded from watering and invalid-sensor alarms.",
+                    text = strings.get(R.string.overview_pair_disabled_info),
                     color = Color(0xFF545454),
                     fontWeight = FontWeight.SemiBold,
                 )
             } else if (pair.blocked || pair.state == "FAULT") {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Reason: ${pair.blockReason}",
+                    text = strings.get(R.string.common_reason_value, blockReasonCodeLabel(pair.blockReason, strings)),
                     color = Color(0xFF7D4632),
                     fontWeight = FontWeight.SemiBold,
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onDetails) { Text("Details") }
+                Button(onClick = onDetails) { Text(strings.get(R.string.common_details)) }
                 PairErrorClearButton(
                     canClearError = pair.sensorValid && (pair.blocked || pair.state == "FAULT"),
                     onClear = onClearError,

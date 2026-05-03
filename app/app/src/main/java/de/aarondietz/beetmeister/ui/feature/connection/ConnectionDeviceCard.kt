@@ -22,11 +22,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.connection.BeetDiscoveredDevice
 import de.aarondietz.beetmeister.ui.core.formatting.bondStateLabel
+import de.aarondietz.beetmeister.ui.core.formatting.formatRssi
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 
 @Composable
 internal fun DeviceCard(device: BeetDiscoveredDevice, selected: Boolean, onConnect: () -> Unit) {
+    val strings = rememberBeetStringResolver()
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -49,14 +53,14 @@ internal fun DeviceCard(device: BeetDiscoveredDevice, selected: Boolean, onConne
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "RSSI ${device.rssi} dBm  |  ${bondStateLabel(device.bondState)}",
+                text = "${formatRssi(device.rssi, strings)}  |  ${bondStateLabel(device.bondState, strings)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color(0xFF5D6658),
             )
             if (selected) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Connecting...",
+                    text = strings.get(R.string.common_connecting),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF46663E),
                     fontWeight = FontWeight.SemiBold,
@@ -64,7 +68,7 @@ internal fun DeviceCard(device: BeetDiscoveredDevice, selected: Boolean, onConne
             }
             Spacer(modifier = Modifier.height(12.dp))
             Button(onClick = onConnect) {
-                Text(if (selected) "Connecting" else "Connect")
+                Text(strings.get(if (selected) R.string.common_connecting else R.string.common_connect))
             }
         }
     }

@@ -1,27 +1,13 @@
 package de.aarondietz.beetmeister.ui.feature.events
 
-import de.aarondietz.beetmeister.model.event.BeetEventMappings
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.strings.BeetStringResolver
 import de.aarondietz.beetmeister.ui.core.formatting.formatEventTime
 import de.aarondietz.beetmeister.ui.core.formatting.formatUnixSeconds
-
-internal enum class WateringWindow(val label: String, val seconds: Long) {
-    Day("Last 24 hours", 24L * 60L * 60L),
-    Week("Last 7 days", 7L * 24L * 60L * 60L),
-}
-
-internal enum class EventFilter(val label: String) {
-    All("All"),
-    System("System"),
-    Watering("Watering"),
-    Bluetooth("Bluetooth"),
-    Sleep("Sleep"),
-    Startup("Startup"),
-    MQTT("MQTT"),
-    Ota("OTA"),
-}
+import de.aarondietz.beetmeister.ui.core.formatting.stopReasonLabel
 
 internal fun EventFilter.acceptsSystem(event: BeetSystemEvent): Boolean = when (this) {
     EventFilter.All, EventFilter.System -> true
@@ -48,37 +34,77 @@ internal fun wateringTotals(events: List<BeetWateringEvent>, window: WateringWin
     return totals
 }
 
-internal fun formatSystemEventTime(event: BeetSystemEvent, state: BeetRepositoryState): String {
+internal fun formatSystemEventTime(
+    event: BeetSystemEvent,
+    state: BeetRepositoryState,
+    strings: BeetStringResolver,
+): String {
     if (event.timeValid && event.unixSeconds > 0L) {
-        return formatUnixSeconds(event.unixSeconds)
+        return formatUnixSeconds(event.unixSeconds, strings)
     }
     val currentBootId = state.deviceState?.bootId ?: 0L
-    return if (event.bootId > 0L && event.bootId == currentBootId) "Pending time sync" else "Ignored legacy"
+    return strings.get(
+        if (event.bootId > 0L && event.bootId == currentBootId) {
+            R.string.events_pending_time_sync
+        } else {
+            R.string.events_ignored_legacy
+        },
+    )
 }
 
-internal fun formatWateringTime(event: BeetWateringEvent, state: BeetRepositoryState): String {
+internal fun formatWateringTime(
+    event: BeetWateringEvent,
+    state: BeetRepositoryState,
+    strings: BeetStringResolver,
+): String {
     if (event.timeValid) {
-        return formatEventTime(event)
+        return formatEventTime(event, strings)
     }
     val currentBootId = state.deviceState?.bootId ?: 0L
-    return if (event.bootId > 0L && event.bootId == currentBootId) "Pending time sync" else "Ignored legacy"
+    return strings.get(
+        if (event.bootId > 0L && event.bootId == currentBootId) {
+            R.string.events_pending_time_sync
+        } else {
+            R.string.events_ignored_legacy
+        },
+    )
 }
 
-internal fun systemEventReasonLabel(event: BeetSystemEvent): String = when (event.eventType) {
-    "SLEEP" -> BeetEventMappings.stopReasonLabel(event.reason)
-    "BLE_DISCONNECT" -> if (event.reason == 0) "Disconnected" else "Disconnect code ${event.reason}"
-    "BLE_BOND_FAILED" -> "Bond status ${event.reason}"
-    "MQTT_PUBLISH_FAILED" -> if (event.reason == 0) "Publish failed" else "Publish status ${event.reason}"
-    else -> if (event.reason == 0) "None" else event.reason.toString()
+internal fun systemEventReasonLabel(event: BeetSystemEvent, strings: BeetStringResolver): String = when (event.eventType) {
+    "SLEEP" -> stopReasonLabel(event.reason, strings)
+    "BLE_DISCONNECT" -> if (event.reason == 0) {
+        strings.get(R.string.events_disconnected_reason)
+    } else {
+        strings.get(R.string.events_disconnect_code, event.reason)
+    }
+    "BLE_BOND_FAILED" -> strings.get(R.string.events_bond_status, event.reason)
+    "MQTT_PUBLISH_FAILED" -> if (event.reason == 0) {
+        strings.get(R.string.events_publish_failed)
+    } else {
+        strings.get(R.string.events_publish_status, event.reason)
+    }
+    else -> if (event.reason == 0) strings.get(R.string.common_none) else event.reason.toString()
 }
 
-internal fun systemEventPeerLabel(event: BeetSystemEvent): String {
+internal fun systemEventPeerLabel(event: BeetSystemEvent, strings: BeetStringResolver): String {
     if (!event.eventType.startsWith("BLE_")) {
-        return "-"
+        return strings.get(R.string.placeholder_dash)
     }
     if (event.peerAddress.isBlank() || event.peerAddress == "00:00:00:00:00:00") {
-        return if (event.knownPeer) "Known peer" else "New peer"
+        return strings.get(
+            if (event.knownPeer) {
+                R.string.events_known_peer
+            } else {
+                R.string.events_new_peer
+            },
+        )
     }
-    val peerType = if (event.knownPeer) "Known" else "New"
-    return "$peerType ${event.peerAddress}"
+    return strings.get(
+        if (event.knownPeer) {
+            R.string.events_known_peer_address
+        } else {
+            R.string.events_new_peer_address
+        },
+        event.peerAddress,
+    )
 }

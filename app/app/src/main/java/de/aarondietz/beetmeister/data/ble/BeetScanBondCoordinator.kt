@@ -13,6 +13,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.ParcelUuid
 import android.util.Log
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.data.repository.BeetRepositoryCallbacks
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import kotlinx.coroutines.Job
@@ -22,6 +23,7 @@ import kotlinx.coroutines.launch
 internal class BeetScanBondCoordinator(
     private val host: BeetRepositoryCallbacks,
 ) {
+    private val strings get() = host.strings
     private var receiverRegistered = false
     private var scanCallback: ScanCallback? = null
     private var staleBondRecoveryJob: Job? = null
@@ -58,23 +60,23 @@ internal class BeetScanBondCoordinator(
         val adapter = host.bluetoothAdapter
         when {
             !BeetBluetoothSupport.hasRequiredPermissions(host.appContext) -> {
-                updateConnection(BeetConnectionPhase.PermissionsRequired, "Bluetooth permissions are required.")
+                updateConnection(BeetConnectionPhase.PermissionsRequired, strings.get(R.string.scan_permissions_required))
             }
             adapter == null -> {
-                updateConnection(BeetConnectionPhase.Error, "This device does not support Bluetooth LE.")
+                updateConnection(BeetConnectionPhase.Error, strings.get(R.string.scan_bluetooth_not_supported))
             }
             !adapter.isEnabled -> {
-                updateConnection(BeetConnectionPhase.BluetoothDisabled, "Bluetooth is turned off.")
+                updateConnection(BeetConnectionPhase.BluetoothDisabled, strings.get(R.string.scan_bluetooth_turned_off))
             }
             host.state.value.connection.phase == BeetConnectionPhase.PermissionsRequired ||
                 host.state.value.connection.phase == BeetConnectionPhase.BluetoothDisabled -> {
-                updateConnection(BeetConnectionPhase.Idle, "Ready to scan.")
+                updateConnection(BeetConnectionPhase.Idle, strings.get(R.string.scan_ready))
             }
         }
     }
 
     fun startScan(
-        detail: String = "Searching for nearby BeetMeister controllers.",
+        detail: String = strings.get(R.string.scan_searching_nearby),
         clearResults: Boolean = false,
     ) {
         Log.d(
@@ -82,16 +84,16 @@ internal class BeetScanBondCoordinator(
             "startScan(clearResults=$clearResults, detail=$detail, callbackActive=${scanCallback != null}, phase=${host.state.value.connection.phase})",
         )
         if (!BeetBluetoothSupport.hasRequiredPermissions(host.appContext)) {
-            updateConnection(BeetConnectionPhase.PermissionsRequired, "Bluetooth permissions are required.")
+            updateConnection(BeetConnectionPhase.PermissionsRequired, strings.get(R.string.scan_permissions_required))
             return
         }
         val adapter = host.bluetoothAdapter
         if (adapter == null || !adapter.isEnabled) {
-            updateConnection(BeetConnectionPhase.BluetoothDisabled, "Bluetooth is turned off.")
+            updateConnection(BeetConnectionPhase.BluetoothDisabled, strings.get(R.string.scan_bluetooth_turned_off))
             return
         }
         val scanner = adapter.bluetoothLeScanner ?: run {
-            updateConnection(BeetConnectionPhase.Error, "Bluetooth LE scanner is unavailable.")
+            updateConnection(BeetConnectionPhase.Error, strings.get(R.string.scan_scanner_unavailable))
             return
         }
         if (scanCallback != null) {
@@ -111,7 +113,7 @@ internal class BeetScanBondCoordinator(
             onScanResult = ::addScanResult,
             onScanFailed = { errorCode ->
                 scanCallback = null
-                updateConnection(BeetConnectionPhase.Error, "Scan failed with code $errorCode.")
+                updateConnection(BeetConnectionPhase.Error, strings.get(R.string.scan_failed_with_code, errorCode))
             },
         )
         scanCallback = callback
@@ -136,12 +138,12 @@ internal class BeetScanBondCoordinator(
     fun connect(address: String) {
         Log.d(TAG, "connect(address=$address)")
         if (!BeetBluetoothSupport.hasRequiredPermissions(host.appContext)) {
-            updateConnection(BeetConnectionPhase.PermissionsRequired, "Bluetooth permissions are required.")
+            updateConnection(BeetConnectionPhase.PermissionsRequired, strings.get(R.string.scan_permissions_required))
             return
         }
         val adapter = host.bluetoothAdapter
         if (adapter == null || !adapter.isEnabled) {
-            updateConnection(BeetConnectionPhase.BluetoothDisabled, "Bluetooth is turned off.")
+            updateConnection(BeetConnectionPhase.BluetoothDisabled, strings.get(R.string.scan_bluetooth_turned_off))
             return
         }
 
@@ -151,7 +153,7 @@ internal class BeetScanBondCoordinator(
             val device = try {
                 adapter.getRemoteDevice(address)
             } catch (_: IllegalArgumentException) {
-                updateConnection(BeetConnectionPhase.Error, "Invalid controller address.")
+                updateConnection(BeetConnectionPhase.Error, strings.get(R.string.scan_invalid_controller_address))
                 return@launch
             }
             host.currentAddress = address
@@ -160,10 +162,10 @@ internal class BeetScanBondCoordinator(
 
             if (device.bondState != BluetoothDevice.BOND_BONDED) {
                 pendingBondAddress = address
-                updateConnection(BeetConnectionPhase.Bonding, "Opening Android pairing dialog.")
+                updateConnection(BeetConnectionPhase.Bonding, strings.get(R.string.scan_open_pairing_dialog))
                 @Suppress("MissingPermission")
                 if (!device.createBond()) {
-                    updateConnection(BeetConnectionPhase.Error, "Failed to start BLE bonding.")
+                    updateConnection(BeetConnectionPhase.Error, strings.get(R.string.scan_failed_to_start_bonding))
                 } else {
                     monitorBondState(device)
                 }
@@ -195,7 +197,7 @@ internal class BeetScanBondCoordinator(
 
     fun recoverFromStaleBond(address: String, status: Int) {
         val adapter = host.bluetoothAdapter ?: run {
-            startScan(detail = "Bluetooth is unavailable after pairing failure.")
+            startScan(detail = strings.get(R.string.scan_bluetooth_unavailable_after_pairing_failure))
             return
         }
         staleBondRecoveryJob?.cancel()
@@ -203,7 +205,7 @@ internal class BeetScanBondCoordinator(
             val device = try {
                 adapter.getRemoteDevice(address)
             } catch (_: IllegalArgumentException) {
-                startScan(detail = "Saved controller address is invalid. Searching again.")
+                startScan(detail = strings.get(R.string.scan_saved_address_invalid))
                 return@launch
             }
 
@@ -221,17 +223,17 @@ internal class BeetScanBondCoordinator(
             Log.w(TAG, "recoverFromStaleBond(address=$address, status=$status, bondState=$bondState)")
             if (pairingExpired) {
                 pendingBondAddress = address
-                updateConnection(BeetConnectionPhase.Bonding, "Opening Android pairing dialog.")
+                updateConnection(BeetConnectionPhase.Bonding, strings.get(R.string.scan_open_pairing_dialog))
                 @Suppress("MissingPermission")
                 if (!device.createBond()) {
                     host.removeLastAddress()
-                    startScan(detail = "Pairing expired. Tap Connect to pair again.")
+                    startScan(detail = strings.get(R.string.scan_pairing_expired_tap_connect))
                 } else {
                     monitorBondState(device)
                 }
             } else {
                 host.removeLastAddress()
-                startScan(detail = "Saved pairing expired. Tap Connect to pair again.")
+                startScan(detail = strings.get(R.string.scan_saved_pairing_expired_tap_connect))
             }
             staleBondRecoveryJob = null
         }
@@ -261,9 +263,9 @@ internal class BeetScanBondCoordinator(
                     }
                     BluetoothDevice.BOND_BONDING -> {
                         val detail = if (attempt < 2) {
-                            "Pairing in progress. Confirm the code on your phone."
+                            strings.get(R.string.scan_pairing_in_progress_confirm)
                         } else {
-                            "Pairing in progress. Waiting for Android to finish bonding."
+                            strings.get(R.string.scan_pairing_in_progress_wait)
                         }
                         if (host.state.value.connection.phase == BeetConnectionPhase.Bonding &&
                             host.state.value.connection.detail != detail
@@ -275,7 +277,7 @@ internal class BeetScanBondCoordinator(
                         if (host.state.value.connection.phase == BeetConnectionPhase.Bonding) {
                             pendingBondAddress = null
                             bondMonitorJob = null
-                            startScan(detail = "Bonding was cancelled or failed. Searching again.")
+                            startScan(detail = strings.get(R.string.scan_bonding_cancelled))
                             return@launch
                         }
                     }
@@ -283,7 +285,7 @@ internal class BeetScanBondCoordinator(
             }
             if (device.address == pendingBondAddress && host.state.value.connection.phase == BeetConnectionPhase.Bonding) {
                 pendingBondAddress = null
-                startScan(detail = "Bonding timed out. Searching again.")
+                startScan(detail = strings.get(R.string.scan_bonding_timed_out))
             }
             bondMonitorJob = null
         }
@@ -345,7 +347,7 @@ internal class BeetScanBondCoordinator(
         )
         when (bondState) {
             BluetoothDevice.BOND_BONDING -> {
-                updateConnection(BeetConnectionPhase.Bonding, "Pairing in progress. Confirm the code on your phone.")
+                updateConnection(BeetConnectionPhase.Bonding, strings.get(R.string.scan_pairing_in_progress_confirm))
             }
             BluetoothDevice.BOND_BONDED -> {
                 pendingBondAddress = null
@@ -354,7 +356,7 @@ internal class BeetScanBondCoordinator(
             BluetoothDevice.BOND_NONE -> {
                 if (previousBondState == BluetoothDevice.BOND_BONDING) {
                     pendingBondAddress = null
-                    startScan(detail = "Bonding was cancelled or failed. Searching again.")
+                    startScan(detail = strings.get(R.string.scan_bonding_cancelled))
                 }
             }
         }

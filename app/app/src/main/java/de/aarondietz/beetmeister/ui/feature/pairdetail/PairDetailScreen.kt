@@ -25,11 +25,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.controller.BeetPairState
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.PairErrorClearButton
 import de.aarondietz.beetmeister.ui.core.component.PairEnabledToggleButton
 import de.aarondietz.beetmeister.ui.core.component.ValueGridRow
+import de.aarondietz.beetmeister.ui.core.formatting.blockReasonCodeLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.core.formatting.formatMillivolts
+import de.aarondietz.beetmeister.ui.core.formatting.formatPercent
+import de.aarondietz.beetmeister.ui.core.formatting.pairStateLabel
+import de.aarondietz.beetmeister.ui.core.formatting.runSourceLabel
 import de.aarondietz.beetmeister.ui.core.formatting.yesNo
 
 @Composable
@@ -43,6 +50,7 @@ internal fun PairDetailScreen(
     onClearError: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = rememberBeetStringResolver()
     var durationText by rememberSaveable(pairState.pairIndex) { mutableStateOf("") }
     val canStartMoistureTest = pairState.enabled &&
         pairState.sensorValid &&
@@ -54,7 +62,7 @@ internal fun PairDetailScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            TextButton(onClick = onBack) { Text("Back") }
+            TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
         }
         item {
             ElevatedCard(
@@ -62,18 +70,41 @@ internal fun PairDetailScreen(
                 colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF9F6EF)),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Pair ${pairState.pairIndex}", style = MaterialTheme.typography.headlineSmall)
+                    Text(strings.get(R.string.common_pair_number, pairState.pairIndex), style = MaterialTheme.typography.headlineSmall)
                     Spacer(modifier = Modifier.height(12.dp))
-                    ValueGridRow("State", pairState.state, "Source", pairState.source)
-                    ValueGridRow("Moisture", "${pairState.moisturePercent}%", "Sensor", "${pairState.sensorMillivolts} mV")
-                    ValueGridRow("Enabled", yesNo(pairState.enabled), "Sensor valid", yesNo(pairState.sensorValid))
-                    ValueGridRow("Blocked", yesNo(pairState.blocked), "Remaining", formatDuration(pairState.remainingSeconds))
+                    ValueGridRow(
+                        strings.get(R.string.pair_detail_label_state),
+                        pairStateLabel(pairState.state, strings),
+                        strings.get(R.string.pair_detail_label_source),
+                        runSourceLabel(pairState.source, strings),
+                    )
+                    ValueGridRow(
+                        strings.get(R.string.pair_detail_label_moisture),
+                        formatPercent(pairState.moisturePercent, strings),
+                        strings.get(R.string.pair_detail_label_sensor),
+                        formatMillivolts(pairState.sensorMillivolts, strings),
+                    )
+                    ValueGridRow(
+                        strings.get(R.string.pair_detail_label_enabled),
+                        yesNo(pairState.enabled, strings),
+                        strings.get(R.string.pair_detail_label_sensor_valid),
+                        yesNo(pairState.sensorValid, strings),
+                    )
+                    ValueGridRow(
+                        strings.get(R.string.pair_detail_label_blocked),
+                        yesNo(pairState.blocked, strings),
+                        strings.get(R.string.pair_detail_label_remaining),
+                        formatDuration(pairState.remainingSeconds, strings),
+                    )
                     if (!pairState.enabled) {
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text("This pair is disabled and excluded from watering and invalid-sensor alarms.", color = Color(0xFF545454))
+                        Text(strings.get(R.string.pair_detail_disabled_info), color = Color(0xFF545454))
                     } else if (pairState.blocked || pairState.state == "FAULT") {
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text("Reason: ${pairState.blockReason}", color = Color(0xFF7D4632))
+                        Text(
+                            strings.get(R.string.common_reason_value, blockReasonCodeLabel(pairState.blockReason, strings)),
+                            color = Color(0xFF7D4632),
+                        )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     PairEnabledToggleButton(
@@ -89,12 +120,12 @@ internal fun PairDetailScreen(
                 colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEAF0E2)),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Manual watering", style = MaterialTheme.typography.titleLarge)
+                    Text(strings.get(R.string.pair_detail_manual_watering), style = MaterialTheme.typography.titleLarge)
                     Spacer(modifier = Modifier.height(12.dp))
                     OutlinedTextField(
                         value = durationText,
                         onValueChange = { input -> durationText = input.filter(Char::isDigit) },
-                        label = { Text("Timed start (seconds)") },
+                        label = { Text(strings.get(R.string.pair_detail_timed_start_label)) },
                         modifier = Modifier.fillMaxWidth(),
                         enabled = pairState.enabled,
                     )
@@ -104,13 +135,13 @@ internal fun PairDetailScreen(
                             onClick = { onManualStart(pairState.pairIndex, null) },
                             enabled = pairState.enabled,
                         ) {
-                            Text("Start default")
+                            Text(strings.get(R.string.pair_detail_start_default))
                         }
                         Button(
                             onClick = { onManualStart(pairState.pairIndex, durationText.toIntOrNull()) },
                             enabled = pairState.enabled,
                         ) {
-                            Text("Start timed")
+                            Text(strings.get(R.string.pair_detail_start_timed))
                         }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -119,7 +150,7 @@ internal fun PairDetailScreen(
                             onClick = { onManualStop(pairState.pairIndex) },
                             enabled = pairState.enabled,
                         ) {
-                            Text("Stop")
+                            Text(strings.get(R.string.pair_detail_stop))
                         }
                         PairErrorClearButton(
                             canClearError = pairState.sensorValid && (pairState.blocked || pairState.state == "FAULT"),
@@ -135,10 +166,10 @@ internal fun PairDetailScreen(
                 colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF0E7DA)),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Irrigation detection", style = MaterialTheme.typography.titleLarge)
+                    Text(strings.get(R.string.pair_detail_irrigation_detection), style = MaterialTheme.typography.titleLarge)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Runs the short moisture response check without starting a full watering cycle.",
+                        strings.get(R.string.pair_detail_detection_description),
                         color = Color(0xFF545454),
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -146,7 +177,15 @@ internal fun PairDetailScreen(
                         onClick = { onMoistureTestStart(pairState.pairIndex) },
                         enabled = canStartMoistureTest,
                     ) {
-                        Text(if (pairState.state == "MOISTURE_TEST") "Testing..." else "Test detection")
+                        Text(
+                            strings.get(
+                                if (pairState.state == "MOISTURE_TEST") {
+                                    R.string.pair_detail_testing
+                                } else {
+                                    R.string.pair_detail_test_detection
+                                },
+                            ),
+                        )
                     }
                 }
             }

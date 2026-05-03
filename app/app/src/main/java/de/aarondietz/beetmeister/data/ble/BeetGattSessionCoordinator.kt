@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.util.Log
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.data.local.BeetEventCache
 import de.aarondietz.beetmeister.data.protocol.BeetJsonCodec
 import de.aarondietz.beetmeister.data.repository.BeetBacklogFetchResult
@@ -36,6 +37,7 @@ import kotlin.math.max
 internal class BeetGattSessionCoordinator(
     private val host: BeetRepositoryCallbacks,
 ) {
+    private val strings get() = host.strings
     private val commandMutex = Mutex()
     private val eventCache = BeetEventCache(host.appContext.getSharedPreferences("beetmeister_event_cache", android.content.Context.MODE_PRIVATE))
     private var connectionTimeoutJob: Job? = null
@@ -66,7 +68,7 @@ internal class BeetGattSessionCoordinator(
             }
             for (pairIndex in 1..8) {
                 runCatching { sendCommand(BeetJsonCodec.getCalibration(pairIndex)) }
-                    .onFailure { host.setCommandMessage("Calibration refresh failed for pair $pairIndex.") }
+                    .onFailure { host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex)) }
             }
         }
     }
@@ -82,7 +84,7 @@ internal class BeetGattSessionCoordinator(
     fun manualStart(pairIndex: Int, durationSeconds: Int?) {
         host.scope.launch {
             if (durationSeconds != null && durationSeconds !in 1..MAX_MANUAL_DURATION_SECONDS) {
-                host.setCommandMessage("Manual duration must be between 1 second and 20 minutes.")
+                host.setCommandMessage(strings.get(R.string.runtime_manual_duration_invalid))
                 return@launch
             }
             sendUserCommand(BeetJsonCodec.manualStart(pairIndex, durationSeconds))
@@ -107,7 +109,7 @@ internal class BeetGattSessionCoordinator(
                 }
                 .onFailure { error ->
                     pendingMoistureTests.remove(pairIndex)
-                    host.setCommandMessage(error.message ?: "Command failed.")
+                    host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed))
                 }
         }
     }
@@ -129,7 +131,7 @@ internal class BeetGattSessionCoordinator(
     fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) {
         host.scope.launch {
             if (dryMillivolts <= wetMillivolts || dryMillivolts == 0 || wetMillivolts == 0) {
-                host.setCommandMessage("Dry calibration must be greater than wet calibration.")
+                host.setCommandMessage(strings.get(R.string.runtime_calibration_invalid_order))
                 return@launch
             }
             sendUserCommand(BeetJsonCodec.storeCalibration(pairIndex, dryMillivolts, wetMillivolts))
@@ -141,7 +143,7 @@ internal class BeetGattSessionCoordinator(
         Log.d(TAG, "openGatt(address=${device.address}, bondState=${device.bondState})")
         disconnectGatt(clearSelection = false, reason = "openGatt reset existing session")
         resetSyncState()
-        host.updateConnection(BeetConnectionPhase.Connecting, "Connecting to ${device.address}.")
+        host.updateConnection(BeetConnectionPhase.Connecting, strings.get(R.string.runtime_connecting_to_controller, device.address))
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = host.scope.launch {
             delay(CONNECTION_TIMEOUT_MS)
@@ -149,7 +151,7 @@ internal class BeetGattSessionCoordinator(
                 Log.w(TAG, "Connection timeout fired while phase=${host.state.value.connection.phase}")
                 disconnectGatt(clearSelection = false, reason = "connection timeout")
                 host.clearSession()
-                host.requestStartScan(detail = "Connection timed out. Searching again.")
+                host.requestStartScan(detail = strings.get(R.string.runtime_connection_timed_out))
             }
         }
         @Suppress("MissingPermission")
@@ -164,7 +166,7 @@ internal class BeetGattSessionCoordinator(
     private suspend fun sendUserCommand(payload: String) {
         runCatching { withSyncPausedForCommand { sendCommand(payload) } }
             .onSuccess { result -> host.setCommandMessage(messageForResult(result)) }
-            .onFailure { error -> host.setCommandMessage(error.message ?: "Command failed.") }
+            .onFailure { error -> host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed)) }
     }
 
     private suspend fun <T> withSyncPausedForCommand(block: suspend () -> T): T {
@@ -185,8 +187,8 @@ internal class BeetGattSessionCoordinator(
 
     private suspend fun sendCommand(payload: String): BeetCommandResult {
         return commandMutex.withLock {
-            val gatt = host.session.currentGatt ?: error("No connected controller.")
-            val controlPoint = host.session.controlPointCharacteristic ?: error("Control point is unavailable.")
+            val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
+            val controlPoint = host.session.controlPointCharacteristic ?: error(strings.get(R.string.runtime_control_point_unavailable))
             val deferred = CompletableDeferred<BeetCommandResult>()
             host.session.pendingCommand = deferred
 
@@ -196,7 +198,7 @@ internal class BeetGattSessionCoordinator(
             val writeStarted = gatt.writeCharacteristic(controlPoint)
             if (!writeStarted) {
                 host.session.pendingCommand = null
-                error("Could not send command over BLE.")
+                error(strings.get(R.string.runtime_ble_send_failed))
             }
 
             try {
@@ -431,7 +433,7 @@ internal class BeetGattSessionCoordinator(
             return true
         }
         if (!host.session.initialSyncCompleted && host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-            host.updateConnection(BeetConnectionPhase.Syncing, "Reading controller info and waiting for live state.")
+            host.updateConnection(BeetConnectionPhase.Syncing, strings.get(R.string.runtime_reading_controller_info))
         } else {
             Log.d(
                 TAG,
@@ -504,7 +506,7 @@ internal class BeetGattSessionCoordinator(
         cancelControllerInfoRetry("initial sync completed")
         host.persistLastAddress(host.currentAddress)
         Log.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
-        host.updateConnection(BeetConnectionPhase.Connected, "Connected to controller.")
+        host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
         refreshCalibrations()
         startBackgroundEventSync()
     }
@@ -516,7 +518,7 @@ internal class BeetGattSessionCoordinator(
             Log.e(TAG, "Controller info payload parse failed", error)
             disconnectGatt(clearSelection = false, reason = "invalid controller info payload")
             host.clearSession()
-            host.updateConnection(BeetConnectionPhase.Error, "Controller info payload is invalid.")
+            host.updateConnection(BeetConnectionPhase.Error, strings.get(R.string.runtime_controller_info_invalid))
             return
         }
         if (info.protocolVersion != EXPECTED_PROTOCOL_VERSION) {
@@ -525,7 +527,7 @@ internal class BeetGattSessionCoordinator(
             host.clearSession()
             host.updateConnection(
                 BeetConnectionPhase.Error,
-                "Unsupported controller protocol ${info.protocolVersion}. Expected ${EXPECTED_PROTOCOL_VERSION}.",
+                strings.get(R.string.runtime_unsupported_protocol, info.protocolVersion, EXPECTED_PROTOCOL_VERSION),
             )
             return
         }
@@ -662,7 +664,7 @@ internal class BeetGattSessionCoordinator(
         controllerInfoRetryJob = null
     }
 
-    private fun messageForResult(result: BeetCommandResult): String = commandMessageForResult(result)
+    private fun messageForResult(result: BeetCommandResult): String = commandMessageForResult(result, strings)
 
     private fun handleMoistureTestState(pairState: BeetPairState) {
         val hasSeenActiveState = pendingMoistureTests[pairState.pairIndex] ?: return
@@ -672,11 +674,17 @@ internal class BeetGattSessionCoordinator(
             }
             hasSeenActiveState && pairState.state == "IDLE" -> {
                 pendingMoistureTests.remove(pairState.pairIndex)
-                host.setCommandMessage("Pair ${pairState.pairIndex}: moisture response test passed.")
+                host.setCommandMessage(strings.get(R.string.runtime_moisture_test_passed, pairState.pairIndex))
             }
             hasSeenActiveState && (pairState.blocked || pairState.state == "FAULT") -> {
                 pendingMoistureTests.remove(pairState.pairIndex)
-                host.setCommandMessage("Pair ${pairState.pairIndex}: moisture response test failed (${pairState.blockReason}).")
+                host.setCommandMessage(
+                    strings.get(
+                        R.string.runtime_moisture_test_failed,
+                        pairState.pairIndex,
+                        pairBlockReasonLabel(pairState.blockReason),
+                    ),
+                )
             }
         }
     }
@@ -698,14 +706,14 @@ internal class BeetGattSessionCoordinator(
                     if (staleBondCandidate) {
                         host.recoverFromStaleBond(gatt.device.address, status)
                     } else {
-                        host.requestStartScan(detail = "BLE connection error $status. Searching again.")
+                        host.requestStartScan(detail = strings.get(R.string.runtime_ble_connection_error, status))
                     }
                 return@beetGattCallback
             }
 
             when (newState) {
                 BluetoothGatt.STATE_CONNECTED -> {
-                    host.updateConnection(BeetConnectionPhase.DiscoveringServices, "Negotiating BLE session.")
+                    host.updateConnection(BeetConnectionPhase.DiscoveringServices, strings.get(R.string.runtime_negotiating_ble_session))
                     @Suppress("MissingPermission")
                     if (!gatt.requestMtu(DESIRED_MTU)) {
                         @Suppress("MissingPermission")
@@ -716,9 +724,9 @@ internal class BeetGattSessionCoordinator(
                     disconnectGatt(clearSelection = false, reason = "gatt disconnected callback")
                     host.clearSession()
                     if (!host.manualDisconnectRequested) {
-                        host.requestStartScan(detail = "Controller disconnected. Searching again.")
+                        host.requestStartScan(detail = strings.get(R.string.runtime_controller_disconnected))
                     } else {
-                        host.updateConnection(BeetConnectionPhase.Disconnected, "Disconnected from controller.")
+                        host.updateConnection(BeetConnectionPhase.Disconnected, strings.get(R.string.runtime_disconnected_from_controller))
                     }
                 }
             }
@@ -733,7 +741,7 @@ internal class BeetGattSessionCoordinator(
             if (status != BluetoothGatt.GATT_SUCCESS || !configureServices(gatt)) {
                 disconnectGatt(clearSelection = false, reason = "services discovered failed status=$status")
                 host.clearSession()
-                host.requestStartScan(detail = "BeetMeister GATT service is incomplete. Searching again.")
+                host.requestStartScan(detail = strings.get(R.string.runtime_gatt_service_incomplete))
             }
         },
         onDescriptorWrite = { gatt, descriptor, status ->
@@ -741,7 +749,7 @@ internal class BeetGattSessionCoordinator(
             if (status != BluetoothGatt.GATT_SUCCESS || !writeNextDescriptor(gatt)) {
                 disconnectGatt(clearSelection = false, reason = "descriptor write failed status=$status uuid=${descriptor.characteristic.uuid}")
                 host.clearSession()
-                host.requestStartScan(detail = "Failed to subscribe to controller updates. Searching again.")
+                host.requestStartScan(detail = strings.get(R.string.runtime_subscription_failed))
             }
         },
         onCharacteristicRead = { gatt, characteristic, status ->
@@ -780,5 +788,13 @@ internal class BeetGattSessionCoordinator(
         private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
         private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
+    }
+
+    private fun pairBlockReasonLabel(code: String): String = when (code) {
+        "NONE" -> strings.get(R.string.block_reason_code_none)
+        "MOISTURE_RESPONSE_TEST_FAILED" -> strings.get(R.string.block_reason_code_moisture_response_test_failed)
+        "SENSOR_READING_INVALID" -> strings.get(R.string.block_reason_code_sensor_reading_invalid)
+        "LOW_BATTERY_ABORT" -> strings.get(R.string.block_reason_code_low_battery_abort)
+        else -> strings.get(R.string.common_unknown_with_code, code)
     }
 }

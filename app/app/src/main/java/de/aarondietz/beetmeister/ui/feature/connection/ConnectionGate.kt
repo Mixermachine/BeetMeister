@@ -27,8 +27,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.BeetMeisterLogo
 
 @Composable
@@ -41,6 +43,7 @@ internal fun ConnectionGate(
     onConnect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val strings = rememberBeetStringResolver()
     val isBusy = state.connection.phase in setOf(
         BeetConnectionPhase.Scanning,
         BeetConnectionPhase.Bonding,
@@ -69,13 +72,13 @@ internal fun ConnectionGate(
         ) {
             BeetMeisterLogo(modifier = Modifier.size(120.dp))
             Text(
-                text = "BeetMeister",
+                text = strings.get(R.string.app_name),
                 style = MaterialTheme.typography.headlineLarge,
                 color = Color(0xFF2B402A),
                 modifier = Modifier.padding(top = 20.dp),
             )
             Text(
-                text = state.connection.detail ?: "Waiting for a controller connection.",
+                text = state.connection.detail ?: strings.get(R.string.connection_waiting_for_controller),
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color(0xFF4E6150),
                 textAlign = TextAlign.Center,
@@ -89,18 +92,26 @@ internal fun ConnectionGate(
 
             when (state.connection.phase) {
                 BeetConnectionPhase.PermissionsRequired -> FilledTonalButton(onClick = onRequestPermissions) {
-                    Text(if (permissionsPermanentlyDenied) "Open App Settings" else "Grant Bluetooth permissions")
+                    Text(
+                        strings.get(
+                            if (permissionsPermanentlyDenied) {
+                                R.string.connection_open_app_settings
+                            } else {
+                                R.string.connection_grant_bluetooth_permissions
+                            },
+                        ),
+                    )
                 }
 
                 BeetConnectionPhase.BluetoothDisabled -> FilledTonalButton(onClick = onRequestBluetooth) {
-                    Text("Turn on Bluetooth")
+                    Text(strings.get(R.string.connection_turn_on_bluetooth))
                 }
 
                 BeetConnectionPhase.Idle,
                 BeetConnectionPhase.Disconnected,
                 BeetConnectionPhase.Error -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FilledTonalButton(onClick = onScan) { Text("Scan") }
-                    OutlinedButton(onClick = onScan) { Text("Retry") }
+                    FilledTonalButton(onClick = onScan) { Text(strings.get(R.string.connection_scan)) }
+                    OutlinedButton(onClick = onScan) { Text(strings.get(R.string.connection_retry)) }
                 }
 
                 else -> Unit
@@ -117,14 +128,14 @@ internal fun ConnectionGate(
                         text = when {
                             state.connection.phase == BeetConnectionPhase.PermissionsRequired ->
                                 if (permissionsPermanentlyDenied) {
-                                    "Bluetooth permission was denied. Enable it in app settings."
+                                    strings.get(R.string.connection_permission_denied_card)
                                 } else {
-                                    "Bluetooth permission is needed to find your controller."
+                                    strings.get(R.string.connection_permission_needed_card)
                                 }
                             isBusy ->
-                                "Working on the controller connection. Keep this screen open."
+                                strings.get(R.string.connection_busy_card)
                             else ->
-                                "No nearby controller discovered yet. Wake the BeetMeister controller and keep the screen open while scanning."
+                                strings.get(R.string.connection_no_devices_card)
                         },
                         modifier = Modifier.padding(16.dp),
                         color = Color(0xFF5F6251),

@@ -14,12 +14,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import de.aarondietz.beetmeister.model.event.BeetEventMappings
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.ValueGridRow
+import de.aarondietz.beetmeister.ui.core.formatting.eventBlockReasonLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.core.formatting.formatMillivolts
+import de.aarondietz.beetmeister.ui.core.formatting.formatPercentAndMillivolts
+import de.aarondietz.beetmeister.ui.core.formatting.stopReasonLabel
+import de.aarondietz.beetmeister.ui.core.formatting.systemEventLabel
+import de.aarondietz.beetmeister.ui.core.formatting.triggerSourceLabel
 import de.aarondietz.beetmeister.ui.feature.events.formatSystemEventTime
 import de.aarondietz.beetmeister.ui.feature.events.formatWateringTime
 import de.aarondietz.beetmeister.ui.feature.events.systemEventPeerLabel
@@ -28,38 +35,70 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun SystemEventRow(event: BeetSystemEvent, state: BeetRepositoryState) {
+    val strings = rememberBeetStringResolver()
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFFDFBF6)),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Seq ${event.sequenceNumber}", fontWeight = FontWeight.SemiBold)
-                Text(BeetEventMappings.systemEventLabel(event.eventType))
+                Text(strings.get(R.string.common_sequence_number, event.sequenceNumber), fontWeight = FontWeight.SemiBold)
+                Text(systemEventLabel(event.eventType, strings))
             }
             Spacer(modifier = Modifier.height(8.dp))
-            ValueGridRow("Time", formatSystemEventTime(event, state), "Battery", "${event.batteryMillivolts} mV")
-            ValueGridRow("Reason", systemEventReasonLabel(event), "Client", systemEventPeerLabel(event))
+            ValueGridRow(
+                strings.get(R.string.events_label_time),
+                formatSystemEventTime(event, state, strings),
+                strings.get(R.string.events_label_battery),
+                formatMillivolts(event.batteryMillivolts, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.events_label_reason),
+                systemEventReasonLabel(event, strings),
+                strings.get(R.string.events_label_client),
+                systemEventPeerLabel(event, strings),
+            )
         }
     }
 }
 
 @Composable
 internal fun WateringEventRow(event: BeetWateringEvent, state: BeetRepositoryState) {
+    val strings = rememberBeetStringResolver()
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF7F3EA)),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Seq ${event.sequenceNumber}", fontWeight = FontWeight.SemiBold)
-                Text("Pair ${event.pairIndex}")
+                Text(strings.get(R.string.common_sequence_number, event.sequenceNumber), fontWeight = FontWeight.SemiBold)
+                Text(strings.get(R.string.common_pair_number, event.pairIndex))
             }
             Spacer(modifier = Modifier.height(8.dp))
-            ValueGridRow("Source", BeetEventMappings.triggerSourceLabel(event.triggerSource), "Actual", formatDuration(event.actualDurationSeconds))
-            ValueGridRow("Requested", formatDuration(event.requestedDurationSeconds), "Stop", BeetEventMappings.stopReasonLabel(event.stopReason))
-            ValueGridRow("Block", BeetEventMappings.blockReasonLabel(event.blockReason), "Time", formatWateringTime(event, state))
-            ValueGridRow("Before", "${event.moistureBeforePercent}% / ${event.sensorBeforeMillivolts} mV", "After", "${event.moistureAfterPercent}% / ${event.sensorAfterMillivolts} mV")
+            ValueGridRow(
+                strings.get(R.string.events_label_source),
+                triggerSourceLabel(event.triggerSource, strings),
+                strings.get(R.string.events_label_actual),
+                formatDuration(event.actualDurationSeconds, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.events_label_requested),
+                formatDuration(event.requestedDurationSeconds, strings),
+                strings.get(R.string.events_label_stop),
+                stopReasonLabel(event.stopReason, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.events_label_block),
+                eventBlockReasonLabel(event.blockReason, strings),
+                strings.get(R.string.events_label_time),
+                formatWateringTime(event, state, strings),
+            )
+            ValueGridRow(
+                strings.get(R.string.events_label_before),
+                formatPercentAndMillivolts(event.moistureBeforePercent, event.sensorBeforeMillivolts, strings),
+                strings.get(R.string.events_label_after),
+                formatPercentAndMillivolts(event.moistureAfterPercent, event.sensorAfterMillivolts, strings),
+            )
         }
     }
 }

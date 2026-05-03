@@ -26,11 +26,14 @@ import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
+import de.aarondietz.beetmeister.ui.core.formatting.connectionPhaseLabel
+import de.aarondietz.beetmeister.ui.core.formatting.formatProgress
 
 @Composable
 internal fun Header(state: BeetRepositoryState) {
+    val strings = rememberBeetStringResolver()
     val info = state.controllerInfo
     Row(
         modifier = Modifier
@@ -41,18 +44,18 @@ internal fun Header(state: BeetRepositoryState) {
     ) {
         Column {
             Text(
-                text = info?.deviceId ?: "Connected controller",
+                text = info?.deviceId ?: strings.get(de.aarondietz.beetmeister.R.string.header_connected_controller),
                 style = MaterialTheme.typography.headlineSmall,
             )
             Text(
-                text = "Live BLE session",
+                text = strings.get(de.aarondietz.beetmeister.R.string.header_live_ble_session),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         ConnectedStatusChip(
-            label = if (state.connection.phase == BeetConnectionPhase.Connected) "Connected" else state.connection.phase.name,
-            syncLabel = if (state.eventSync.active) "${state.eventSync.downloaded}/${state.eventSync.total}" else null,
+            label = connectionPhaseLabel(state.connection.phase, strings),
+            syncLabel = if (state.eventSync.active) formatProgress(state.eventSync.downloaded, state.eventSync.total, strings) else null,
             progress = state.eventSync.progress,
             progressActive = state.eventSync.active,
         )

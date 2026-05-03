@@ -1,3 +1,296 @@
-<resources>
-    <string name="app_name">BeetMeister</string>
+﻿<resources>
+    <string name="app_name" translatable="false">BeetMeister</string>
+
+    <string name="placeholder_dash" translatable="false">-</string>
+    <string name="common_yes">Yes</string>
+    <string name="common_no">No</string>
+    <string name="common_none">None</string>
+    <string name="common_unknown">Unknown</string>
+    <string name="common_unknown_with_code">Unknown (%1$s)</string>
+    <string name="common_back">Back</string>
+    <string name="common_reload">Reload</string>
+    <string name="common_refresh">Refresh</string>
+    <string name="common_details">Details</string>
+    <string name="common_disconnect">Disconnect</string>
+    <string name="common_pair_number">Pair %1$d</string>
+    <string name="common_sequence_number">Seq %1$d</string>
+    <string name="common_millivolts" translatable="false">%1$d mV</string>
+    <string name="common_percent" translatable="false">%1$d%%</string>
+    <string name="common_rssi" translatable="false">RSSI %1$d dBm</string>
+    <string name="common_percent_and_millivolts" translatable="false">%1$d%% / %2$d mV</string>
+    <string name="common_time_range">%1$s - %2$s</string>
+    <string name="common_progress_fraction" translatable="false">%1$d/%2$d</string>
+    <string name="common_reason_value">Reason: %1$s</string>
+    <string name="common_connect">Connect</string>
+    <string name="common_connecting">Connecting</string>
+
+    <string name="nav_overview">Overview</string>
+    <string name="nav_calibration">Calibration</string>
+    <string name="nav_events">Events</string>
+    <string name="nav_settings">Settings</string>
+
+    <string name="header_connected_controller">Connected controller</string>
+    <string name="header_live_ble_session">Live BLE session</string>
+    <string name="header_synced_progress" translatable="false">%1$d/%2$d</string>
+
+    <string name="connection_phase_permissions_required">Permissions required</string>
+    <string name="connection_phase_bluetooth_disabled">Bluetooth off</string>
+    <string name="connection_phase_idle">Ready</string>
+    <string name="connection_phase_scanning">Scanning</string>
+    <string name="connection_phase_bonding">Pairing</string>
+    <string name="connection_phase_connecting">Connecting</string>
+    <string name="connection_phase_discovering_services">Starting session</string>
+    <string name="connection_phase_syncing">Syncing</string>
+    <string name="connection_phase_connected">Connected</string>
+    <string name="connection_phase_disconnected">Disconnected</string>
+    <string name="connection_phase_error">Error</string>
+
+    <string name="connection_waiting_for_controller">Waiting for a controller connection.</string>
+    <string name="connection_open_app_settings">Open App Settings</string>
+    <string name="connection_grant_bluetooth_permissions">Grant Bluetooth permissions</string>
+    <string name="connection_turn_on_bluetooth">Turn on Bluetooth</string>
+    <string name="connection_scan">Scan</string>
+    <string name="connection_retry">Retry</string>
+    <string name="connection_permission_denied_card">Bluetooth permission was denied. Enable it in app settings.</string>
+    <string name="connection_permission_needed_card">Bluetooth permission is needed to find your controller.</string>
+    <string name="connection_busy_card">Working on the controller connection. Keep this screen open.</string>
+    <string name="connection_no_devices_card">No nearby controller discovered yet. Wake the BeetMeister controller and keep the screen open while scanning.</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_label_device_id">Device ID</string>
+    <string name="settings_label_protocol">Protocol</string>
+    <string name="settings_label_firmware">Firmware</string>
+    <string name="settings_label_pairs">Pairs</string>
+    <string name="settings_label_connection">Connection</string>
+    <string name="settings_label_address">Address</string>
+
+    <string name="overview_title_system_values">Current system values</string>
+    <string name="overview_label_battery">Battery</string>
+    <string name="overview_label_approx">Approx.</string>
+    <string name="overview_label_battery_state">Battery state</string>
+    <string name="overview_label_next_check">Next check</string>
+    <string name="overview_label_active_pumps">Active pumps</string>
+    <string name="overview_label_time_valid">Time valid</string>
+    <string name="overview_label_wifi" translatable="false">Wi-Fi</string>
+    <string name="overview_label_mqtt" translatable="false">MQTT</string>
+    <string name="overview_label_running_since">Running since</string>
+    <string name="overview_label_uptime">Uptime</string>
+    <string name="overview_label_moisture">Moisture</string>
+    <string name="overview_label_sensor">Sensor</string>
+    <string name="overview_label_source">Source</string>
+    <string name="overview_label_remaining">Remaining</string>
+    <string name="overview_pair_disabled_info">Disabled: excluded from watering and invalid-sensor alarms.</string>
+
+    <string name="calibration_title">Calibration</string>
+    <string name="calibration_live_sensor_value">Live sensor value: %1$d mV</string>
+    <string name="calibration_calibrated_at">Calibrated at: %1$s</string>
+    <string name="calibration_dry_reference">Dry reference (mV)</string>
+    <string name="calibration_wet_reference">Wet reference (mV)</string>
+    <string name="calibration_capture_dry">Capture as dry</string>
+    <string name="calibration_capture_wet">Capture as wet</string>
+    <string name="calibration_save">Save calibration</string>
+
+    <string name="pair_detail_label_state">State</string>
+    <string name="pair_detail_label_source">Source</string>
+    <string name="pair_detail_label_moisture">Moisture</string>
+    <string name="pair_detail_label_sensor">Sensor</string>
+    <string name="pair_detail_label_enabled">Enabled</string>
+    <string name="pair_detail_label_sensor_valid">Sensor valid</string>
+    <string name="pair_detail_label_blocked">Blocked</string>
+    <string name="pair_detail_label_remaining">Remaining</string>
+    <string name="pair_detail_disabled_info">This pair is disabled and excluded from watering and invalid-sensor alarms.</string>
+    <string name="pair_detail_manual_watering">Manual watering</string>
+    <string name="pair_detail_timed_start_label">Timed start (seconds)</string>
+    <string name="pair_detail_start_default">Start default</string>
+    <string name="pair_detail_start_timed">Start timed</string>
+    <string name="pair_detail_stop">Stop</string>
+    <string name="pair_detail_irrigation_detection">Irrigation detection</string>
+    <string name="pair_detail_detection_description">Runs the short moisture response check without starting a full watering cycle.</string>
+    <string name="pair_detail_testing">Testing...</string>
+    <string name="pair_detail_test_detection">Test detection</string>
+
+    <string name="events_title">Events</string>
+    <string name="events_watering_time_by_pair">Watering time by pair</string>
+    <string name="events_synced_count">Synced %1$d/%2$d events</string>
+    <string name="events_detail_title">Event table</string>
+    <string name="events_filter_all">All</string>
+    <string name="events_filter_system">System</string>
+    <string name="events_filter_watering">Watering</string>
+    <string name="events_filter_bluetooth">Bluetooth</string>
+    <string name="events_filter_sleep">Sleep</string>
+    <string name="events_filter_startup">Startup</string>
+    <string name="events_filter_mqtt" translatable="false">MQTT</string>
+    <string name="events_filter_ota" translatable="false">OTA</string>
+    <string name="events_window_day">Last 24 hours</string>
+    <string name="events_window_week">Last 7 days</string>
+    <string name="events_label_time">Time</string>
+    <string name="events_label_battery">Battery</string>
+    <string name="events_label_reason">Reason</string>
+    <string name="events_label_client">Client</string>
+    <string name="events_label_source">Source</string>
+    <string name="events_label_actual">Actual</string>
+    <string name="events_label_requested">Requested</string>
+    <string name="events_label_stop">Stop</string>
+    <string name="events_label_block">Block</string>
+    <string name="events_label_before">Before</string>
+    <string name="events_label_after">After</string>
+    <string name="events_pending_time_sync">Pending time sync</string>
+    <string name="events_ignored_legacy">Ignored legacy</string>
+    <string name="events_disconnected_reason">Disconnected</string>
+    <string name="events_disconnect_code">Disconnect code %1$d</string>
+    <string name="events_bond_status">Bond status %1$d</string>
+    <string name="events_publish_failed">Publish failed</string>
+    <string name="events_publish_status">Publish status %1$d</string>
+    <string name="events_known_peer">Known peer</string>
+    <string name="events_new_peer">New peer</string>
+    <string name="events_known_peer_address">Known %1$s</string>
+    <string name="events_new_peer_address">New %1$s</string>
+
+    <string name="action_disable_pair">Disable pair</string>
+    <string name="action_enable_pair">Enable pair</string>
+    <string name="action_clear_error">Clear error</string>
+
+    <string name="format_duration_hours_minutes">%1$dh %2$dm</string>
+    <string name="format_duration_minutes_seconds">%1$dm %2$ds</string>
+    <string name="format_duration_seconds_only">%1$ds</string>
+    <string name="format_event_time_unknown">Time unknown</string>
+    <string name="format_event_subject_controller_sleep">Controller sleep</string>
+
+    <string name="bond_state_bonded">Bonded</string>
+    <string name="bond_state_bonding">Bonding</string>
+    <string name="bond_state_not_bonded">Not bonded</string>
+
+    <string name="battery_state_active">Active</string>
+    <string name="battery_state_idle_low_power">Idle low-power</string>
+    <string name="battery_state_deep_low_battery">Deep low-battery</string>
+    <string name="battery_state_ota_in_progress">OTA in progress</string>
+
+    <string name="pair_state_idle">Idle</string>
+    <string name="pair_state_waiting_for_slot">Waiting for slot</string>
+    <string name="pair_state_sanity_check">Sanity check</string>
+    <string name="pair_state_watering">Watering</string>
+    <string name="pair_state_blocked">Blocked</string>
+    <string name="pair_state_fault">Fault</string>
+    <string name="pair_state_disabled">Disabled</string>
+    <string name="pair_state_moisture_test">Moisture test</string>
+
+    <string name="run_source_none">None</string>
+    <string name="run_source_automatic">Automatic</string>
+    <string name="run_source_manual">Manual</string>
+    <string name="run_source_test">Moisture test</string>
+
+    <string name="calibration_source_default">Default</string>
+    <string name="calibration_source_user">User</string>
+
+    <string name="block_reason_code_none">None</string>
+    <string name="block_reason_code_moisture_response_test_failed">Moisture response test failed</string>
+    <string name="block_reason_code_sensor_reading_invalid">Sensor reading invalid</string>
+    <string name="block_reason_code_low_battery_abort">Low battery abort</string>
+
+    <string name="trigger_source_automatic">Automatic</string>
+    <string name="trigger_source_manual">Manual</string>
+    <string name="trigger_source_test">Moisture test</string>
+    <string name="trigger_source_none">None</string>
+
+    <string name="stop_reason_completed">Completed</string>
+    <string name="stop_reason_manual_stop">Manual stop</string>
+    <string name="stop_reason_low_battery_abort">Low battery abort</string>
+    <string name="stop_reason_sensor_sanity_failure">Sanity failure</string>
+    <string name="stop_reason_sensor_invalid_abort">Sensor invalid abort</string>
+    <string name="stop_reason_system_abort">System abort</string>
+    <string name="stop_reason_idle_low_power_sleep">Idle low-power sleep</string>
+    <string name="stop_reason_deep_low_battery_sleep">Deep low-battery sleep</string>
+
+    <string name="system_event_startup">Startup</string>
+    <string name="system_event_sleep">Sleep</string>
+    <string name="system_event_ble_connect">Bluetooth connected</string>
+    <string name="system_event_ble_disconnect">Bluetooth disconnected</string>
+    <string name="system_event_ble_bond_success">Bluetooth bonded</string>
+    <string name="system_event_ble_bond_failed">Bluetooth bond failed</string>
+    <string name="system_event_ble_bonds_cleared">Bluetooth bonds cleared</string>
+    <string name="system_event_mqtt_connect">MQTT connected</string>
+    <string name="system_event_mqtt_disconnect">MQTT disconnected</string>
+    <string name="system_event_mqtt_publish_failed">MQTT publish failed</string>
+    <string name="system_event_ota_started">OTA started</string>
+    <string name="system_event_ota_failed">OTA failed</string>
+    <string name="system_event_ota_ready">OTA ready</string>
+
+    <string name="command_message_duration">%1$s (%2$ds)</string>
+    <string name="command_message_calibration_saved_for_pair">Calibration saved for pair %1$d.</string>
+    <string name="command_message_pair_disabled">Pair %1$d disabled.</string>
+    <string name="command_message_pair_enabled">Pair %1$d enabled.</string>
+    <string name="command_message_bonds_cleared">Bluetooth bonds cleared.</string>
+    <string name="command_message_no_bonds">No Bluetooth bonds to clear.</string>
+    <string name="command_message_pair_prefix">Pair %1$d: %2$s.</string>
+
+    <string name="command_reason_slot_allocated">Watering started</string>
+    <string name="command_reason_queued_waiting_for_slot">Queued until a pump slot is free</string>
+    <string name="command_reason_already_stopped">Already stopped</string>
+    <string name="command_reason_stopped">Stopped</string>
+    <string name="command_reason_not_blocked">No error to clear</string>
+    <string name="command_reason_block_reset">Error cleared</string>
+    <string name="command_reason_calibration_saved">Calibration saved</string>
+    <string name="command_reason_pair_blocked">Pair is blocked</string>
+    <string name="command_reason_pair_faulted">Pair is faulted</string>
+    <string name="command_reason_low_battery">Battery too low</string>
+    <string name="command_reason_slot_unavailable">No pump slot available</string>
+    <string name="command_reason_invalid_calibration">Invalid calibration values</string>
+    <string name="command_reason_invalid_duration">Invalid duration</string>
+    <string name="command_reason_ota_in_progress">OTA is in progress</string>
+    <string name="command_reason_bonds_cleared">Bluetooth bonds cleared</string>
+    <string name="command_reason_no_bonds">No Bluetooth bonds to clear</string>
+    <string name="command_reason_outputs_disabled">Pump outputs are disabled</string>
+    <string name="command_reason_sensor_invalid">Sensor reading is invalid</string>
+    <string name="command_reason_already_active">Already active</string>
+    <string name="command_reason_invalid_pair">Invalid pair</string>
+    <string name="command_reason_event_not_found">Event not found</string>
+    <string name="command_reason_pair_disabled">Pair is disabled</string>
+    <string name="command_reason_pair_enabled">Pair enabled</string>
+    <string name="command_reason_moisture_test_started">Moisture response test started</string>
+    <string name="command_reason_time_updated">Controller time updated</string>
+    <string name="command_reason_invalid_time">Invalid controller time</string>
+    <string name="command_reason_time_not_set">Controller time is not set yet</string>
+    <string name="command_reason_busy">Controller is busy</string>
+    <string name="command_reason_rate_limited">Too many commands; try again</string>
+
+    <string name="runtime_calibration_refresh_failed">Calibration refresh failed for pair %1$d.</string>
+    <string name="runtime_manual_duration_invalid">Manual duration must be between 1 second and 20 minutes.</string>
+    <string name="runtime_command_failed">Command failed.</string>
+    <string name="runtime_calibration_invalid_order">Dry calibration must be greater than wet calibration.</string>
+    <string name="runtime_connecting_to_controller">Connecting to %1$s.</string>
+    <string name="runtime_connection_timed_out">Connection timed out. Searching again.</string>
+    <string name="runtime_no_connected_controller">No connected controller.</string>
+    <string name="runtime_control_point_unavailable">Control point is unavailable.</string>
+    <string name="runtime_ble_send_failed">Could not send command over BLE.</string>
+    <string name="runtime_reading_controller_info">Reading controller info and waiting for live state.</string>
+    <string name="runtime_connected_to_controller">Connected to controller.</string>
+    <string name="runtime_controller_info_invalid">Controller info payload is invalid.</string>
+    <string name="runtime_unsupported_protocol">Unsupported controller protocol %1$d. Expected %2$d.</string>
+    <string name="runtime_moisture_test_passed">Pair %1$d: moisture response test passed.</string>
+    <string name="runtime_moisture_test_failed">Pair %1$d: moisture response test failed (%2$s).</string>
+    <string name="runtime_ble_connection_error">BLE connection error %1$d. Searching again.</string>
+    <string name="runtime_negotiating_ble_session">Negotiating BLE session.</string>
+    <string name="runtime_controller_disconnected">Controller disconnected. Searching again.</string>
+    <string name="runtime_disconnected_from_controller">Disconnected from controller.</string>
+    <string name="runtime_gatt_service_incomplete">BeetMeister GATT service is incomplete. Searching again.</string>
+    <string name="runtime_subscription_failed">Failed to subscribe to controller updates. Searching again.</string>
+
+    <string name="scan_permissions_required">Bluetooth permissions are required.</string>
+    <string name="scan_bluetooth_not_supported">This device does not support Bluetooth LE.</string>
+    <string name="scan_bluetooth_turned_off">Bluetooth is turned off.</string>
+    <string name="scan_ready">Ready to scan.</string>
+    <string name="scan_searching_nearby">Searching for nearby BeetMeister controllers.</string>
+    <string name="scan_scanner_unavailable">Bluetooth LE scanner is unavailable.</string>
+    <string name="scan_failed_with_code">Scan failed with code %1$d.</string>
+    <string name="scan_invalid_controller_address">Invalid controller address.</string>
+    <string name="scan_open_pairing_dialog">Opening Android pairing dialog.</string>
+    <string name="scan_failed_to_start_bonding">Failed to start BLE bonding.</string>
+    <string name="scan_bluetooth_unavailable_after_pairing_failure">Bluetooth is unavailable after pairing failure.</string>
+    <string name="scan_saved_address_invalid">Saved controller address is invalid. Searching again.</string>
+    <string name="scan_pairing_expired_tap_connect">Pairing expired. Tap Connect to pair again.</string>
+    <string name="scan_saved_pairing_expired_tap_connect">Saved pairing expired. Tap Connect to pair again.</string>
+    <string name="scan_pairing_in_progress_confirm">Pairing in progress. Confirm the code on your phone.</string>
+    <string name="scan_pairing_in_progress_wait">Pairing in progress. Waiting for Android to finish bonding.</string>
+    <string name="scan_bonding_cancelled">Bonding was cancelled or failed. Searching again.</string>
+    <string name="scan_bonding_timed_out">Bonding timed out. Searching again.</string>
 </resources>
