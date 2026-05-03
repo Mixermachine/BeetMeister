@@ -29,13 +29,14 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import de.aarondietz.beetmeister.beet.BeetRepository
-import de.aarondietz.beetmeister.beet.model.connection.BeetConnectionPhase
-import de.aarondietz.beetmeister.beet.model.repository.BeetRepositoryState
-import de.aarondietz.beetmeister.ui.composable.AppMainContentRouter
-import de.aarondietz.beetmeister.ui.composable.TopLevelScreen
-import de.aarondietz.beetmeister.ui.composable.Header
-import de.aarondietz.beetmeister.ui.connection.ConnectionGate
+import de.aarondietz.beetmeister.data.repository.BeetRepository
+import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.ui.core.app.AppMainContentRouter
+import de.aarondietz.beetmeister.ui.core.app.TopLevelScreen
+import de.aarondietz.beetmeister.ui.core.app.findActivity
+import de.aarondietz.beetmeister.ui.core.component.Header
+import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGate
 import kotlinx.coroutines.delay
 
 private const val UI_TAG = "BeetAppUi"
