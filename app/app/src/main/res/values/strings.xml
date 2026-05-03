@@ -6,21 +6,21 @@
     <string name="common_no">No</string>
     <string name="common_none">None</string>
     <string name="common_unknown">Unknown</string>
-    <string name="common_unknown_with_code">Unknown (%1$s)</string>
+    <string name="common_unknown_with_code" localizePipeContext="Fallback label for an unknown technical code or state. Keep %1$s as the raw code value.">Unknown (%1$s)</string>
     <string name="common_back">Back</string>
     <string name="common_reload">Reload</string>
     <string name="common_refresh">Refresh</string>
     <string name="common_details">Details</string>
     <string name="common_disconnect">Disconnect</string>
-    <string name="common_pair_number">Pair %1$d</string>
-    <string name="common_sequence_number">Seq %1$d</string>
-    <string name="common_millivolts" translatable="false">%1$d mV</string>
-    <string name="common_percent" translatable="false">%1$d%%</string>
-    <string name="common_rssi" translatable="false">RSSI %1$d dBm</string>
-    <string name="common_percent_and_millivolts" translatable="false">%1$d%% / %2$d mV</string>
-    <string name="common_time_range">%1$s - %2$s</string>
-    <string name="common_progress_fraction" translatable="false">%1$d/%2$d</string>
-    <string name="common_reason_value">Reason: %1$s</string>
+    <string name="common_pair_number" localizePipeContext="Label for irrigation pair number. Keep %1$d as the numeric pair index.">Pair %1$d</string>
+    <string name="common_sequence_number" localizePipeContext="Short event sequence label. Keep %1$d as the numeric sequence number.">Seq %1$d</string>
+    <string name="common_millivolts" translatable="false" localizePipeContext="Numeric voltage format. Keep %1$d as the number and translate only the millivolt unit abbreviation if needed.">%1$d mV</string>
+    <string name="common_percent" translatable="false" localizePipeContext="Numeric percent format. Keep %1$d as the number and preserve the percent sign.">%1$d%%</string>
+    <string name="common_rssi" translatable="false" localizePipeContext="Numeric signal strength format. RSSI and dBm are technical abbreviations and usually stay unchanged; keep %1$d as the number.">RSSI %1$d dBm</string>
+    <string name="common_percent_and_millivolts" translatable="false" localizePipeContext="Compact measurement format: first value is percent, second value is voltage in millivolts. Keep %1$d and %2$d as numbers.">%1$d%% / %2$d mV</string>
+    <string name="common_time_range" localizePipeContext="Time range format. %1$s is the start time string and %2$s is the end time string.">%1$s - %2$s</string>
+    <string name="common_progress_fraction" translatable="false" localizePipeContext="Numeric progress fraction. %1$d is completed count and %2$d is total count.">%1$d/%2$d</string>
+    <string name="common_reason_value" localizePipeContext="Label introducing a human-readable reason. Keep %1$s as the reason text.">Reason: %1$s</string>
     <string name="common_connect">Connect</string>
     <string name="common_connecting">Connecting</string>
 
@@ -31,7 +31,7 @@
 
     <string name="header_connected_controller">Connected controller</string>
     <string name="header_live_ble_session">Live BLE session</string>
-    <string name="header_synced_progress" translatable="false">%1$d/%2$d</string>
+    <string name="header_synced_progress" translatable="false" localizePipeContext="Numeric sync progress fraction. %1$d is downloaded count and %2$d is total count.">%1$d/%2$d</string>
 
     <string name="connection_phase_permissions_required">Permissions required</string>
     <string name="connection_phase_bluetooth_disabled">Bluetooth off</string>
@@ -82,8 +82,8 @@
     <string name="overview_pair_disabled_info">Disabled: excluded from watering and invalid-sensor alarms.</string>
 
     <string name="calibration_title">Calibration</string>
-    <string name="calibration_live_sensor_value">Live sensor value: %1$d mV</string>
-    <string name="calibration_calibrated_at">Calibrated at: %1$s</string>
+    <string name="calibration_live_sensor_value" localizePipeContext="Current live sensor voltage. Keep %1$d as the numeric value in millivolts.">Live sensor value: %1$d mV</string>
+    <string name="calibration_calibrated_at" localizePipeContext="Timestamp label. Keep %1$s as the already formatted date and time string.">Calibrated at: %1$s</string>
     <string name="calibration_dry_reference">Dry reference (mV)</string>
     <string name="calibration_wet_reference">Wet reference (mV)</string>
     <string name="calibration_capture_dry">Capture as dry</string>
@@ -111,7 +111,7 @@
 
     <string name="events_title">Events</string>
     <string name="events_watering_time_by_pair">Watering time by pair</string>
-    <string name="events_synced_count">Synced %1$d/%2$d events</string>
+    <string name="events_synced_count" localizePipeContext="Event sync progress text. %1$d is downloaded event count and %2$d is total event count.">Synced %1$d/%2$d events</string>
     <string name="events_detail_title">Event table</string>
     <string name="events_filter_all">All</string>
     <string name="events_filter_system">System</string>
@@ -137,22 +137,22 @@
     <string name="events_pending_time_sync">Pending time sync</string>
     <string name="events_ignored_legacy">Ignored legacy</string>
     <string name="events_disconnected_reason">Disconnected</string>
-    <string name="events_disconnect_code">Disconnect code %1$d</string>
-    <string name="events_bond_status">Bond status %1$d</string>
+    <string name="events_disconnect_code" localizePipeContext="Bluetooth disconnect reason with numeric status code. Keep %1$d as the raw code.">Disconnect code %1$d</string>
+    <string name="events_bond_status" localizePipeContext="Bluetooth bond result with numeric Android status code. Keep %1$d as the raw code.">Bond status %1$d</string>
     <string name="events_publish_failed">Publish failed</string>
-    <string name="events_publish_status">Publish status %1$d</string>
+    <string name="events_publish_status" localizePipeContext="MQTT publish failure with numeric status code. Keep %1$d as the raw code.">Publish status %1$d</string>
     <string name="events_known_peer">Known peer</string>
     <string name="events_new_peer">New peer</string>
-    <string name="events_known_peer_address">Known %1$s</string>
-    <string name="events_new_peer_address">New %1$s</string>
+    <string name="events_known_peer_address" localizePipeContext="Bluetooth peer label for a previously known device. Keep %1$s as the peer address string.">Known %1$s</string>
+    <string name="events_new_peer_address" localizePipeContext="Bluetooth peer label for a newly seen device. Keep %1$s as the peer address string.">New %1$s</string>
 
     <string name="action_disable_pair">Disable pair</string>
     <string name="action_enable_pair">Enable pair</string>
     <string name="action_clear_error">Clear error</string>
 
-    <string name="format_duration_hours_minutes">%1$dh %2$dm</string>
-    <string name="format_duration_minutes_seconds">%1$dm %2$ds</string>
-    <string name="format_duration_seconds_only">%1$ds</string>
+    <string name="format_duration_hours_minutes" localizePipeContext="Compact duration format using abbreviations: %1$d is hours, %2$d is minutes. Translate the unit abbreviations for the locale.">%1$dh %2$dm</string>
+    <string name="format_duration_minutes_seconds" localizePipeContext="Compact duration format using abbreviations: %1$d is minutes, %2$d is seconds. Translate the unit abbreviations for the locale.">%1$dm %2$ds</string>
+    <string name="format_duration_seconds_only" localizePipeContext="Compact duration format using abbreviation: %1$d is seconds. Translate the unit abbreviation for the locale.">%1$ds</string>
     <string name="format_event_time_unknown">Time unknown</string>
     <string name="format_event_subject_controller_sleep">Controller sleep</string>
 
@@ -215,13 +215,13 @@
     <string name="system_event_ota_failed">OTA failed</string>
     <string name="system_event_ota_ready">OTA ready</string>
 
-    <string name="command_message_duration">%1$s (%2$ds)</string>
-    <string name="command_message_calibration_saved_for_pair">Calibration saved for pair %1$d.</string>
-    <string name="command_message_pair_disabled">Pair %1$d disabled.</string>
-    <string name="command_message_pair_enabled">Pair %1$d enabled.</string>
+    <string name="command_message_duration" localizePipeContext="Command result with accepted duration. %1$s is the base result text and %2$d is a duration in seconds; translate the seconds abbreviation for the locale.">%1$s (%2$ds)</string>
+    <string name="command_message_calibration_saved_for_pair" localizePipeContext="Confirmation message. Keep %1$d as the irrigation pair number.">Calibration saved for pair %1$d.</string>
+    <string name="command_message_pair_disabled" localizePipeContext="Confirmation message. Keep %1$d as the irrigation pair number.">Pair %1$d disabled.</string>
+    <string name="command_message_pair_enabled" localizePipeContext="Confirmation message. Keep %1$d as the irrigation pair number.">Pair %1$d enabled.</string>
     <string name="command_message_bonds_cleared">Bluetooth bonds cleared.</string>
     <string name="command_message_no_bonds">No Bluetooth bonds to clear.</string>
-    <string name="command_message_pair_prefix">Pair %1$d: %2$s.</string>
+    <string name="command_message_pair_prefix" localizePipeContext="Command result prefix. %1$d is the irrigation pair number and %2$s is the already translated result text.">Pair %1$d: %2$s.</string>
 
     <string name="command_reason_slot_allocated">Watering started</string>
     <string name="command_reason_queued_waiting_for_slot">Queued until a pump slot is free</string>
@@ -257,7 +257,7 @@
     <string name="runtime_manual_duration_invalid">Manual duration must be between 1 second and 20 minutes.</string>
     <string name="runtime_command_failed">Command failed.</string>
     <string name="runtime_calibration_invalid_order">Dry calibration must be greater than wet calibration.</string>
-    <string name="runtime_connecting_to_controller">Connecting to %1$s.</string>
+    <string name="runtime_connecting_to_controller" localizePipeContext="Connection progress message. Keep %1$s as the Bluetooth MAC address or device address.">Connecting to %1$s.</string>
     <string name="runtime_connection_timed_out">Connection timed out. Searching again.</string>
     <string name="runtime_no_connected_controller">No connected controller.</string>
     <string name="runtime_control_point_unavailable">Control point is unavailable.</string>
@@ -265,10 +265,10 @@
     <string name="runtime_reading_controller_info">Reading controller info and waiting for live state.</string>
     <string name="runtime_connected_to_controller">Connected to controller.</string>
     <string name="runtime_controller_info_invalid">Controller info payload is invalid.</string>
-    <string name="runtime_unsupported_protocol">Unsupported controller protocol %1$d. Expected %2$d.</string>
-    <string name="runtime_moisture_test_passed">Pair %1$d: moisture response test passed.</string>
-    <string name="runtime_moisture_test_failed">Pair %1$d: moisture response test failed (%2$s).</string>
-    <string name="runtime_ble_connection_error">BLE connection error %1$d. Searching again.</string>
+    <string name="runtime_unsupported_protocol" localizePipeContext="Protocol compatibility error. %1$d is the controller protocol version and %2$d is the supported app protocol version.">Unsupported controller protocol %1$d. Expected %2$d.</string>
+    <string name="runtime_moisture_test_passed" localizePipeContext="Moisture response test result. Keep %1$d as the irrigation pair number.">Pair %1$d: moisture response test passed.</string>
+    <string name="runtime_moisture_test_failed" localizePipeContext="Moisture response test failure. %1$d is the irrigation pair number and %2$s is the already translated failure reason.">Pair %1$d: moisture response test failed (%2$s).</string>
+    <string name="runtime_ble_connection_error" localizePipeContext="Bluetooth connection error with numeric Android or GATT status code. Keep %1$d as the raw error code.">BLE connection error %1$d. Searching again.</string>
     <string name="runtime_negotiating_ble_session">Negotiating BLE session.</string>
     <string name="runtime_controller_disconnected">Controller disconnected. Searching again.</string>
     <string name="runtime_disconnected_from_controller">Disconnected from controller.</string>
@@ -281,7 +281,7 @@
     <string name="scan_ready">Ready to scan.</string>
     <string name="scan_searching_nearby">Searching for nearby BeetMeister controllers.</string>
     <string name="scan_scanner_unavailable">Bluetooth LE scanner is unavailable.</string>
-    <string name="scan_failed_with_code">Scan failed with code %1$d.</string>
+    <string name="scan_failed_with_code" localizePipeContext="Bluetooth scan failure with numeric Android error code. Keep %1$d as the raw code.">Scan failed with code %1$d.</string>
     <string name="scan_invalid_controller_address">Invalid controller address.</string>
     <string name="scan_open_pairing_dialog">Opening Android pairing dialog.</string>
     <string name="scan_failed_to_start_bonding">Failed to start BLE bonding.</string>
