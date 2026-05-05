@@ -21,6 +21,7 @@ static const char *TAG = "beet_controller";
 
 #define BEET_DISPLAY_BLE_ACTIVITY_WINDOW_US (1500LL * 1000LL)
 #define BEET_DISPLAY_BLE_WAVE_PERIOD_US (500LL * 1000LL)
+#define BEET_BOOT_LOW_VOLTAGE_GRACE_US ((int64_t)CONFIG_BEET_BOOT_LOW_VOLTAGE_GRACE_MS * 1000LL)
 
 typedef enum {
     BEET_RUN_PHASE_NONE = 0,
@@ -116,6 +117,7 @@ static esp_err_t beet_start_relay_test(uint8_t pair_index);
 static uint32_t beet_current_uptime_s(void);
 static esp_err_t beet_apply_time_update(uint32_t unix_s);
 static bool beet_lookup_boot_epoch(uint32_t boot_id, uint32_t *boot_epoch_unix_s);
+static bool beet_boot_low_voltage_grace_active(int64_t now_us);
 
 static int64_t beet_now_us(void)
 {
@@ -143,6 +145,13 @@ static uint32_t beet_elapsed_s(int64_t since_us, int64_t now_us)
 static uint32_t beet_current_uptime_s(void)
 {
     return beet_elapsed_s(s_state.boot_time_us, beet_now_us());
+}
+
+static bool beet_boot_low_voltage_grace_active(int64_t now_us)
+{
+    return s_state.boot_time_us > 0LL &&
+        now_us > 0LL &&
+        (now_us - s_state.boot_time_us) < BEET_BOOT_LOW_VOLTAGE_GRACE_US;
 }
 
 static bool beet_lookup_boot_epoch(uint32_t boot_id, uint32_t *boot_epoch_unix_s)
@@ -1210,6 +1219,7 @@ static void beet_controller_handle_boot_wakeup(void)
 {
     uint32_t wake_causes = beet_wakeup_causes();
     bool timer_wake = beet_wakeup_has(wake_causes, ESP_SLEEP_WAKEUP_TIMER);
+    bool deep_low_grace_active = beet_boot_low_voltage_grace_active(beet_now_us());
 
     if (timer_wake && s_state.power_state.last_sleep_mode == BEET_SLEEP_MODE_DEEP_LOW_BATTERY) {
         if (s_state.battery_mv <= s_state.config.deep_sleep_resume_mv &&
@@ -1231,12 +1241,26 @@ static void beet_controller_handle_boot_wakeup(void)
 
     if (s_state.power_state.last_sleep_mode == BEET_SLEEP_MODE_DEEP_LOW_BATTERY &&
         s_state.battery_mv <= s_state.config.deep_sleep_resume_mv &&
-        s_state.active_pumps == 0U) {
+        s_state.active_pumps == 0U &&
+        !deep_low_grace_active) {
         beet_controller_enter_deep_low_battery_sleep();
     }
 
-    if (s_state.battery_state == BEET_BATTERY_STATE_DEEP_LOW_BATTERY && s_state.active_pumps == 0U) {
+    if (s_state.battery_state == BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
+        s_state.active_pumps == 0U &&
+        !deep_low_grace_active) {
         beet_controller_enter_deep_low_battery_sleep();
+    }
+
+    if (deep_low_grace_active &&
+        (s_state.power_state.last_sleep_mode == BEET_SLEEP_MODE_DEEP_LOW_BATTERY ||
+            s_state.battery_state == BEET_BATTERY_STATE_DEEP_LOW_BATTERY) &&
+        s_state.active_pumps == 0U) {
+        ESP_LOGW(
+            TAG,
+            "deferring deep-low-battery sleep during boot grace battery_state=%s battery_mv=%u",
+            beet_battery_state_name(s_state.battery_state),
+            s_state.battery_mv);
     }
 
     s_state.power_state.last_sleep_mode = BEET_SLEEP_MODE_NONE;
@@ -2129,6 +2153,7 @@ static void beet_controller_task(void *arg)
         beet_ble_diag_status_t ble_status;
         beet_ble_pairing_display_t pairing_display;
         int64_t now_us = beet_now_us();
+        bool deep_low_grace_active = beet_boot_low_voltage_grace_active(now_us);
         uint32_t elapsed_s = beet_elapsed_s(s_state.last_tick_us, now_us);
         if (elapsed_s > 0U) {
             s_state.last_tick_us = now_us;
@@ -2174,7 +2199,8 @@ static void beet_controller_task(void *arg)
 
         if (s_state.battery_state == BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
             s_state.active_pumps == 0U &&
-            !s_state.relay_test_active) {
+            !s_state.relay_test_active &&
+            !deep_low_grace_active) {
             beet_controller_enter_deep_low_battery_sleep();
         }
 

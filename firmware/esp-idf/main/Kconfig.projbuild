@@ -40,6 +40,14 @@ menu "BeetMeister Configuration"
             conversions, so increasing this value trades latency for a calmer battery reading and
             more stable sleep-state transitions.
 
+    config BEET_BOOT_LOW_VOLTAGE_GRACE_MS
+        int "Boot low-voltage grace period in milliseconds"
+        range 0 30000
+        default 5000
+        help
+            Minimum time after controller boot before deep-low-battery sleep may trigger.
+            This prevents a short startup voltage sag from immediately shutting the controller down.
+
     config BEET_BATTERY_DIVIDER_SCALE_PERMILLE
         int "Battery divider scale in permille"
         range 1000 4000
