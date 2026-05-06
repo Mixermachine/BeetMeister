@@ -67,7 +67,8 @@ All four characteristics shall require a bonded link before use.
 ## Message framing
 
 - All BLE application payloads shall be UTF-8 JSON objects.
-- Each JSON message shall fit within one ATT packet after MTU negotiation to 247 bytes.
+- `state_stream` messages shall fit within one ATT packet after MTU negotiation.
+- `command_result` messages shall be sent as one ATT indication when they fit, or as chunk frames when they do not fit.
 - If MTU negotiation fails, the controller shall still support commands whose payload fits in 100 bytes or less.
 - `state_stream` notifications shall send one compact object per frame rather than a large full-state blob.
 
@@ -78,7 +79,7 @@ Example payload:
 ```json
 {
   "device_id": "beetmeister-01",
-  "protocol_version": 3,
+  "protocol_version": 6,
   "firmware_version": "0.1.0",
   "pair_count": 8
 }
@@ -152,6 +153,12 @@ New system events may also be notified on `state_stream` as `type = "system_even
 ```
 
 ## `control_point` commands
+
+The controller may apply separate rate limits for control-point traffic:
+
+- backlog sync queries may use a higher rate limit
+- interactive and mutating commands shall keep a tighter limit
+- `get_calibration` shall remain on the tighter interactive lane rather than the backlog-sync lane
 
 ### Manual start
 
@@ -273,6 +280,23 @@ or
 
 The `reason` field shall use stable machine-readable strings.
 Accepted commands that take time to complete, such as calibration or OTA start, shall later emit a second completion result.
+
+If a full command-result JSON payload exceeds the negotiated ATT indication payload, the controller shall send chunk frames on `command_result`:
+
+```json
+{
+  "type": "cmd_chunk",
+  "id": 17,
+  "i": 0,
+  "n": 3,
+  "b64": "eyJjbWQiOiJnZXRfc3lzdGVtX2V2ZW50IiwiLi4u"
+}
+```
+
+- `id` identifies one logical command result.
+- `i` is the zero-based chunk index.
+- `n` is total chunk count.
+- `b64` is one fragment of the base64-encoded full command-result JSON bytes.
 
 ## Command rules
 

@@ -1,6 +1,8 @@
 package de.aarondietz.beetmeister.data.repository
 
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
+import de.aarondietz.beetmeister.model.event.BeetSystemEvent
+import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncPhase
 import kotlinx.coroutines.runBlocking
@@ -200,6 +202,43 @@ class BeetBacklogSyncRunnerTest {
         assertEquals(2, downloaded)
     }
 
+    @Test
+    fun ingestsAndCountsAcceptedSystemEventsWithoutValidWallClockTime() = runBlocking {
+        val fetched = mutableListOf<Long>()
+        val ingested = mutableListOf<Long>()
+        val runner = runner()
+
+        val downloaded = runner.run(
+            input = BeetBacklogSyncInput(
+                wateringSummary = null,
+                systemSummary = BeetSystemHistorySummary(
+                    latestSequenceNumber = 2,
+                    eventCount = 2,
+                ),
+                existingWateringSequences = emptySet(),
+                existingSystemSequences = emptySet(),
+                limit = 64,
+            ),
+            isConnected = { true },
+            isPauseRequested = { false },
+            onProgress = {},
+            onWateringEvent = {},
+            onSystemEvent = { ingested += it.sequenceNumber },
+            fetchWateringEvent = { error("watering stream is not used in this test") },
+            fetchSystemEvent = { sequence ->
+                fetched += sequence
+                BeetBacklogFetchResult(
+                    status = BeetBacklogFetchStatus.Accepted,
+                    event = systemEvent(sequence = sequence, unixSeconds = 0L),
+                )
+            },
+        )
+
+        assertEquals(listOf(2L, 1L), fetched)
+        assertEquals(listOf(2L, 1L), ingested)
+        assertEquals(2, downloaded)
+    }
+
     private fun runner(
         nowUnixSeconds: () -> Long = { 1_000_000L },
         sleep: suspend (Long) -> Unit = {},
@@ -238,6 +277,21 @@ class BeetBacklogSyncRunnerTest {
             batteryEndMillivolts = 3330,
             startedUptimeSeconds = 100L,
             endedUptimeSeconds = 110L,
+        )
+
+    private fun systemEvent(sequence: Long, unixSeconds: Long): BeetSystemEvent =
+        BeetSystemEvent(
+            sequenceNumber = sequence,
+            eventType = "BLE_CONNECT",
+            reason = 0,
+            bootId = 7L,
+            uptimeSeconds = 123L,
+            unixSeconds = unixSeconds,
+            batteryMillivolts = 3340,
+            peerAddress = "AA:BB:CC:DD:EE:FF",
+            peerAddressType = 1,
+            knownPeer = true,
+            detail = 0L,
         )
 
     private companion object {

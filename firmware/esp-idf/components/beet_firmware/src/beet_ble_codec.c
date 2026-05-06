@@ -1,6 +1,7 @@
 #include "beet_ble_codec.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,121 @@ static const char *beet_ble_calibration_source_name(beet_calibration_source_t so
     default:
         return "DEFAULT";
     }
+}
+
+size_t beet_ble_base64_encoded_len(size_t raw_len)
+{
+    if (raw_len == 0U) {
+        return 0U;
+    }
+
+    return ((raw_len + 2U) / 3U) * 4U;
+}
+
+bool beet_ble_base64_encode(
+    const uint8_t *raw,
+    size_t raw_len,
+    char *base64,
+    size_t base64_len,
+    size_t *written)
+{
+    static const char alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t required = beet_ble_base64_encoded_len(raw_len);
+    size_t out = 0U;
+    size_t in = 0U;
+
+    if (written != NULL) {
+        *written = 0U;
+    }
+    if (required == 0U) {
+        if (base64_len == 0U || base64 == NULL) {
+            return false;
+        }
+        base64[0] = '\0';
+        return true;
+    }
+    if (raw == NULL || base64 == NULL || base64_len <= required) {
+        return false;
+    }
+
+    while (in < raw_len) {
+        uint32_t block = 0U;
+        size_t remain = raw_len - in;
+
+        block |= ((uint32_t)raw[in]) << 16;
+        if (remain > 1U) {
+            block |= ((uint32_t)raw[in + 1U]) << 8;
+        }
+        if (remain > 2U) {
+            block |= (uint32_t)raw[in + 2U];
+        }
+
+        base64[out++] = alphabet[(block >> 18) & 0x3FU];
+        base64[out++] = alphabet[(block >> 12) & 0x3FU];
+        base64[out++] = (remain > 1U) ? alphabet[(block >> 6) & 0x3FU] : '=';
+        base64[out++] = (remain > 2U) ? alphabet[block & 0x3FU] : '=';
+
+        in += (remain >= 3U) ? 3U : remain;
+    }
+
+    base64[out] = '\0';
+    if (written != NULL) {
+        *written = out;
+    }
+    return true;
+}
+
+size_t beet_ble_command_chunk_fragment_capacity(
+    size_t att_payload_len,
+    uint32_t chunk_id,
+    uint16_t chunk_index,
+    uint16_t chunk_count)
+{
+    char frame[96];
+    int written;
+
+    written = snprintf(
+        frame,
+        sizeof(frame),
+        "{\"type\":\"cmd_chunk\",\"id\":%lu,\"i\":%u,\"n\":%u,\"b64\":\"\"}",
+        (unsigned long)chunk_id,
+        (unsigned)chunk_index,
+        (unsigned)chunk_count);
+    if (written < 0) {
+        return 0U;
+    }
+    if ((size_t)written >= att_payload_len) {
+        return 0U;
+    }
+    return att_payload_len - (size_t)written;
+}
+
+int beet_ble_format_command_chunk_frame_json(
+    char *buf,
+    size_t len,
+    uint32_t chunk_id,
+    uint16_t chunk_index,
+    uint16_t chunk_count,
+    const char *base64_fragment,
+    size_t base64_fragment_len)
+{
+    if (base64_fragment == NULL) {
+        return -1;
+    }
+    if (base64_fragment_len > (size_t)INT_MAX) {
+        return -1;
+    }
+
+    return snprintf(
+        buf,
+        len,
+        "{\"type\":\"cmd_chunk\",\"id\":%lu,\"i\":%u,\"n\":%u,\"b64\":\"%.*s\"}",
+        (unsigned long)chunk_id,
+        (unsigned)chunk_index,
+        (unsigned)chunk_count,
+        (int)base64_fragment_len,
+        base64_fragment);
 }
 
 int beet_ble_format_controller_info_json(
@@ -109,20 +225,28 @@ static void beet_ble_format_peer_addr(const beet_system_event_record_t *event, c
         event->peer_addr[0]);
 }
 
-int beet_ble_format_system_event_frame_json(
+static int beet_ble_format_system_event_json(
     char *buf,
     size_t len,
+    const char *prefix,
     const beet_system_event_record_t *event,
-    uint32_t unix_s)
+    uint32_t unix_s,
+    const char *suffix)
 {
     char peer_addr[18];
+
+    if (buf == NULL || prefix == NULL || event == NULL || suffix == NULL) {
+        return -1;
+    }
+
     beet_ble_format_peer_addr(event, peer_addr);
     return snprintf(
         buf,
         len,
-        "{\"type\":\"system_event\",\"data\":{\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,"
+        "%s{\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,"
         "\"boot_id\":%lu,\"uptime_s\":%lu,\"unix_s\":%lu,\"battery_mv\":%u,"
-        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%s,\"detail\":%lu}}",
+        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%s,\"detail\":%lu}%s",
+        prefix,
         (unsigned long long)event->seq_no,
         beet_system_event_type_name((beet_system_event_type_t)event->event_type),
         event->reason,
@@ -133,7 +257,23 @@ int beet_ble_format_system_event_frame_json(
         peer_addr,
         event->peer_addr_type,
         event->known_peer ? "true" : "false",
-        (unsigned long)event->detail);
+        (unsigned long)event->detail,
+        suffix);
+}
+
+int beet_ble_format_system_event_frame_json(
+    char *buf,
+    size_t len,
+    const beet_system_event_record_t *event,
+    uint32_t unix_s)
+{
+    return beet_ble_format_system_event_json(
+        buf,
+        len,
+        "{\"type\":\"system_event\",\"data\":",
+        event,
+        unix_s,
+        "}");
 }
 
 int beet_ble_format_command_result_json(
@@ -231,25 +371,26 @@ int beet_ble_format_command_result_json(
     if (response->command == BEET_IFACE_COMMAND_GET_SYSTEM_EVENT &&
         response->status == BEET_IFACE_STATUS_ACCEPTED &&
         response->has_system_event) {
-        char system_json[320];
-        int written = beet_ble_format_system_event_frame_json(
-            system_json,
-            sizeof(system_json),
-            &response->system_event,
-            response->system_event_unix_s);
-        const char *data_start = strstr(system_json, "\"data\":");
-        if (written < 0 || (size_t)written >= sizeof(system_json) || data_start == NULL) {
-            return -1;
-        }
-        data_start += strlen("\"data\":");
-        return snprintf(
-            buf,
-            len,
-            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":%s",
+        char prefix[160];
+        int prefix_written = snprintf(
+            prefix,
+            sizeof(prefix),
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":",
             beet_iface_command_name(response->command),
             beet_iface_status_name(response->status),
-            beet_iface_reason_name(response->reason),
-            data_start);
+            beet_iface_reason_name(response->reason));
+
+        if (prefix_written < 0 || (size_t)prefix_written >= sizeof(prefix)) {
+            return -1;
+        }
+
+        return beet_ble_format_system_event_json(
+            buf,
+            len,
+            prefix,
+            &response->system_event,
+            response->system_event_unix_s,
+            "}");
     }
 
     if (response->accepted_duration_s > 0U) {

@@ -36,6 +36,47 @@ bool beet_ble_rate_guard_allow(beet_ble_rate_guard_t *guard, int64_t now_us)
     return true;
 }
 
+beet_ble_command_lane_t beet_ble_classify_command_lane(beet_iface_command_t command)
+{
+    switch (command) {
+    case BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_EVENT:
+    case BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_SYSTEM_EVENT:
+    case BEET_IFACE_COMMAND_GET_WATERING_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_WATERING_EVENT:
+        return BEET_BLE_COMMAND_LANE_SYNC_READ;
+
+    case BEET_IFACE_COMMAND_MANUAL_START:
+    case BEET_IFACE_COMMAND_MANUAL_STOP:
+    case BEET_IFACE_COMMAND_RELAY_TEST_START:
+    case BEET_IFACE_COMMAND_RELAY_TEST_STOP:
+    case BEET_IFACE_COMMAND_RESET_BLOCK:
+    case BEET_IFACE_COMMAND_STORE_CALIBRATION:
+    case BEET_IFACE_COMMAND_START_OTA:
+    case BEET_IFACE_COMMAND_CLEAR_BLE_BONDS:
+    case BEET_IFACE_COMMAND_GET_CALIBRATION:
+    case BEET_IFACE_COMMAND_DISABLE_PAIR:
+    case BEET_IFACE_COMMAND_ENABLE_PAIR:
+    case BEET_IFACE_COMMAND_MOISTURE_TEST_START:
+    case BEET_IFACE_COMMAND_SET_TIME:
+    default:
+        return BEET_BLE_COMMAND_LANE_REAL;
+    }
+}
+
+const char *beet_ble_command_lane_name(beet_ble_command_lane_t lane)
+{
+    switch (lane) {
+    case BEET_BLE_COMMAND_LANE_SYNC_READ:
+        return "sync_read";
+
+    case BEET_BLE_COMMAND_LANE_REAL:
+    default:
+        return "real";
+    }
+}
+
 void beet_ble_build_rejection(
     const beet_iface_command_request_t *request,
     beet_iface_reason_t reason,

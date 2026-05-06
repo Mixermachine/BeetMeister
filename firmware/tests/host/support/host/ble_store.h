@@ -1,0 +1,5 @@
+#ifndef HOST_BLE_STORE_H
+#define HOST_BLE_STORE_H
+#include "../ble_test_shim.h"
+#endif
+

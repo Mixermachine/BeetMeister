@@ -22,6 +22,7 @@ static const char *TAG = "beet_controller";
 #define BEET_DISPLAY_BLE_ACTIVITY_WINDOW_US (1500LL * 1000LL)
 #define BEET_DISPLAY_BLE_WAVE_PERIOD_US (500LL * 1000LL)
 #define BEET_BOOT_LOW_VOLTAGE_GRACE_US ((int64_t)CONFIG_BEET_BOOT_LOW_VOLTAGE_GRACE_MS * 1000LL)
+#define BEET_CONTROLLER_FAST_LOOP_MS 50U
 
 typedef enum {
     BEET_RUN_PHASE_NONE = 0,
@@ -1809,17 +1810,18 @@ esp_err_t beet_iface_submit_command(
             response->reason = BEET_IFACE_REASON_EVENT_NOT_FOUND;
             return ESP_OK;
         }
-        if (!beet_lookup_boot_epoch(event.record.boot_id, &boot_epoch_unix_s)) {
-            response->reason = BEET_IFACE_REASON_TIME_NOT_SET;
-            return ESP_OK;
-        }
 
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_event = true;
         response->event = event.record;
-        response->event_started_unix_s = boot_epoch_unix_s + event.record.started_uptime_s;
-        response->event_ended_unix_s = boot_epoch_unix_s + event.record.ended_uptime_s;
+        if (beet_lookup_boot_epoch(event.record.boot_id, &boot_epoch_unix_s)) {
+            response->event_started_unix_s = boot_epoch_unix_s + event.record.started_uptime_s;
+            response->event_ended_unix_s = boot_epoch_unix_s + event.record.ended_uptime_s;
+        } else {
+            response->event_started_unix_s = 0U;
+            response->event_ended_unix_s = 0U;
+        }
         return ESP_OK;
     }
 
@@ -1845,16 +1847,16 @@ esp_err_t beet_iface_submit_command(
             response->reason = BEET_IFACE_REASON_EVENT_NOT_FOUND;
             return ESP_OK;
         }
-        if (!beet_lookup_boot_epoch(event.record.boot_id, &boot_epoch_unix_s)) {
-            response->reason = BEET_IFACE_REASON_TIME_NOT_SET;
-            return ESP_OK;
-        }
 
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_system_event = true;
         response->system_event = event.record;
-        response->system_event_unix_s = boot_epoch_unix_s + event.record.occurred_uptime_s;
+        if (beet_lookup_boot_epoch(event.record.boot_id, &boot_epoch_unix_s)) {
+            response->system_event_unix_s = boot_epoch_unix_s + event.record.occurred_uptime_s;
+        } else {
+            response->system_event_unix_s = 0U;
+        }
         return ESP_OK;
     }
 
@@ -2145,6 +2147,26 @@ static void beet_progress_runs(int64_t now_us)
     beet_controller_sync_boost_output();
 }
 
+static void beet_controller_service_coarse_tick(int64_t now_us, uint32_t elapsed_s)
+{
+    if (elapsed_s == 0U) {
+        return;
+    }
+
+    s_state.last_tick_us = now_us;
+    beet_refresh_battery();
+    beet_refresh_sensors();
+    beet_tick_blocks(elapsed_s);
+}
+
+static bool beet_controller_scheduler_due(int64_t now_us, uint32_t elapsed_s)
+{
+    return elapsed_s > 0U &&
+        now_us >= s_state.next_check_due_us &&
+        s_state.battery_state != BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
+        s_state.battery_state != BEET_BATTERY_STATE_OTA_IN_PROGRESS;
+}
+
 static void beet_controller_task(void *arg)
 {
     (void)arg;
@@ -2155,13 +2177,9 @@ static void beet_controller_task(void *arg)
         int64_t now_us = beet_now_us();
         bool deep_low_grace_active = beet_boot_low_voltage_grace_active(now_us);
         uint32_t elapsed_s = beet_elapsed_s(s_state.last_tick_us, now_us);
-        if (elapsed_s > 0U) {
-            s_state.last_tick_us = now_us;
-        }
 
-        beet_refresh_battery();
-        beet_refresh_sensors();
-        beet_tick_blocks(elapsed_s);
+        beet_controller_service_coarse_tick(now_us, elapsed_s);
+
         beet_progress_runs(now_us);
         beet_service_waiting_pairs(now_us);
 #if CONFIG_BEET_ENABLE_RELAY_SELF_TEST
@@ -2175,9 +2193,7 @@ static void beet_controller_task(void *arg)
         beet_ble_get_diag_status(&ble_status);
         beet_ble_get_pairing_display(&pairing_display);
 
-        if (now_us >= s_state.next_check_due_us &&
-            s_state.battery_state != BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
-            s_state.battery_state != BEET_BATTERY_STATE_OTA_IN_PROGRESS) {
+        if (beet_controller_scheduler_due(now_us, elapsed_s)) {
             beet_run_scheduler_cycle(now_us);
         }
 
@@ -2213,7 +2229,7 @@ static void beet_controller_task(void *arg)
             continue;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(BEET_CONTROLLER_FAST_LOOP_MS));
     }
 }
 
