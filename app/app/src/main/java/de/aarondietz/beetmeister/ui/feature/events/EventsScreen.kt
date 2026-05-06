@@ -1,6 +1,6 @@
 package de.aarondietz.beetmeister.ui.feature.events
 
-import androidx.compose.foundation.background
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -26,8 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.annotation.StringRes
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
@@ -48,10 +48,11 @@ internal fun EventsScreen(
     val nowSeconds = System.currentTimeMillis() / 1000L
     val totals = wateringTotals(state.recentEvents, window, nowSeconds)
     val filteredSystemEvents = state.systemEvents.filter { filter.acceptsSystem(it) }
+    val systemSections = groupSystemEvents(filteredSystemEvents, state, strings)
 
     LazyColumn(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Row(
@@ -66,10 +67,15 @@ internal fun EventsScreen(
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEDF2F5)),
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF5EBDD)),
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(strings.get(R.string.events_watering_time_by_pair), style = MaterialTheme.typography.titleLarge)
+                Column(modifier = Modifier.padding(18.dp)) {
+                    SectionHeading(
+                        title = strings.get(R.string.events_watering_summary_title),
+                        subtitle = strings.get(R.string.events_watering_summary_subtitle),
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(strings.get(R.string.events_watering_time_by_pair), style = MaterialTheme.typography.titleMedium)
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         WateringWindow.entries.forEach { option ->
@@ -80,33 +86,56 @@ internal fun EventsScreen(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     DurationBarChart(totals)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(strings.get(R.string.events_synced_count, state.eventSync.downloaded, state.eventSync.total))
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(onClick = onLoadDetails) { Text(strings.get(R.string.common_details)) }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Text(
+                        strings.get(R.string.events_synced_count, state.eventSync.downloaded, state.eventSync.total),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Button(onClick = onLoadDetails) { Text(strings.get(R.string.events_open_watering_history)) }
                 }
             }
         }
         item {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                EventFilter.entries.forEach { option ->
-                    FilterChip(
-                        selected = filter == option,
-                        onClick = { filter = option },
-                        label = { Text(strings.get(option.labelRes)) },
+            ElevatedCard(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEAF2F8)),
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    SectionHeading(
+                        title = strings.get(R.string.events_system_activity_title),
+                        subtitle = strings.get(R.string.events_system_activity_subtitle),
                     )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        systemEventFilters().forEach { option ->
+                            FilterChip(
+                                selected = filter == option,
+                                onClick = { filter = option },
+                                label = { Text(strings.get(option.labelRes)) },
+                            )
+                        }
+                    }
                 }
             }
         }
-        if (filter == EventFilter.Watering) {
-            items(state.recentEvents.sortedByDescending { it.sequenceNumber }, key = { "w${it.sequenceNumber}" }) { event ->
-                WateringEventRow(event = event, state = state)
+        if (systemSections.isEmpty()) {
+            item {
+                EmptySectionCard(
+                    title = strings.get(R.string.events_system_empty_title),
+                    body = strings.get(R.string.events_system_empty_body),
+                    tone = Color(0xFFF3F7FA),
+                )
             }
         } else {
-            items(filteredSystemEvents.sortedByDescending { it.sequenceNumber }, key = { "s${it.sequenceNumber}" }) { event ->
-                SystemEventRow(event = event, state = state)
+            items(systemSections, key = { section -> section.key }) { section ->
+                SystemEventSectionCard(section = section)
             }
         }
     }
@@ -120,6 +149,7 @@ internal fun EventDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
+    val wateringEvents = state.recentEvents.sortedByDescending { it.sequenceNumber }
     LazyColumn(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -135,13 +165,23 @@ internal fun EventDetailScreen(
             }
         }
         item {
-            Text(strings.get(R.string.events_detail_title), style = MaterialTheme.typography.headlineSmall)
+            SectionHeading(
+                title = strings.get(R.string.events_watering_history_title),
+                subtitle = strings.get(R.string.events_watering_history_subtitle, wateringEvents.size),
+            )
         }
-        items(state.systemEvents.sortedByDescending { it.sequenceNumber }, key = { "sys${it.sequenceNumber}" }) { event ->
-            SystemEventRow(event = event, state = state)
-        }
-        items(state.recentEvents.sortedByDescending { it.sequenceNumber }, key = { "wat${it.sequenceNumber}" }) { event ->
-            WateringEventRow(event = event, state = state)
+        if (wateringEvents.isEmpty()) {
+            item {
+                EmptySectionCard(
+                    title = strings.get(R.string.events_watering_empty_title),
+                    body = strings.get(R.string.events_watering_empty_body),
+                    tone = Color(0xFFF8F3EA),
+                )
+            }
+        } else {
+            items(wateringEvents, key = { "wat${it.sequenceNumber}" }) { event ->
+                WateringEventRow(event = event, state = state)
+            }
         }
     }
 }
@@ -160,4 +200,68 @@ internal enum class EventFilter(@StringRes val labelRes: Int) {
     Startup(R.string.events_filter_startup),
     MQTT(R.string.events_filter_mqtt),
     Ota(R.string.events_filter_ota),
+}
+
+@Composable
+private fun SectionHeading(
+    title: String,
+    subtitle: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SystemEventSectionCard(
+    section: SystemEventSection,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF7FAFC)),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = section.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF31566B),
+            )
+            section.events.forEach { event ->
+                SystemEventRow(event = event)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptySectionCard(
+    title: String,
+    body: String,
+    tone: Color,
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = tone),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

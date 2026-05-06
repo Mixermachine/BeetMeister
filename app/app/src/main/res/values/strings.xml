@@ -12,6 +12,8 @@
     <string name="common_refresh">Refresh</string>
     <string name="common_details">Details</string>
     <string name="common_disconnect">Disconnect</string>
+    <string name="common_today">Today</string>
+    <string name="common_yesterday">Yesterday</string>
     <string name="common_pair_number" localizePipeContext="Label for irrigation pair number. Keep %1$d as the numeric pair index.">Pair %1$d</string>
     <string name="common_sequence_number" localizePipeContext="Short event sequence label. Keep %1$d as the numeric sequence number.">Seq %1$d</string>
     <string name="common_millivolts" translatable="false" localizePipeContext="Numeric voltage format. Keep %1$d as the number and translate only the millivolt unit abbreviation if needed.">%1$d mV</string>
@@ -110,9 +112,15 @@
     <string name="pair_detail_test_detection">Test detection</string>
 
     <string name="events_title">Events</string>
+    <string name="events_watering_summary_title">Watering</string>
+    <string name="events_watering_summary_subtitle">Recent irrigation performance and sync progress.</string>
+    <string name="events_system_activity_title">System activity</string>
+    <string name="events_system_activity_subtitle">Controller lifecycle, Bluetooth, MQTT, and OTA activity in a readable timeline.</string>
     <string name="events_watering_time_by_pair">Watering time by pair</string>
     <string name="events_synced_count" localizePipeContext="Event sync progress text. %1$d is downloaded event count and %2$d is total event count.">Synced %1$d/%2$d events</string>
-    <string name="events_detail_title">Event table</string>
+    <string name="events_open_watering_history">Open watering history</string>
+    <string name="events_watering_history_title">Watering history</string>
+    <string name="events_watering_history_subtitle" localizePipeContext="Raw watering event count shown under the watering history title. Keep %1$d as the numeric count.">%1$d raw watering events</string>
     <string name="events_filter_all">All</string>
     <string name="events_filter_system">System</string>
     <string name="events_filter_watering">Watering</string>
@@ -136,6 +144,8 @@
     <string name="events_label_after">After</string>
     <string name="events_pending_time_sync">Pending time sync</string>
     <string name="events_ignored_legacy">Ignored legacy</string>
+    <string name="events_boot_section_title" localizePipeContext="Section title for unresolved system events belonging to a specific boot session. Keep %1$d as the controller boot id.">Boot %1$d</string>
+    <string name="events_relative_uptime" localizePipeContext="Relative event time within one controller boot. Keep %1$s as the already formatted duration.">t+%1$s</string>
     <string name="events_disconnected_reason">Disconnected</string>
     <string name="events_disconnect_code" localizePipeContext="Bluetooth disconnect reason with numeric status code. Keep %1$d as the raw code.">Disconnect code %1$d</string>
     <string name="events_bond_status" localizePipeContext="Bluetooth bond result with numeric Android status code. Keep %1$d as the raw code.">Bond status %1$d</string>
@@ -145,6 +155,10 @@
     <string name="events_new_peer">New peer</string>
     <string name="events_known_peer_address" localizePipeContext="Bluetooth peer label for a previously known device. Keep %1$s as the peer address string.">Known %1$s</string>
     <string name="events_new_peer_address" localizePipeContext="Bluetooth peer label for a newly seen device. Keep %1$s as the peer address string.">New %1$s</string>
+    <string name="events_system_empty_title">No system events yet</string>
+    <string name="events_system_empty_body">Once the controller records startup, Bluetooth, MQTT, or OTA activity, it will appear here.</string>
+    <string name="events_watering_empty_title">No watering events yet</string>
+    <string name="events_watering_empty_body">Watering runs will appear here as raw history entries after the controller records them.</string>
 
     <string name="action_disable_pair">Disable pair</string>
     <string name="action_enable_pair">Enable pair</string>
