@@ -48,11 +48,24 @@ jobs:
           cmake --build firmware/tests/host/build
           ctest --test-dir firmware/tests/host/build --output-on-failure
 
+      - name: Restore ESP-IDF cache
+        # v4
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ci-cache/esp-idf
+            .ci-cache/esp-tools
+          key: ${{ runner.os }}-espidf-v6.0-v1
+          restore-keys: |
+            ${{ runner.os }}-espidf-v6.0-
+
       - name: Set up ESP-IDF v6.0
         # v1
         uses: espressif/install-esp-idf-action@8fc05d1470d5591417e7a3707a1f2bec178db4ae
         with:
           version: v6.0
+          path: ${{ github.workspace }}/.ci-cache/esp-idf
+          tools-path: ${{ github.workspace }}/.ci-cache/esp-tools
 
       - name: Build firmware
         working-directory: firmware/esp-idf
