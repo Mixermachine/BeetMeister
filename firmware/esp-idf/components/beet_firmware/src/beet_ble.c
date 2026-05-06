@@ -1496,7 +1496,9 @@ esp_err_t beet_ble_clear_bonds(uint16_t *removed_count)
     }
 
     if (removed_count != NULL) {
-        *removed_count = (uint16_t)(truncated ? BEET_BLE_BOND_SCAN_CAPACITY : peer_count);
+        *removed_count = truncated
+            ? (uint16_t)BEET_BLE_BOND_SCAN_CAPACITY
+            : (uint16_t)peer_count;
     }
 
     s_ble.bonded = false;
