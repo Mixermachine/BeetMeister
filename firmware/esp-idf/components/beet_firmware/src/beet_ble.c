@@ -719,7 +719,7 @@ static bool beet_ble_stage_pending_result(void)
     }
 
     s_ble.result_tx.mode = BEET_BLE_RESULT_TX_CHUNKED_PENDING;
-    ESP_LOGI(
+    ESP_LOGD(
         TAG,
         "staged chunked command result id=%lu chunks=%u json_len=%u b64_len=%u mtu_payload=%u",
         (unsigned long)s_ble.result_tx.chunk_id,
@@ -743,7 +743,7 @@ static void beet_ble_on_result_indication_complete(int status)
     }
 
     if (status == 0) {
-        ESP_LOGI(
+        ESP_LOGD(
             TAG,
             "command result indication transmitted id=%lu index=%u count=%u awaiting confirmation",
             (unsigned long)s_ble.result_tx.chunk_id,
@@ -767,7 +767,7 @@ static void beet_ble_on_result_indication_complete(int status)
         return;
     }
 
-    ESP_LOGI(
+    ESP_LOGD(
         TAG,
         "command result indication confirmed id=%lu index=%u count=%u",
         (unsigned long)s_ble.result_tx.chunk_id,
@@ -783,7 +783,7 @@ static void beet_ble_on_result_indication_complete(int status)
         beet_ble_reset_result_tx_state();
         return;
     }
-    ESP_LOGI(
+    ESP_LOGD(
         TAG,
         "next chunk ready id=%lu index=%u count=%u; send deferred to service loop",
         (unsigned long)s_ble.result_tx.chunk_id,
@@ -1220,7 +1220,7 @@ static void beet_ble_send_pending_result(void)
     }
 
     if (s_ble.result_tx.mode == BEET_BLE_RESULT_TX_CHUNKED_PENDING) {
-        ESP_LOGI(
+        ESP_LOGD(
             TAG,
             "sending chunked command result id=%lu index=%u count=%u len=%u",
             (unsigned long)s_ble.result_tx.chunk_id,
