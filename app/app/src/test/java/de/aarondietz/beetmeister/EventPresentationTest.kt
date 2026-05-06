@@ -8,7 +8,11 @@ import de.aarondietz.beetmeister.ui.feature.events.EventFilter
 import de.aarondietz.beetmeister.ui.feature.events.WateringWindow
 import de.aarondietz.beetmeister.ui.feature.events.acceptsSystem
 import de.aarondietz.beetmeister.ui.feature.events.formatSystemEventTime
+import de.aarondietz.beetmeister.ui.feature.events.formatSystemEventTimelineTime
 import de.aarondietz.beetmeister.ui.feature.events.formatWateringTime
+import de.aarondietz.beetmeister.ui.feature.events.groupSystemEvents
+import de.aarondietz.beetmeister.ui.feature.events.systemEventCompactDetails
+import de.aarondietz.beetmeister.ui.feature.events.systemEventFilters
 import de.aarondietz.beetmeister.ui.feature.events.systemEventPeerLabel
 import de.aarondietz.beetmeister.ui.feature.events.systemEventReasonLabel
 import de.aarondietz.beetmeister.ui.feature.events.wateringTotals
@@ -17,6 +21,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
+import java.time.ZoneId
 
 class EventPresentationTest {
     private val strings = TestBeetStringResolver()
@@ -52,6 +58,21 @@ class EventPresentationTest {
     }
 
     @Test
+    fun systemEventFiltersExcludeWateringAndRedundantSystemModes() {
+        assertEquals(
+            listOf(
+                EventFilter.All,
+                EventFilter.Bluetooth,
+                EventFilter.Sleep,
+                EventFilter.Startup,
+                EventFilter.MQTT,
+                EventFilter.Ota,
+            ),
+            systemEventFilters(),
+        )
+    }
+
+    @Test
     fun systemEventReasonAndPeerLabelsAreHumanReadable() {
         val sleep = systemEvent(eventType = "SLEEP", reason = 6)
         val disconnect = systemEvent(eventType = "BLE_DISCONNECT", reason = 531, peer = "AA:BB:CC:DD:EE:FF", knownPeer = true)
@@ -61,6 +82,28 @@ class EventPresentationTest {
         assertEquals("Disconnect code 531", systemEventReasonLabel(disconnect, strings))
         assertEquals("Known AA:BB:CC:DD:EE:FF", systemEventPeerLabel(disconnect, strings))
         assertEquals("New 11:22:33:44:55:66", systemEventPeerLabel(newPeer, strings))
+    }
+
+    @Test
+    fun compactSystemDetailsCombineRelevantFields() {
+        val event = systemEvent(
+            eventType = "BLE_DISCONNECT",
+            reason = 531,
+            peer = "AA:BB:CC:DD:EE:FF",
+            knownPeer = true,
+        )
+
+        assertEquals(
+            "Disconnect code 531 | Known AA:BB:CC:DD:EE:FF | 3330 mV",
+            systemEventCompactDetails(event, strings),
+        )
+    }
+
+    @Test
+    fun unresolvedTimelineTimeUsesRelativeUptime() {
+        val event = systemEvent(eventType = "STARTUP", timeValid = false, uptimeSeconds = 125)
+
+        assertEquals("t+2m 5s", formatSystemEventTimelineTime(event, strings))
     }
 
     @Test
@@ -101,6 +144,44 @@ class EventPresentationTest {
         assertEquals(1700L, runningSince)
     }
 
+    @Test
+    fun systemEventsGroupIntoDateAndBootSections() {
+        val state = BeetRepositoryState(
+            deviceState = BeetDeviceState(
+                batteryState = "ACTIVE",
+                batteryMillivolts = 3330,
+                timeValid = false,
+                bootId = 41,
+                nextCheckInSeconds = 100,
+                activePumps = 0,
+                wifiConnected = false,
+                mqttConnected = false,
+                uptimeSeconds = 123,
+            ),
+        )
+        val now = Instant.parse("2026-05-06T12:00:00Z")
+        val events = listOf(
+            systemEvent(eventType = "STARTUP", bootId = 41, unix = 0, timeValid = false).copy(sequenceNumber = 1),
+            systemEvent(eventType = "BLE_CONNECT", unix = 1_778_068_800L, timeValid = true).copy(sequenceNumber = 2),
+            systemEvent(eventType = "MQTT_CONNECT", unix = 1_777_982_400L, timeValid = true).copy(sequenceNumber = 3),
+            systemEvent(eventType = "BLE_DISCONNECT", bootId = 40, unix = 0, timeValid = false).copy(sequenceNumber = 4),
+        )
+
+        val sections = groupSystemEvents(
+            events = events,
+            state = state,
+            strings = strings,
+            now = now,
+            zoneId = ZoneId.of("UTC"),
+        )
+
+        assertEquals(listOf("Boot 40", "Yesterday", "Today", "Boot 41"), sections.map { it.title })
+        assertEquals(listOf(4L), sections[0].events.map { it.sequenceNumber })
+        assertEquals(listOf(3L), sections[1].events.map { it.sequenceNumber })
+        assertEquals(listOf(2L), sections[2].events.map { it.sequenceNumber })
+        assertEquals(listOf(1L), sections[3].events.map { it.sequenceNumber })
+    }
+
     private fun wateringEvent(
         seq: Long,
         pair: Int,
@@ -138,12 +219,13 @@ class EventPresentationTest {
         timeValid: Boolean = false,
         peer: String = "",
         knownPeer: Boolean = false,
+        uptimeSeconds: Long = 123,
     ) = BeetSystemEvent(
         sequenceNumber = 1,
         eventType = eventType,
         reason = reason,
         bootId = bootId,
-        uptimeSeconds = 123,
+        uptimeSeconds = uptimeSeconds,
         unixSeconds = if (timeValid) unix else 0L,
         batteryMillivolts = 3330,
         peerAddress = peer,

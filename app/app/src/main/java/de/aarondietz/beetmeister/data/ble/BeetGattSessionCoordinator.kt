@@ -8,6 +8,7 @@ import android.bluetooth.BluetoothGattService
 import android.util.Log
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.data.local.BeetEventCache
+import de.aarondietz.beetmeister.data.local.mergeRetainedSystemEvents
 import de.aarondietz.beetmeister.data.protocol.BeetJsonCodec
 import de.aarondietz.beetmeister.data.repository.BeetBacklogFetchResult
 import de.aarondietz.beetmeister.data.repository.BeetBacklogFetchStatus
@@ -379,11 +380,11 @@ internal class BeetGattSessionCoordinator(
             .sortedByDescending { it.sequenceNumber }
 
     private fun mergeSystemEvents(current: List<BeetSystemEvent>, incoming: List<BeetSystemEvent>): List<BeetSystemEvent> =
-        (current + incoming)
-            .filter { it.unixSeconds >= ((System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS) }
-            .associateBy { it.sequenceNumber }
-            .values
-            .sortedByDescending { it.sequenceNumber }
+        mergeRetainedSystemEvents(
+            current = current,
+            incoming = incoming,
+            cutoffUnixSeconds = (System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS,
+        )
 
     private fun ingestWateringEvent(deviceId: String, event: BeetWateringEvent) {
         eventCache.saveWateringEvent(deviceId, event)
