@@ -41,11 +41,7 @@ internal class BeetEventCache(
         loadKeys(indexKey).forEach { key ->
             val event = prefs.getString(key, null)
                 ?.let(BeetJsonCodec::systemEventFromJson)
-            if (event != null &&
-                event.bootId > 0L &&
-                event.timeValid &&
-                event.unixSeconds >= cutoffUnixSeconds
-            ) {
+            if (event != null && shouldRetainSystemEvent(event, cutoffUnixSeconds)) {
                 kept += event
                 keysToKeep += key
             } else {
@@ -74,7 +70,7 @@ internal class BeetEventCache(
 
     fun saveSystemEvent(deviceId: String, event: BeetSystemEvent) {
         val cutoffUnixSeconds = retentionCutoffUnixSeconds()
-        if (!event.timeValid || event.unixSeconds < cutoffUnixSeconds) {
+        if (!shouldRetainSystemEvent(event, cutoffUnixSeconds)) {
             return
         }
         val key = systemEventKey(deviceId, event.sequenceNumber)
@@ -121,7 +117,7 @@ internal class BeetEventCache(
         loadKeys(indexKey).forEach { key ->
             val event = prefs.getString(key, null)
                 ?.let(BeetJsonCodec::systemEventFromJson)
-            if (event != null && event.timeValid && event.unixSeconds >= cutoffUnixSeconds) {
+            if (event != null && shouldRetainSystemEvent(event, cutoffUnixSeconds)) {
                 keysToKeep += key
             } else {
                 prefs.edit().remove(key).apply()
