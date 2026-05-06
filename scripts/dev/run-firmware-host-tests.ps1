@@ -55,19 +55,30 @@ function Invoke-CompileOnlyValidation {
 
     $sources = @(
         (Join-Path $sourceDir "host_tests.c"),
+        (Join-Path $sourceDir "host_ble_transport_tests.c"),
+        (Join-Path $repoRoot "firmware\\esp-idf\\components\\beet_firmware\\src\\beet_ble.c"),
         (Join-Path $repoRoot "firmware\\esp-idf\\components\\beet_firmware\\src\\beet_ble_codec.c"),
+        (Join-Path $repoRoot "firmware\\esp-idf\\components\\beet_firmware\\src\\beet_ble_guard.c"),
         (Join-Path $repoRoot "firmware\\esp-idf\\components\\beet_firmware\\src\\beet_core.c"),
-        (Join-Path $repoRoot "firmware\\esp-idf\\components\\beet_firmware\\src\\beet_event_ring.c"),
         (Join-Path $repoRoot "firmware\\esp-idf\\components\\beet_firmware\\src\\beet_iface_names.c"),
-        (Join-Path $supportDir "esp_rom_crc.c")
+        (Join-Path $repoRoot "firmware\\esp-idf\\components\\beet_firmware\\src\\beet_event_ring.c"),
+        (Join-Path $supportDir "esp_rom_crc.c"),
+        (Join-Path $supportDir "ble_test_stubs.c")
     )
 
     foreach ($source in $sources) {
         $name = [IO.Path]::GetFileNameWithoutExtension($source)
+        $extraArgs = @()
+        if ($source -like '*host_ble_transport_tests.c' -or
+            $source -like '*beet_ble.c' -or
+            $source -like '*ble_test_stubs.c') {
+            $extraArgs += '-DBEET_HOST_TEST=1'
+        }
         & $clang `
             "-I$supportDir" `
             "-I$(Join-Path $repoRoot 'firmware\\esp-idf\\components\\beet_firmware\\include')" `
             -Wall -Wextra -Werror -std=c11 `
+            $extraArgs `
             -c $source `
             -o (Join-Path $objDir "$name.obj")
         if ($LASTEXITCODE -ne 0) {

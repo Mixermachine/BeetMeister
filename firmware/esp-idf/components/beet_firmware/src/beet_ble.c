@@ -1550,3 +1550,108 @@ void beet_ble_service(void)
     s_ble.have_last_pair_states = true;
     s_ble.initial_sync_pending = false;
 }
+
+#ifdef BEET_HOST_TEST
+void beet_ble_host_test_reset(void)
+{
+    if (s_ble.command_queue != NULL) {
+        xQueueDelete(s_ble.command_queue);
+    }
+
+    memset(&s_ble, 0, sizeof(s_ble));
+    s_ble.initialized = true;
+    s_ble.enabled = true;
+    s_ble.connected = true;
+    s_ble.bonded = true;
+    s_ble.command_result_subscribed = true;
+    s_ble.conn_handle = 1U;
+    s_ble.command_queue = xQueueCreate(BEET_BLE_COMMAND_QUEUE_LEN, sizeof(beet_iface_command_request_t));
+    s_command_result_handle = 23U;
+    s_state_stream_handle = 22U;
+    s_control_point_handle = 21U;
+    s_controller_info_handle = 20U;
+    beet_ble_reset_result_tx_state();
+}
+
+void beet_ble_host_test_set_session(
+    bool connected,
+    bool bonded,
+    bool subscribed,
+    uint16_t conn_handle,
+    uint16_t command_result_handle)
+{
+    s_ble.connected = connected;
+    s_ble.bonded = bonded;
+    s_ble.command_result_subscribed = subscribed;
+    s_ble.conn_handle = conn_handle;
+    s_command_result_handle = command_result_handle;
+}
+
+void beet_ble_host_test_set_pending_result(const beet_iface_command_response_t *response)
+{
+    if (response == NULL) {
+        s_ble.pending_result_valid = false;
+        memset(&s_ble.pending_result, 0, sizeof(s_ble.pending_result));
+        return;
+    }
+
+    s_ble.pending_result = *response;
+    s_ble.pending_result_valid = true;
+}
+
+void beet_ble_host_test_notify_tx(int status)
+{
+    struct ble_gap_event event;
+
+    memset(&event, 0, sizeof(event));
+    event.type = BLE_GAP_EVENT_NOTIFY_TX;
+    event.notify_tx.conn_handle = s_ble.conn_handle;
+    event.notify_tx.indication = 1U;
+    event.notify_tx.attr_handle = s_command_result_handle;
+    event.notify_tx.status = status;
+    (void)beet_ble_gap_event(&event, NULL);
+}
+
+void beet_ble_host_test_disconnect(void)
+{
+    struct ble_gap_event event;
+
+    memset(&event, 0, sizeof(event));
+    event.type = BLE_GAP_EVENT_DISCONNECT;
+    event.disconnect.conn.conn_handle = s_ble.conn_handle;
+    event.disconnect.conn.sec_state.bonded = s_ble.bonded;
+    (void)beet_ble_gap_event(&event, NULL);
+}
+
+void beet_ble_host_test_set_command_result_subscription(bool subscribed)
+{
+    struct ble_gap_event event;
+
+    memset(&event, 0, sizeof(event));
+    event.type = BLE_GAP_EVENT_SUBSCRIBE;
+    event.subscribe.attr_handle = s_command_result_handle;
+    event.subscribe.conn_handle = s_ble.conn_handle;
+    event.subscribe.cur_indicate = subscribed ? 1U : 0U;
+    (void)beet_ble_gap_event(&event, NULL);
+}
+
+bool beet_ble_host_test_result_active(void)
+{
+    return s_ble.result_tx.mode != BEET_BLE_RESULT_TX_IDLE;
+}
+
+bool beet_ble_host_test_result_in_flight(void)
+{
+    return s_ble.result_tx.indication_in_flight;
+}
+
+uint16_t beet_ble_host_test_result_chunk_index(void)
+{
+    return s_ble.result_tx.chunk_index;
+}
+
+uint16_t beet_ble_host_test_result_chunk_count(void)
+{
+    return s_ble.result_tx.chunk_count;
+}
+#endif
