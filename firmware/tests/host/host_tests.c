@@ -51,6 +51,90 @@ typedef struct {
     beet_test_fn_t fn;
 } beet_test_case_t;
 
+static bool beet_extract_data_object(const char *json, char *out, size_t out_len)
+{
+    const char *data = strstr(json, "\"data\":");
+    const char *start;
+    size_t depth = 0U;
+    bool in_string = false;
+    bool escaped = false;
+
+    if (data == NULL || out == NULL || out_len == 0U) {
+        return false;
+    }
+
+    start = data + strlen("\"data\":");
+    if (*start != '{') {
+        return false;
+    }
+
+    for (const char *cursor = start; *cursor != '\0'; ++cursor) {
+        char current = *cursor;
+
+        if (in_string) {
+            if (escaped) {
+                escaped = false;
+            } else if (current == '\\') {
+                escaped = true;
+            } else if (current == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+
+        if (current == '"') {
+            in_string = true;
+            continue;
+        }
+        if (current == '{') {
+            depth++;
+        } else if (current == '}') {
+            depth--;
+            if (depth == 0U) {
+                size_t object_len = (size_t)(cursor - start + 1);
+                if (object_len >= out_len) {
+                    return false;
+                }
+                memcpy(out, start, object_len);
+                out[object_len] = '\0';
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static uint16_t beet_compute_chunk_count_for_payload(
+    size_t mtu_payload,
+    uint32_t chunk_id,
+    size_t b64_len)
+{
+    uint16_t chunk_count = 1U;
+
+    while (true) {
+        size_t cap = beet_ble_command_chunk_fragment_capacity(
+            mtu_payload,
+            chunk_id,
+            (uint16_t)(chunk_count - 1U),
+            chunk_count);
+        size_t needed = 0U;
+
+        if (cap == 0U) {
+            return 0U;
+        }
+
+        needed = (b64_len + cap - 1U) / cap;
+        if (needed == 0U || needed > 65535U) {
+            return 0U;
+        }
+        if (needed <= chunk_count) {
+            return (uint16_t)needed;
+        }
+        chunk_count = (uint16_t)needed;
+    }
+}
+
 static beet_event_record_t beet_make_event(uint64_t seq_no, uint8_t pair_index, uint16_t duration_s)
 {
     beet_event_record_t record;
@@ -554,6 +638,37 @@ static void test_ble_json_formatting(void)
         json);
 }
 
+static void test_ble_system_event_data_consistency(void)
+{
+    char frame_json[512];
+    char result_json[512];
+    char frame_data[256];
+    char result_data[256];
+    beet_system_event_record_t system = beet_make_system_event(42U, BEET_SYSTEM_EVENT_BLE_DISCONNECT);
+    beet_iface_command_response_t response;
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_SYSTEM_EVENT;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_system_event = true;
+    response.system_event = system;
+    response.system_event_unix_s = 1700000123U;
+
+    TEST_ASSERT_TRUE(beet_ble_format_system_event_frame_json(
+        frame_json,
+        sizeof(frame_json),
+        &system,
+        response.system_event_unix_s) > 0);
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(
+        result_json,
+        sizeof(result_json),
+        &response) > 0);
+    TEST_ASSERT_TRUE(beet_extract_data_object(frame_json, frame_data, sizeof(frame_data)));
+    TEST_ASSERT_TRUE(beet_extract_data_object(result_json, result_data, sizeof(result_data)));
+    TEST_ASSERT_STR_EQ(frame_data, result_data);
+}
+
 static void test_ble_base64_helpers(void)
 {
     char out[32];
@@ -595,19 +710,10 @@ static void test_ble_chunked_command_result_formatting(void)
     TEST_ASSERT_TRUE(beet_ble_base64_encode((const uint8_t *)json, json_len, b64, sizeof(b64), &b64_len));
     TEST_ASSERT_TRUE(json_len > mtu_payload);
 
-    while (true) {
-        size_t cap = beet_ble_command_chunk_fragment_capacity(mtu_payload, chunk_id, (uint16_t)(chunk_count - 1U), chunk_count);
-        size_t needed = 0U;
-        TEST_ASSERT_TRUE(cap > 0U);
-        needed = (b64_len + cap - 1U) / cap;
-        TEST_ASSERT_TRUE(needed > 0U && needed <= 65535U);
-        if (needed <= chunk_count) {
-            chunk_count = (uint16_t)needed;
-            break;
-        }
-        chunk_count = (uint16_t)needed;
-    }
+    chunk_count = beet_compute_chunk_count_for_payload(mtu_payload, chunk_id, b64_len);
+    TEST_ASSERT_TRUE(chunk_count > 0U);
     TEST_ASSERT_TRUE(chunk_count > 1U);
+    TEST_ASSERT_U32_EQ(chunk_count, beet_compute_chunk_count_for_payload(mtu_payload, chunk_id, b64_len));
 
     {
         size_t offset = 0U;
@@ -686,6 +792,7 @@ int main(void)
         {"ble_command_lane_split", test_ble_command_lane_split},
         {"ble_rejection_response_builder", test_ble_rejection_response_builder},
         {"ble_json_formatting", test_ble_json_formatting},
+        {"ble_system_event_data_consistency", test_ble_system_event_data_consistency},
         {"ble_base64_helpers", test_ble_base64_helpers},
         {"ble_chunked_command_result_formatting", test_ble_chunked_command_result_formatting},
         {"iface_name_mapping", test_iface_name_mapping},

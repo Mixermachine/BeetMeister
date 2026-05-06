@@ -225,20 +225,28 @@ static void beet_ble_format_peer_addr(const beet_system_event_record_t *event, c
         event->peer_addr[0]);
 }
 
-int beet_ble_format_system_event_frame_json(
+static int beet_ble_format_system_event_json(
     char *buf,
     size_t len,
+    const char *prefix,
     const beet_system_event_record_t *event,
-    uint32_t unix_s)
+    uint32_t unix_s,
+    const char *suffix)
 {
     char peer_addr[18];
+
+    if (buf == NULL || prefix == NULL || event == NULL || suffix == NULL) {
+        return -1;
+    }
+
     beet_ble_format_peer_addr(event, peer_addr);
     return snprintf(
         buf,
         len,
-        "{\"type\":\"system_event\",\"data\":{\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,"
+        "%s{\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,"
         "\"boot_id\":%lu,\"uptime_s\":%lu,\"unix_s\":%lu,\"battery_mv\":%u,"
-        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%s,\"detail\":%lu}}",
+        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%s,\"detail\":%lu}%s",
+        prefix,
         (unsigned long long)event->seq_no,
         beet_system_event_type_name((beet_system_event_type_t)event->event_type),
         event->reason,
@@ -249,7 +257,23 @@ int beet_ble_format_system_event_frame_json(
         peer_addr,
         event->peer_addr_type,
         event->known_peer ? "true" : "false",
-        (unsigned long)event->detail);
+        (unsigned long)event->detail,
+        suffix);
+}
+
+int beet_ble_format_system_event_frame_json(
+    char *buf,
+    size_t len,
+    const beet_system_event_record_t *event,
+    uint32_t unix_s)
+{
+    return beet_ble_format_system_event_json(
+        buf,
+        len,
+        "{\"type\":\"system_event\",\"data\":",
+        event,
+        unix_s,
+        "}");
 }
 
 int beet_ble_format_command_result_json(
@@ -347,29 +371,26 @@ int beet_ble_format_command_result_json(
     if (response->command == BEET_IFACE_COMMAND_GET_SYSTEM_EVENT &&
         response->status == BEET_IFACE_STATUS_ACCEPTED &&
         response->has_system_event) {
-        char peer_addr[18];
-        beet_ble_format_peer_addr(&response->system_event, peer_addr);
-        return snprintf(
-            buf,
-            len,
-            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{"
-            "\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,\"boot_id\":%lu,\"uptime_s\":%lu,"
-            "\"unix_s\":%lu,\"battery_mv\":%u,\"peer_addr\":\"%s\",\"peer_addr_type\":%u,"
-            "\"known_peer\":%s,\"detail\":%lu}}",
+        char prefix[160];
+        int prefix_written = snprintf(
+            prefix,
+            sizeof(prefix),
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":",
             beet_iface_command_name(response->command),
             beet_iface_status_name(response->status),
-            beet_iface_reason_name(response->reason),
-            (unsigned long long)response->system_event.seq_no,
-            beet_system_event_type_name((beet_system_event_type_t)response->system_event.event_type),
-            response->system_event.reason,
-            (unsigned long)response->system_event.boot_id,
-            (unsigned long)response->system_event.occurred_uptime_s,
-            (unsigned long)response->system_event_unix_s,
-            response->system_event.battery_mv,
-            peer_addr,
-            response->system_event.peer_addr_type,
-            response->system_event.known_peer ? "true" : "false",
-            (unsigned long)response->system_event.detail);
+            beet_iface_reason_name(response->reason));
+
+        if (prefix_written < 0 || (size_t)prefix_written >= sizeof(prefix)) {
+            return -1;
+        }
+
+        return beet_ble_format_system_event_json(
+            buf,
+            len,
+            prefix,
+            &response->system_event,
+            response->system_event_unix_s,
+            "}");
     }
 
     if (response->accepted_duration_s > 0U) {

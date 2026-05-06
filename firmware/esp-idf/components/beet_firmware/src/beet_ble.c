@@ -144,6 +144,16 @@ static void beet_ble_reset_result_tx_state(void);
 static void beet_ble_clear_result_send_state(void);
 static size_t beet_ble_command_result_payload_budget(void);
 static bool beet_ble_prepare_chunk_frame(void);
+static bool beet_ble_format_pending_result_json(void);
+static bool beet_ble_stage_single_result(size_t payload_budget);
+static uint32_t beet_ble_allocate_chunk_id(void);
+static bool beet_ble_compute_chunk_count(
+    size_t payload_budget,
+    uint32_t chunk_id,
+    size_t staged_b64_len,
+    uint16_t *chunk_count_out);
+static bool beet_ble_stage_chunked_result(size_t payload_budget);
+static bool beet_ble_advance_result_chunk(void);
 static bool beet_ble_stage_pending_result(void);
 static void beet_ble_on_result_indication_complete(int status);
 static void beet_ble_send_pending_result(void);
@@ -546,6 +556,8 @@ static size_t beet_ble_command_result_payload_budget(void)
     if (mtu <= 3U) {
         return 0U;
     }
+
+    // ATT indications consume 3 bytes of protocol overhead outside the payload.
     return (size_t)mtu - 3U;
 }
 
@@ -627,17 +639,9 @@ static bool beet_ble_prepare_chunk_frame(void)
     return true;
 }
 
-static bool beet_ble_stage_pending_result(void)
+static bool beet_ble_format_pending_result_json(void)
 {
-    size_t payload_budget;
     int written;
-
-    if (s_ble.result_tx.mode != BEET_BLE_RESULT_TX_IDLE) {
-        return true;
-    }
-    if (!s_ble.pending_result_valid) {
-        return false;
-    }
 
     written = beet_ble_format_command_result(
         s_ble.result_tx.staged_json,
@@ -654,19 +658,74 @@ static bool beet_ble_stage_pending_result(void)
         return false;
     }
     s_ble.result_tx.staged_json_len = (size_t)written;
+    return true;
+}
 
-    payload_budget = beet_ble_command_result_payload_budget();
-    if (payload_budget == 0U) {
+static bool beet_ble_stage_single_result(size_t payload_budget)
+{
+    if (s_ble.result_tx.staged_json_len > payload_budget) {
         return false;
     }
 
-    if (s_ble.result_tx.staged_json_len <= payload_budget) {
-        memcpy(s_ble.result_tx.chunk_frame, s_ble.result_tx.staged_json, s_ble.result_tx.staged_json_len + 1U);
-        s_ble.result_tx.chunk_frame_len = s_ble.result_tx.staged_json_len;
-        s_ble.result_tx.mode = BEET_BLE_RESULT_TX_SINGLE_PENDING;
-        s_ble.pending_result_valid = false;
-        return true;
+    memcpy(s_ble.result_tx.chunk_frame, s_ble.result_tx.staged_json, s_ble.result_tx.staged_json_len + 1U);
+    s_ble.result_tx.chunk_frame_len = s_ble.result_tx.staged_json_len;
+    s_ble.result_tx.mode = BEET_BLE_RESULT_TX_SINGLE_PENDING;
+    s_ble.pending_result_valid = false;
+    return true;
+}
+
+static uint32_t beet_ble_allocate_chunk_id(void)
+{
+    if (s_ble.next_chunk_id == UINT32_MAX) {
+        s_ble.next_chunk_id = 1U;
+    } else {
+        s_ble.next_chunk_id += 1U;
     }
+    return s_ble.next_chunk_id;
+}
+
+static bool beet_ble_compute_chunk_count(
+    size_t payload_budget,
+    uint32_t chunk_id,
+    size_t staged_b64_len,
+    uint16_t *chunk_count_out)
+{
+    uint16_t chunk_count = 1U;
+
+    if (chunk_count_out == NULL) {
+        return false;
+    }
+
+    while (true) {
+        size_t fragment_capacity = beet_ble_command_chunk_fragment_capacity(
+            payload_budget,
+            chunk_id,
+            (uint16_t)(chunk_count - 1U),
+            chunk_count);
+        size_t needed_chunks;
+
+        if (fragment_capacity == 0U) {
+            ESP_LOGE(TAG, "no chunk payload budget for mtu_payload=%u", (unsigned)payload_budget);
+            return false;
+        }
+
+        needed_chunks = (staged_b64_len + fragment_capacity - 1U) / fragment_capacity;
+        if (needed_chunks == 0U || needed_chunks > UINT16_MAX) {
+            ESP_LOGE(TAG, "chunk count out of range needed=%u", (unsigned)needed_chunks);
+            return false;
+        }
+        if (needed_chunks <= chunk_count) {
+            *chunk_count_out = (uint16_t)needed_chunks;
+            return true;
+        }
+        chunk_count = (uint16_t)needed_chunks;
+    }
+}
+
+static bool beet_ble_stage_chunked_result(size_t payload_budget)
+{
+    uint32_t chunk_id;
+    uint16_t chunk_count = 0U;
 
     if (!beet_ble_base64_encode(
             (const uint8_t *)s_ble.result_tx.staged_json,
@@ -680,44 +739,21 @@ static bool beet_ble_stage_pending_result(void)
         return false;
     }
 
-    if (s_ble.next_chunk_id == UINT32_MAX) {
-        s_ble.next_chunk_id = 1U;
-    } else {
-        s_ble.next_chunk_id += 1U;
+    chunk_id = beet_ble_allocate_chunk_id();
+    if (!beet_ble_compute_chunk_count(
+            payload_budget,
+            chunk_id,
+            s_ble.result_tx.staged_b64_len,
+            &chunk_count)) {
+        s_ble.pending_result_valid = false;
+        beet_ble_reset_result_tx_state();
+        return false;
     }
-    s_ble.result_tx.chunk_id = s_ble.next_chunk_id;
+
+    s_ble.result_tx.chunk_id = chunk_id;
     s_ble.result_tx.chunk_index = 0U;
     s_ble.result_tx.chunk_offset = 0U;
-    s_ble.result_tx.chunk_count = 1U;
-    while (true) {
-        size_t fragment_capacity = beet_ble_command_chunk_fragment_capacity(
-            payload_budget,
-            s_ble.result_tx.chunk_id,
-            (uint16_t)(s_ble.result_tx.chunk_count - 1U),
-            s_ble.result_tx.chunk_count);
-        size_t needed_chunks;
-
-        if (fragment_capacity == 0U) {
-            ESP_LOGE(TAG, "no chunk payload budget for mtu_payload=%u", (unsigned)payload_budget);
-            s_ble.pending_result_valid = false;
-            beet_ble_reset_result_tx_state();
-            return false;
-        }
-
-        needed_chunks = (s_ble.result_tx.staged_b64_len + fragment_capacity - 1U) / fragment_capacity;
-        if (needed_chunks == 0U || needed_chunks > UINT16_MAX) {
-            ESP_LOGE(TAG, "chunk count out of range needed=%u", (unsigned)needed_chunks);
-            s_ble.pending_result_valid = false;
-            beet_ble_reset_result_tx_state();
-            return false;
-        }
-        if (needed_chunks <= s_ble.result_tx.chunk_count) {
-            s_ble.result_tx.chunk_count = (uint16_t)needed_chunks;
-            break;
-        }
-        s_ble.result_tx.chunk_count = (uint16_t)needed_chunks;
-    }
-
+    s_ble.result_tx.chunk_count = chunk_count;
     s_ble.result_tx.mode = BEET_BLE_RESULT_TX_CHUNKED_PENDING;
     ESP_LOGD(
         TAG,
@@ -732,7 +768,57 @@ static bool beet_ble_stage_pending_result(void)
         beet_ble_reset_result_tx_state();
         return false;
     }
+
     s_ble.pending_result_valid = false;
+    return true;
+}
+
+static bool beet_ble_stage_pending_result(void)
+{
+    size_t payload_budget;
+
+    if (s_ble.result_tx.mode != BEET_BLE_RESULT_TX_IDLE) {
+        return true;
+    }
+    if (!s_ble.pending_result_valid) {
+        return false;
+    }
+    if (!beet_ble_format_pending_result_json()) {
+        return false;
+    }
+
+    payload_budget = beet_ble_command_result_payload_budget();
+    if (payload_budget == 0U) {
+        return false;
+    }
+    if (beet_ble_stage_single_result(payload_budget)) {
+        return true;
+    }
+
+    return beet_ble_stage_chunked_result(payload_budget);
+}
+
+static bool beet_ble_advance_result_chunk(void)
+{
+    if (s_ble.result_tx.mode == BEET_BLE_RESULT_TX_SINGLE_PENDING) {
+        beet_ble_reset_result_tx_state();
+        return false;
+    }
+    if (s_ble.result_tx.mode != BEET_BLE_RESULT_TX_CHUNKED_PENDING) {
+        return false;
+    }
+
+    s_ble.result_tx.chunk_offset += s_ble.result_tx.chunk_fragment_len;
+    s_ble.result_tx.chunk_index += 1U;
+    if (s_ble.result_tx.chunk_index >= s_ble.result_tx.chunk_count) {
+        beet_ble_reset_result_tx_state();
+        return false;
+    }
+
+    if (!beet_ble_prepare_chunk_frame()) {
+        beet_ble_reset_result_tx_state();
+        return false;
+    }
     return true;
 }
 
@@ -742,6 +828,8 @@ static void beet_ble_on_result_indication_complete(int status)
         return;
     }
 
+    // NimBLE reports command-result indications twice: first with status=0 once transmitted,
+    // then again with BLE_HS_EDONE once the peer confirms the indication.
     if (status == 0) {
         ESP_LOGD(
             TAG,
@@ -759,30 +847,18 @@ static void beet_ble_on_result_indication_complete(int status)
         return;
     }
 
-    if (s_ble.result_tx.mode == BEET_BLE_RESULT_TX_SINGLE_PENDING) {
-        beet_ble_reset_result_tx_state();
-        return;
-    }
-    if (s_ble.result_tx.mode != BEET_BLE_RESULT_TX_CHUNKED_PENDING) {
-        return;
-    }
-
     ESP_LOGD(
         TAG,
         "command result indication confirmed id=%lu index=%u count=%u",
         (unsigned long)s_ble.result_tx.chunk_id,
         (unsigned)s_ble.result_tx.chunk_index,
         (unsigned)s_ble.result_tx.chunk_count);
-    s_ble.result_tx.chunk_offset += s_ble.result_tx.chunk_fragment_len;
-    s_ble.result_tx.chunk_index += 1U;
-    if (s_ble.result_tx.chunk_index >= s_ble.result_tx.chunk_count) {
-        beet_ble_reset_result_tx_state();
+    if (!beet_ble_advance_result_chunk()) {
         return;
     }
-    if (!beet_ble_prepare_chunk_frame()) {
-        beet_ble_reset_result_tx_state();
-        return;
-    }
+
+    // Queue the next chunk for the normal service loop instead of recursively indicating from
+    // the NimBLE callback path.
     ESP_LOGD(
         TAG,
         "next chunk ready id=%lu index=%u count=%u; send deferred to service loop",

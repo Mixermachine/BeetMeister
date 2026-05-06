@@ -2147,6 +2147,26 @@ static void beet_progress_runs(int64_t now_us)
     beet_controller_sync_boost_output();
 }
 
+static void beet_controller_service_coarse_tick(int64_t now_us, uint32_t elapsed_s)
+{
+    if (elapsed_s == 0U) {
+        return;
+    }
+
+    s_state.last_tick_us = now_us;
+    beet_refresh_battery();
+    beet_refresh_sensors();
+    beet_tick_blocks(elapsed_s);
+}
+
+static bool beet_controller_scheduler_due(int64_t now_us, uint32_t elapsed_s)
+{
+    return elapsed_s > 0U &&
+        now_us >= s_state.next_check_due_us &&
+        s_state.battery_state != BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
+        s_state.battery_state != BEET_BATTERY_STATE_OTA_IN_PROGRESS;
+}
+
 static void beet_controller_task(void *arg)
 {
     (void)arg;
@@ -2157,12 +2177,8 @@ static void beet_controller_task(void *arg)
         int64_t now_us = beet_now_us();
         bool deep_low_grace_active = beet_boot_low_voltage_grace_active(now_us);
         uint32_t elapsed_s = beet_elapsed_s(s_state.last_tick_us, now_us);
-        if (elapsed_s > 0U) {
-            s_state.last_tick_us = now_us;
-            beet_refresh_battery();
-            beet_refresh_sensors();
-            beet_tick_blocks(elapsed_s);
-        }
+
+        beet_controller_service_coarse_tick(now_us, elapsed_s);
 
         beet_progress_runs(now_us);
         beet_service_waiting_pairs(now_us);
@@ -2177,10 +2193,7 @@ static void beet_controller_task(void *arg)
         beet_ble_get_diag_status(&ble_status);
         beet_ble_get_pairing_display(&pairing_display);
 
-        if (elapsed_s > 0U &&
-            now_us >= s_state.next_check_due_us &&
-            s_state.battery_state != BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
-            s_state.battery_state != BEET_BATTERY_STATE_OTA_IN_PROGRESS) {
+        if (beet_controller_scheduler_due(now_us, elapsed_s)) {
             beet_run_scheduler_cycle(now_us);
         }
 
