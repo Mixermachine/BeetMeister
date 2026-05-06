@@ -5,6 +5,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import de.aarondietz.beetmeister.data.protocol.dto.CommandEnvelopeHeaderDto
+import de.aarondietz.beetmeister.data.protocol.dto.CommandChunkEnvelopeDto
 import de.aarondietz.beetmeister.data.protocol.dto.CommandRequestEnvelopeDto
 import de.aarondietz.beetmeister.data.protocol.dto.StateEnvelopeHeaderDto
 import de.aarondietz.beetmeister.model.command.BeetCalibrationCommandData
@@ -36,6 +37,8 @@ object BeetJsonCodec {
         moshi.adapter(StateEnvelopeHeaderDto::class.java)
     private val commandEnvelopeHeaderAdapter: JsonAdapter<CommandEnvelopeHeaderDto> =
         moshi.adapter(CommandEnvelopeHeaderDto::class.java)
+    private val commandChunkEnvelopeAdapter: JsonAdapter<CommandChunkEnvelopeDto> =
+        moshi.adapter(CommandChunkEnvelopeDto::class.java)
 
     private val controllerInfoPayloadAdapter: JsonAdapter<BeetControllerInfo> =
         moshi.adapter(BeetControllerInfo::class.java)
@@ -62,6 +65,13 @@ object BeetJsonCodec {
     private val eventRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEventRequestData::class.java)
     private val setTimeRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetSetTimeCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
+
+    data class CommandChunkFrame(
+        val id: Long,
+        val index: Int,
+        val count: Int,
+        val base64Fragment: String,
+    )
 
     fun parseControllerInfo(payload: String): BeetControllerInfo {
         val header = stateEnvelopeHeaderAdapter.fromJson(payload) ?: error("Invalid controller info envelope.")
@@ -140,6 +150,22 @@ object BeetJsonCodec {
             event = event,
             systemHistorySummary = systemHistorySummary,
             systemEvent = systemEvent,
+        )
+    }
+
+    fun parseCommandChunk(payload: String): CommandChunkFrame? {
+        if (!payload.contains("\"type\"") || !payload.contains("cmd_chunk")) {
+            return null
+        }
+        val envelope = commandChunkEnvelopeAdapter.fromJson(payload) ?: return null
+        if (envelope.type != "cmd_chunk") {
+            return null
+        }
+        return CommandChunkFrame(
+            id = envelope.id,
+            index = envelope.index,
+            count = envelope.count,
+            base64Fragment = envelope.base64Fragment,
         )
     }
 

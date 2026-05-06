@@ -207,10 +207,7 @@ internal class BeetBacklogSyncRunner(
                     failureCounts.remove(sequence)
                     existing += sequence
                     val event = result.event ?: continue
-                    if (!eventTimeValid(event)) {
-                        continue
-                    }
-                    if (eventTime(event) < cutoffUnixSeconds) {
+                    if (eventTimeValid(event) && eventTime(event) < cutoffUnixSeconds) {
                         nextDone = true
                         break
                     }

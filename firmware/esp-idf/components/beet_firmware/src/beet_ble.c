@@ -32,14 +32,40 @@
 
 static const char *TAG = "beet_ble";
 
-#define BEET_BLE_PROTOCOL_VERSION 5U
+#define BEET_BLE_PROTOCOL_VERSION 6U
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
 #define BEET_BLE_JSON_MAX_LEN 320U
+#define BEET_BLE_RESULT_STAGE_MAX_LEN 1024U
+#define BEET_BLE_RESULT_STAGE_BASE64_MAX_LEN ((((BEET_BLE_RESULT_STAGE_MAX_LEN) + 2U) / 3U) * 4U + 1U)
+#define BEET_BLE_RESULT_FRAME_MAX_LEN BEET_BLE_RESULT_STAGE_MAX_LEN
 #define BEET_BLE_COMMAND_RATE_WINDOW_US (1000000LL)
-#define BEET_BLE_COMMAND_RATE_MAX_PER_WINDOW 4U
+#define BEET_BLE_REAL_COMMAND_RATE_MAX_PER_WINDOW 4U
+#define BEET_BLE_SYNC_READ_RATE_MAX_PER_WINDOW 12U
 #define BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US (30LL * 1000000LL)
 #define BEET_BLE_PAIRING_CODE_MAX 1000000U
 #define BEET_BLE_BOND_SCAN_CAPACITY 16U
+
+typedef enum {
+    BEET_BLE_RESULT_TX_IDLE = 0,
+    BEET_BLE_RESULT_TX_SINGLE_PENDING,
+    BEET_BLE_RESULT_TX_CHUNKED_PENDING,
+} beet_ble_result_tx_mode_t;
+
+typedef struct {
+    beet_ble_result_tx_mode_t mode;
+    bool indication_in_flight;
+    uint32_t chunk_id;
+    uint16_t chunk_index;
+    uint16_t chunk_count;
+    size_t chunk_offset;
+    size_t chunk_fragment_len;
+    size_t chunk_frame_len;
+    char chunk_frame[BEET_BLE_RESULT_FRAME_MAX_LEN];
+    size_t staged_json_len;
+    char staged_json[BEET_BLE_RESULT_STAGE_MAX_LEN];
+    size_t staged_b64_len;
+    char staged_b64[BEET_BLE_RESULT_STAGE_BASE64_MAX_LEN];
+} beet_ble_result_tx_state_t;
 
 typedef struct {
     bool initialized;
@@ -61,12 +87,15 @@ typedef struct {
     bool have_last_pair_states;
     bool pending_result_valid;
     beet_iface_command_response_t pending_result;
+    uint32_t next_chunk_id;
+    beet_ble_result_tx_state_t result_tx;
     bool pairing_display_active;
     uint16_t pairing_display_conn_handle;
     uint32_t pairing_display_passkey;
     int64_t pairing_display_expires_at_us;
     int64_t last_activity_us;
     beet_ble_rate_guard_t command_rate_guard;
+    beet_ble_rate_guard_t sync_read_rate_guard;
     beet_ble_system_event_callback_t system_event_callback;
 } beet_ble_state_t;
 
@@ -108,7 +137,16 @@ static void beet_ble_set_pairing_display(uint16_t conn_handle, uint32_t passkey)
 static void beet_ble_fill_pairing_display(beet_ble_pairing_display_t *display);
 static void beet_ble_service_pairing_display(void);
 static void beet_ble_mark_activity(void);
-static bool beet_ble_allow_command_now(void);
+static bool beet_ble_allow_command_now(
+    const beet_iface_command_request_t *request,
+    beet_ble_command_lane_t *lane_out);
+static void beet_ble_reset_result_tx_state(void);
+static void beet_ble_clear_result_send_state(void);
+static size_t beet_ble_command_result_payload_budget(void);
+static bool beet_ble_prepare_chunk_frame(void);
+static bool beet_ble_stage_pending_result(void);
+static void beet_ble_on_result_indication_complete(int status);
+static void beet_ble_send_pending_result(void);
 static void beet_ble_set_immediate_rejection(
     const beet_iface_command_request_t *request,
     beet_iface_reason_t reason);
@@ -299,10 +337,25 @@ static int beet_ble_write_control_point(struct ble_gatt_access_ctxt *ctxt)
         return BLE_ATT_ERR_UNLIKELY;
     }
 
-    if (!beet_ble_allow_command_now()) {
-        beet_ble_set_immediate_rejection(&request, BEET_IFACE_REASON_RATE_LIMITED);
-        beet_ble_mark_activity();
-        return 0;
+    {
+        beet_ble_command_lane_t lane = BEET_BLE_COMMAND_LANE_REAL;
+
+        if (!beet_ble_allow_command_now(&request, &lane)) {
+            ESP_LOGW(
+                TAG,
+                "control point rate limited cmd=%s lane=%s",
+                beet_iface_command_name(request.command),
+                beet_ble_command_lane_name(lane));
+            beet_ble_set_immediate_rejection(&request, BEET_IFACE_REASON_RATE_LIMITED);
+            beet_ble_mark_activity();
+            return 0;
+        }
+
+        ESP_LOGD(
+            TAG,
+            "control point admitted cmd=%s lane=%s",
+            beet_iface_command_name(request.command),
+            beet_ble_command_lane_name(lane));
     }
 
     if (xQueueSend(s_ble.command_queue, &request, 0) != pdTRUE) {
@@ -448,9 +501,294 @@ static void beet_ble_mark_activity(void)
     s_ble.last_activity_us = esp_timer_get_time();
 }
 
-static bool beet_ble_allow_command_now(void)
+static bool beet_ble_allow_command_now(
+    const beet_iface_command_request_t *request,
+    beet_ble_command_lane_t *lane_out)
 {
+    beet_ble_command_lane_t lane;
+
+    if (request == NULL) {
+        return false;
+    }
+
+    lane = beet_ble_classify_command_lane(request->command);
+    if (lane_out != NULL) {
+        *lane_out = lane;
+    }
+
+    if (lane == BEET_BLE_COMMAND_LANE_SYNC_READ) {
+        return beet_ble_rate_guard_allow(&s_ble.sync_read_rate_guard, esp_timer_get_time());
+    }
+
     return beet_ble_rate_guard_allow(&s_ble.command_rate_guard, esp_timer_get_time());
+}
+
+static void beet_ble_reset_result_tx_state(void)
+{
+    memset(&s_ble.result_tx, 0, sizeof(s_ble.result_tx));
+}
+
+static void beet_ble_clear_result_send_state(void)
+{
+    s_ble.pending_result_valid = false;
+    beet_ble_reset_result_tx_state();
+}
+
+static size_t beet_ble_command_result_payload_budget(void)
+{
+    uint16_t mtu;
+
+    if (!s_ble.connected || s_ble.conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return 0U;
+    }
+
+    mtu = ble_att_mtu(s_ble.conn_handle);
+    if (mtu <= 3U) {
+        return 0U;
+    }
+    return (size_t)mtu - 3U;
+}
+
+static bool beet_ble_prepare_chunk_frame(void)
+{
+    size_t payload_budget;
+    size_t fragment_capacity;
+    size_t frame_overhead;
+    size_t buffer_fragment_capacity;
+    size_t remaining;
+    size_t fragment_len;
+    int written;
+
+    if (s_ble.result_tx.mode != BEET_BLE_RESULT_TX_CHUNKED_PENDING) {
+        return false;
+    }
+    if (s_ble.result_tx.chunk_index >= s_ble.result_tx.chunk_count) {
+        return false;
+    }
+
+    payload_budget = beet_ble_command_result_payload_budget();
+    if (payload_budget == 0U) {
+        return false;
+    }
+
+    fragment_capacity = beet_ble_command_chunk_fragment_capacity(
+        payload_budget,
+        s_ble.result_tx.chunk_id,
+        s_ble.result_tx.chunk_index,
+        s_ble.result_tx.chunk_count);
+    if (fragment_capacity == 0U) {
+        ESP_LOGE(TAG, "chunk frame has no base64 payload budget mtu_payload=%u", (unsigned)payload_budget);
+        return false;
+    }
+
+    if (s_ble.result_tx.chunk_offset > s_ble.result_tx.staged_b64_len) {
+        return false;
+    }
+    frame_overhead = payload_budget - fragment_capacity;
+    if (sizeof(s_ble.result_tx.chunk_frame) <= frame_overhead + 1U) {
+        ESP_LOGE(TAG, "chunk frame buffer too small overhead=%u", (unsigned)frame_overhead);
+        return false;
+    }
+    buffer_fragment_capacity = sizeof(s_ble.result_tx.chunk_frame) - frame_overhead - 1U;
+    remaining = s_ble.result_tx.staged_b64_len - s_ble.result_tx.chunk_offset;
+    fragment_len = remaining < fragment_capacity ? remaining : fragment_capacity;
+    if (fragment_len > buffer_fragment_capacity) {
+        fragment_len = buffer_fragment_capacity;
+    }
+    if (fragment_len == 0U) {
+        return false;
+    }
+
+    written = beet_ble_format_command_chunk_frame_json(
+        s_ble.result_tx.chunk_frame,
+        sizeof(s_ble.result_tx.chunk_frame),
+        s_ble.result_tx.chunk_id,
+        s_ble.result_tx.chunk_index,
+        s_ble.result_tx.chunk_count,
+        s_ble.result_tx.staged_b64 + s_ble.result_tx.chunk_offset,
+        fragment_len);
+    if (written < 0 || (size_t)written >= sizeof(s_ble.result_tx.chunk_frame)) {
+        ESP_LOGE(TAG, "chunk frame overflow index=%u count=%u", s_ble.result_tx.chunk_index, s_ble.result_tx.chunk_count);
+        return false;
+    }
+    if ((size_t)written > payload_budget) {
+        ESP_LOGE(
+            TAG,
+            "chunk frame exceeds mtu payload index=%u count=%u frame_len=%u mtu_payload=%u",
+            s_ble.result_tx.chunk_index,
+            s_ble.result_tx.chunk_count,
+            (unsigned)written,
+            (unsigned)payload_budget);
+        return false;
+    }
+
+    s_ble.result_tx.chunk_frame_len = (size_t)written;
+    s_ble.result_tx.chunk_fragment_len = fragment_len;
+    return true;
+}
+
+static bool beet_ble_stage_pending_result(void)
+{
+    size_t payload_budget;
+    int written;
+
+    if (s_ble.result_tx.mode != BEET_BLE_RESULT_TX_IDLE) {
+        return true;
+    }
+    if (!s_ble.pending_result_valid) {
+        return false;
+    }
+
+    written = beet_ble_format_command_result(
+        s_ble.result_tx.staged_json,
+        sizeof(s_ble.result_tx.staged_json),
+        &s_ble.pending_result);
+    if (written < 0 || (size_t)written >= sizeof(s_ble.result_tx.staged_json)) {
+        ESP_LOGE(
+            TAG,
+            "command result staging overflow bytes=%u max=%u",
+            written < 0 ? 0U : (unsigned)written,
+            (unsigned)(sizeof(s_ble.result_tx.staged_json) - 1U));
+        s_ble.pending_result_valid = false;
+        beet_ble_reset_result_tx_state();
+        return false;
+    }
+    s_ble.result_tx.staged_json_len = (size_t)written;
+
+    payload_budget = beet_ble_command_result_payload_budget();
+    if (payload_budget == 0U) {
+        return false;
+    }
+
+    if (s_ble.result_tx.staged_json_len <= payload_budget) {
+        memcpy(s_ble.result_tx.chunk_frame, s_ble.result_tx.staged_json, s_ble.result_tx.staged_json_len + 1U);
+        s_ble.result_tx.chunk_frame_len = s_ble.result_tx.staged_json_len;
+        s_ble.result_tx.mode = BEET_BLE_RESULT_TX_SINGLE_PENDING;
+        s_ble.pending_result_valid = false;
+        return true;
+    }
+
+    if (!beet_ble_base64_encode(
+            (const uint8_t *)s_ble.result_tx.staged_json,
+            s_ble.result_tx.staged_json_len,
+            s_ble.result_tx.staged_b64,
+            sizeof(s_ble.result_tx.staged_b64),
+            &s_ble.result_tx.staged_b64_len)) {
+        ESP_LOGE(TAG, "base64 encode failed staged_len=%u", (unsigned)s_ble.result_tx.staged_json_len);
+        s_ble.pending_result_valid = false;
+        beet_ble_reset_result_tx_state();
+        return false;
+    }
+
+    if (s_ble.next_chunk_id == UINT32_MAX) {
+        s_ble.next_chunk_id = 1U;
+    } else {
+        s_ble.next_chunk_id += 1U;
+    }
+    s_ble.result_tx.chunk_id = s_ble.next_chunk_id;
+    s_ble.result_tx.chunk_index = 0U;
+    s_ble.result_tx.chunk_offset = 0U;
+    s_ble.result_tx.chunk_count = 1U;
+    while (true) {
+        size_t fragment_capacity = beet_ble_command_chunk_fragment_capacity(
+            payload_budget,
+            s_ble.result_tx.chunk_id,
+            (uint16_t)(s_ble.result_tx.chunk_count - 1U),
+            s_ble.result_tx.chunk_count);
+        size_t needed_chunks;
+
+        if (fragment_capacity == 0U) {
+            ESP_LOGE(TAG, "no chunk payload budget for mtu_payload=%u", (unsigned)payload_budget);
+            s_ble.pending_result_valid = false;
+            beet_ble_reset_result_tx_state();
+            return false;
+        }
+
+        needed_chunks = (s_ble.result_tx.staged_b64_len + fragment_capacity - 1U) / fragment_capacity;
+        if (needed_chunks == 0U || needed_chunks > UINT16_MAX) {
+            ESP_LOGE(TAG, "chunk count out of range needed=%u", (unsigned)needed_chunks);
+            s_ble.pending_result_valid = false;
+            beet_ble_reset_result_tx_state();
+            return false;
+        }
+        if (needed_chunks <= s_ble.result_tx.chunk_count) {
+            s_ble.result_tx.chunk_count = (uint16_t)needed_chunks;
+            break;
+        }
+        s_ble.result_tx.chunk_count = (uint16_t)needed_chunks;
+    }
+
+    s_ble.result_tx.mode = BEET_BLE_RESULT_TX_CHUNKED_PENDING;
+    ESP_LOGI(
+        TAG,
+        "staged chunked command result id=%lu chunks=%u json_len=%u b64_len=%u mtu_payload=%u",
+        (unsigned long)s_ble.result_tx.chunk_id,
+        (unsigned)s_ble.result_tx.chunk_count,
+        (unsigned)s_ble.result_tx.staged_json_len,
+        (unsigned)s_ble.result_tx.staged_b64_len,
+        (unsigned)payload_budget);
+    if (!beet_ble_prepare_chunk_frame()) {
+        s_ble.pending_result_valid = false;
+        beet_ble_reset_result_tx_state();
+        return false;
+    }
+    s_ble.pending_result_valid = false;
+    return true;
+}
+
+static void beet_ble_on_result_indication_complete(int status)
+{
+    if (!s_ble.result_tx.indication_in_flight) {
+        return;
+    }
+
+    if (status == 0) {
+        ESP_LOGI(
+            TAG,
+            "command result indication transmitted id=%lu index=%u count=%u awaiting confirmation",
+            (unsigned long)s_ble.result_tx.chunk_id,
+            (unsigned)s_ble.result_tx.chunk_index,
+            (unsigned)s_ble.result_tx.chunk_count);
+        return;
+    }
+
+    s_ble.result_tx.indication_in_flight = false;
+    if (status != BLE_HS_EDONE) {
+        ESP_LOGW(TAG, "command result indication completion failed status=%d", status);
+        beet_ble_reset_result_tx_state();
+        return;
+    }
+
+    if (s_ble.result_tx.mode == BEET_BLE_RESULT_TX_SINGLE_PENDING) {
+        beet_ble_reset_result_tx_state();
+        return;
+    }
+    if (s_ble.result_tx.mode != BEET_BLE_RESULT_TX_CHUNKED_PENDING) {
+        return;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "command result indication confirmed id=%lu index=%u count=%u",
+        (unsigned long)s_ble.result_tx.chunk_id,
+        (unsigned)s_ble.result_tx.chunk_index,
+        (unsigned)s_ble.result_tx.chunk_count);
+    s_ble.result_tx.chunk_offset += s_ble.result_tx.chunk_fragment_len;
+    s_ble.result_tx.chunk_index += 1U;
+    if (s_ble.result_tx.chunk_index >= s_ble.result_tx.chunk_count) {
+        beet_ble_reset_result_tx_state();
+        return;
+    }
+    if (!beet_ble_prepare_chunk_frame()) {
+        beet_ble_reset_result_tx_state();
+        return;
+    }
+    ESP_LOGI(
+        TAG,
+        "next chunk ready id=%lu index=%u count=%u; send deferred to service loop",
+        (unsigned long)s_ble.result_tx.chunk_id,
+        (unsigned)s_ble.result_tx.chunk_index,
+        (unsigned)s_ble.result_tx.chunk_count);
 }
 
 static void beet_ble_set_immediate_rejection(
@@ -617,6 +955,7 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             s_ble.bonded = beet_ble_is_bonded_conn(event->connect.conn_handle);
             s_ble.state_stream_subscribed = false;
             s_ble.command_result_subscribed = false;
+            beet_ble_clear_result_send_state();
             s_ble.initial_sync_pending = false;
             s_ble.have_last_device_state = false;
             s_ble.have_last_pair_states = false;
@@ -649,6 +988,7 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         s_ble.conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_ble.state_stream_subscribed = false;
         s_ble.command_result_subscribed = false;
+        beet_ble_clear_result_send_state();
         s_ble.initial_sync_pending = false;
         s_ble.have_last_device_state = false;
         s_ble.have_last_pair_states = false;
@@ -676,8 +1016,19 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             ESP_LOGI(TAG, "state stream subscribe notify=%d bonded=%d", event->subscribe.cur_notify, s_ble.state_stream_subscribed);
         } else if (event->subscribe.attr_handle == s_command_result_handle) {
             s_ble.command_result_subscribed = event->subscribe.cur_indicate && beet_ble_is_bonded_conn(event->subscribe.conn_handle);
+            if (!s_ble.command_result_subscribed) {
+                beet_ble_clear_result_send_state();
+            }
             beet_ble_mark_activity();
             ESP_LOGI(TAG, "command result subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.command_result_subscribed);
+        }
+        return 0;
+
+    case BLE_GAP_EVENT_NOTIFY_TX:
+        if (event->notify_tx.conn_handle == s_ble.conn_handle &&
+            event->notify_tx.indication &&
+            event->notify_tx.attr_handle == s_command_result_handle) {
+            beet_ble_on_result_indication_complete(event->notify_tx.status);
         }
         return 0;
 
@@ -854,22 +1205,31 @@ static void beet_ble_drain_commands(void)
 
 static void beet_ble_send_pending_result(void)
 {
-    char json[BEET_BLE_JSON_MAX_LEN];
-    int written;
-
-    if (!s_ble.pending_result_valid) {
+    if (!s_ble.connected || !s_ble.command_result_subscribed) {
+        return;
+    }
+    if (s_ble.result_tx.indication_in_flight) {
         return;
     }
 
-    written = beet_ble_format_command_result(json, sizeof(json), &s_ble.pending_result);
-    if (written < 0 || (size_t)written >= sizeof(json)) {
-        ESP_LOGW(TAG, "command result payload too large");
-        s_ble.pending_result_valid = false;
+    if (!beet_ble_stage_pending_result()) {
+        return;
+    }
+    if (s_ble.result_tx.mode == BEET_BLE_RESULT_TX_IDLE) {
         return;
     }
 
-    if (beet_ble_send_indicate_json(s_command_result_handle, json) == ESP_OK) {
-        s_ble.pending_result_valid = false;
+    if (s_ble.result_tx.mode == BEET_BLE_RESULT_TX_CHUNKED_PENDING) {
+        ESP_LOGI(
+            TAG,
+            "sending chunked command result id=%lu index=%u count=%u len=%u",
+            (unsigned long)s_ble.result_tx.chunk_id,
+            (unsigned)s_ble.result_tx.chunk_index,
+            (unsigned)s_ble.result_tx.chunk_count,
+            (unsigned)s_ble.result_tx.chunk_frame_len);
+    }
+    if (beet_ble_send_indicate_json(s_command_result_handle, s_ble.result_tx.chunk_frame) == ESP_OK) {
+        s_ble.result_tx.indication_in_flight = true;
     }
 }
 
@@ -945,7 +1305,11 @@ esp_err_t beet_ble_init(const char *device_name)
     beet_ble_rate_guard_init(
         &s_ble.command_rate_guard,
         BEET_BLE_COMMAND_RATE_WINDOW_US,
-        BEET_BLE_COMMAND_RATE_MAX_PER_WINDOW);
+        BEET_BLE_REAL_COMMAND_RATE_MAX_PER_WINDOW);
+    beet_ble_rate_guard_init(
+        &s_ble.sync_read_rate_guard,
+        BEET_BLE_COMMAND_RATE_WINDOW_US,
+        BEET_BLE_SYNC_READ_RATE_MAX_PER_WINDOW);
     s_ble.command_queue = xQueueCreate(BEET_BLE_COMMAND_QUEUE_LEN, sizeof(beet_iface_command_request_t));
     ESP_RETURN_ON_FALSE(s_ble.command_queue != NULL, ESP_ERR_NO_MEM, TAG, "ble queue create failed");
     strncpy(s_ble.device_name, device_name, sizeof(s_ble.device_name) - 1U);
@@ -1014,6 +1378,7 @@ void beet_ble_set_enabled(bool enabled)
         BEET_BLE_FORCE_ENABLE_DIAGNOSTICS);
     s_ble.enabled = enabled;
     if (!enabled) {
+        beet_ble_clear_result_send_state();
         beet_ble_stop_advertising();
         beet_ble_disconnect();
         beet_ble_log_diag_status("set_enabled_false");
@@ -1061,6 +1426,7 @@ esp_err_t beet_ble_clear_bonds(uint16_t *removed_count)
     s_ble.bonded = false;
     s_ble.state_stream_subscribed = false;
     s_ble.command_result_subscribed = false;
+    beet_ble_clear_result_send_state();
     s_ble.have_last_device_state = false;
     s_ble.have_last_pair_states = false;
     s_ble.initial_sync_pending = false;

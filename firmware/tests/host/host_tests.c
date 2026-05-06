@@ -346,6 +346,78 @@ static void test_ble_rate_guard_windowing(void)
     TEST_ASSERT_TRUE(beet_ble_rate_guard_allow(&guard, 1003000LL));
 }
 
+static bool test_ble_allow_for_command(
+    beet_iface_command_t command,
+    int64_t now_us,
+    beet_ble_rate_guard_t *real_guard,
+    beet_ble_rate_guard_t *sync_guard)
+{
+    beet_ble_command_lane_t lane = beet_ble_classify_command_lane(command);
+    beet_ble_rate_guard_t *guard = (lane == BEET_BLE_COMMAND_LANE_SYNC_READ) ? sync_guard : real_guard;
+    return beet_ble_rate_guard_allow(guard, now_us);
+}
+
+static void test_ble_command_lane_split(void)
+{
+    beet_ble_rate_guard_t real_guard;
+    beet_ble_rate_guard_t sync_guard;
+
+    beet_ble_rate_guard_init(&real_guard, 1000000LL, 4U);
+    beet_ble_rate_guard_init(&sync_guard, 1000000LL, 12U);
+
+    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_SYNC_READ, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_SYSTEM_EVENT));
+    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_SYNC_READ, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY));
+    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_MANUAL_STOP));
+    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_CALIBRATION));
+    TEST_ASSERT_STR_EQ("sync_read", beet_ble_command_lane_name(BEET_BLE_COMMAND_LANE_SYNC_READ));
+    TEST_ASSERT_STR_EQ("real", beet_ble_command_lane_name(BEET_BLE_COMMAND_LANE_REAL));
+
+    for (uint8_t i = 0U; i < 12U; ++i) {
+        TEST_ASSERT_TRUE(test_ble_allow_for_command(
+            BEET_IFACE_COMMAND_GET_SYSTEM_EVENT,
+            1000LL + i,
+            &real_guard,
+            &sync_guard));
+    }
+    TEST_ASSERT_FALSE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_GET_SYSTEM_EVENT,
+        2000LL,
+        &real_guard,
+        &sync_guard));
+
+    TEST_ASSERT_TRUE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_MANUAL_STOP,
+        3000LL,
+        &real_guard,
+        &sync_guard));
+
+    TEST_ASSERT_TRUE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_GET_CALIBRATION,
+        4000LL,
+        &real_guard,
+        &sync_guard));
+    TEST_ASSERT_TRUE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_GET_CALIBRATION,
+        5000LL,
+        &real_guard,
+        &sync_guard));
+    TEST_ASSERT_TRUE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_GET_CALIBRATION,
+        6000LL,
+        &real_guard,
+        &sync_guard));
+    TEST_ASSERT_FALSE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_GET_CALIBRATION,
+        7000LL,
+        &real_guard,
+        &sync_guard));
+    TEST_ASSERT_TRUE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_GET_CALIBRATION,
+        1007000LL,
+        &real_guard,
+        &sync_guard));
+}
+
 static void test_ble_rejection_response_builder(void)
 {
     beet_iface_command_request_t request;
@@ -441,11 +513,142 @@ static void test_ble_json_formatting(void)
         "{\"cmd\":\"moisture_test_start\",\"status\":\"accepted\",\"reason\":\"moisture_test_started\",\"data\":{\"pair\":2,\"duration_s\":10}}",
         json);
 
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_EVENT;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_event = true;
+    response.event = beet_make_event(77U, 5U, 120U);
+    response.event.trigger_source = 2U;
+    response.event_started_unix_s = 0U;
+    response.event_ended_unix_s = 0U;
+    response.event.started_uptime_s = 12U;
+    response.event.ended_uptime_s = 132U;
+    response.event.crc32 = beet_event_crc32(&response.event);
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_event\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"seq\":77,\"pair\":5,"
+        "\"boot_id\":9,\"src\":2,\"start\":0,\"end\":0,\"mb\":15,\"ma\":25,\"sb\":2100,\"sa\":1800,"
+        "\"req\":120,\"act\":120,\"stop\":0,\"block\":0,\"bs\":3320,\"be\":3290,\"su\":12,\"eu\":132}}",
+        json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_SYSTEM_EVENT;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_system_event = true;
+    response.system_event = beet_make_system_event(9U, BEET_SYSTEM_EVENT_BLE_CONNECT);
+    response.system_event_unix_s = 0U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_system_event\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":"
+        "{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,"
+        "\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,"
+        "\"known_peer\":true,\"detail\":0}}",
+        json);
+
     beet_system_event_record_t system = beet_make_system_event(9U, BEET_SYSTEM_EVENT_BLE_CONNECT);
     TEST_ASSERT_TRUE(beet_ble_format_system_event_frame_json(json, sizeof(json), &system, 0U) > 0);
     TEST_ASSERT_STR_EQ(
         "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":true,\"detail\":0}}",
         json);
+}
+
+static void test_ble_base64_helpers(void)
+{
+    char out[32];
+    size_t written = 0U;
+
+    TEST_ASSERT_U32_EQ(4U, beet_ble_base64_encoded_len(3U));
+    TEST_ASSERT_U32_EQ(8U, beet_ble_base64_encoded_len(4U));
+    TEST_ASSERT_TRUE(beet_ble_base64_encode((const uint8_t *)"ABCD", 4U, out, sizeof(out), &written));
+    TEST_ASSERT_U32_EQ(8U, written);
+    TEST_ASSERT_STR_EQ("QUJDRA==", out);
+}
+
+static void test_ble_chunked_command_result_formatting(void)
+{
+    const size_t mtu_payload = 100U;
+    char json[1024];
+    char b64[1600];
+    char frame[256];
+    char rebuilt[1600];
+    size_t json_len = 0U;
+    size_t b64_len = 0U;
+    size_t rebuilt_len = 0U;
+    uint32_t chunk_id = 12U;
+    uint16_t chunk_count = 1U;
+    beet_iface_command_response_t response;
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_SYSTEM_EVENT;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_system_event = true;
+    response.system_event = beet_make_system_event(99U, BEET_SYSTEM_EVENT_BLE_DISCONNECT);
+    response.system_event_unix_s = 1700000000U;
+    response.system_event.detail = 0x12345678U;
+    response.system_event.crc32 = beet_system_event_crc32(&response.system_event);
+
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    json_len = strlen(json);
+    TEST_ASSERT_TRUE(beet_ble_base64_encode((const uint8_t *)json, json_len, b64, sizeof(b64), &b64_len));
+    TEST_ASSERT_TRUE(json_len > mtu_payload);
+
+    while (true) {
+        size_t cap = beet_ble_command_chunk_fragment_capacity(mtu_payload, chunk_id, (uint16_t)(chunk_count - 1U), chunk_count);
+        size_t needed = 0U;
+        TEST_ASSERT_TRUE(cap > 0U);
+        needed = (b64_len + cap - 1U) / cap;
+        TEST_ASSERT_TRUE(needed > 0U && needed <= 65535U);
+        if (needed <= chunk_count) {
+            chunk_count = (uint16_t)needed;
+            break;
+        }
+        chunk_count = (uint16_t)needed;
+    }
+    TEST_ASSERT_TRUE(chunk_count > 1U);
+
+    {
+        size_t offset = 0U;
+        for (uint16_t index = 0U; index < chunk_count; ++index) {
+        size_t cap = beet_ble_command_chunk_fragment_capacity(mtu_payload, chunk_id, index, chunk_count);
+        size_t remaining = b64_len - offset;
+        size_t frag_len = remaining < cap ? remaining : cap;
+        int frame_len = beet_ble_format_command_chunk_frame_json(
+            frame,
+            sizeof(frame),
+            chunk_id,
+            index,
+            chunk_count,
+            b64 + offset,
+            frag_len);
+
+        TEST_ASSERT_TRUE(frame_len > 0);
+        TEST_ASSERT_TRUE((size_t)frame_len <= mtu_payload);
+
+        {
+            const char *b64_start = strstr(frame, "\"b64\":\"");
+            const char *b64_end = strrchr(frame, '"');
+            size_t inside_len = 0U;
+            TEST_ASSERT_TRUE(b64_start != NULL);
+            TEST_ASSERT_TRUE(b64_end != NULL);
+            b64_start += strlen("\"b64\":\"");
+            TEST_ASSERT_TRUE(b64_end >= b64_start);
+            inside_len = (size_t)(b64_end - b64_start);
+            TEST_ASSERT_TRUE(rebuilt_len + inside_len < sizeof(rebuilt));
+            memcpy(rebuilt + rebuilt_len, b64_start, inside_len);
+            rebuilt_len += inside_len;
+            rebuilt[rebuilt_len] = '\0';
+        }
+
+            offset += frag_len;
+        }
+    }
+
+    TEST_ASSERT_U32_EQ((uint32_t)b64_len, (uint32_t)rebuilt_len);
+    TEST_ASSERT_STR_EQ(b64, rebuilt);
+    TEST_ASSERT_TRUE(strstr(json, "\"cmd\":\"get_system_event\"") != NULL);
 }
 
 static void test_iface_name_mapping(void)
@@ -480,8 +683,11 @@ int main(void)
         {"event_ring_reconstruction_and_summary", test_event_ring_reconstruction_and_summary},
         {"ble_command_parsing", test_ble_command_parsing},
         {"ble_rate_guard_windowing", test_ble_rate_guard_windowing},
+        {"ble_command_lane_split", test_ble_command_lane_split},
         {"ble_rejection_response_builder", test_ble_rejection_response_builder},
         {"ble_json_formatting", test_ble_json_formatting},
+        {"ble_base64_helpers", test_ble_base64_helpers},
+        {"ble_chunked_command_result_formatting", test_ble_chunked_command_result_formatting},
         {"iface_name_mapping", test_iface_name_mapping},
     };
 

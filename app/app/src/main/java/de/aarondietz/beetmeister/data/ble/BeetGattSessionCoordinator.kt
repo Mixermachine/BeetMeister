@@ -26,6 +26,7 @@ import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -46,6 +47,7 @@ internal class BeetGattSessionCoordinator(
     @Volatile
     private var syncPauseRequested = false
     private val pendingMoistureTests = mutableMapOf<Int, Boolean>()
+    private val commandChunkAssembler = BeetCommandResultChunkAssembler()
 
     fun close() {
         Log.d(TAG, "close()")
@@ -66,9 +68,11 @@ internal class BeetGattSessionCoordinator(
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
                 return@launch
             }
-            for (pairIndex in 1..8) {
-                runCatching { sendCommand(BeetJsonCodec.getCalibration(pairIndex)) }
-                    .onFailure { host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex)) }
+            withSyncPausedForCommand {
+                for (pairIndex in 1..8) {
+                    runCatching { sendCommand(BeetJsonCodec.getCalibration(pairIndex)) }
+                        .onFailure { host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex)) }
+                }
             }
         }
     }
@@ -185,6 +189,17 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    private suspend fun awaitSyncResumeIfNeeded() {
+        while (syncPauseRequested && host.state.value.connection.phase == BeetConnectionPhase.Connected) {
+            delay(SYNC_PAUSE_POLL_MS)
+        }
+    }
+
+    private suspend fun sendSyncCommand(payload: String): BeetCommandResult {
+        awaitSyncResumeIfNeeded()
+        return sendCommand(payload)
+    }
+
     private suspend fun sendCommand(payload: String): BeetCommandResult {
         return commandMutex.withLock {
             val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
@@ -203,6 +218,9 @@ internal class BeetGattSessionCoordinator(
 
             try {
                 withTimeout(COMMAND_TIMEOUT_MS) { deferred.await() }
+            } catch (timeout: TimeoutCancellationException) {
+                commandChunkAssembler.reset()
+                throw timeout
             } finally {
                 host.session.pendingCommand = null
             }
@@ -211,14 +229,23 @@ internal class BeetGattSessionCoordinator(
 
     private fun startBackgroundEventSync(force: Boolean = false, limit: Int = MAX_BACKGROUND_EVENT_DOWNLOAD) {
         if (!force && eventSyncJob?.isActive == true) {
+            Log.d(TAG, "startBackgroundEventSync skipped because a sync job is already active")
             return
         }
         eventSyncJob?.cancel()
         eventSyncJob = host.scope.launch {
+            Log.d(TAG, "startBackgroundEventSync begin force=$force limit=$limit phase=${host.state.value.connection.phase}")
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
+                Log.d(TAG, "startBackgroundEventSync aborted because controller is not connected")
                 return@launch
             }
             if (!synchronizeControllerTimeIfNeeded()) {
+                val deviceState = host.state.value.deviceState
+                Log.w(
+                    TAG,
+                    "startBackgroundEventSync aborted because controller time is unavailable " +
+                        "bootId=${deviceState?.bootId} timeValid=${deviceState?.timeValid} syncedTimeBootId=${host.session.syncedTimeBootId}",
+                )
                 host.updateState {
                     it.copy(
                         eventsLoading = false,
@@ -235,6 +262,11 @@ internal class BeetGattSessionCoordinator(
             val deviceId = host.state.value.controllerInfo?.deviceId ?: return@launch
             val cachedWatering = eventCache.loadWateringEvents(deviceId)
             val cachedSystem = eventCache.loadSystemEvents(deviceId)
+            Log.d(
+                TAG,
+                "startBackgroundEventSync using cache deviceId=$deviceId " +
+                    "cachedWatering=${cachedWatering.size} cachedSystem=${cachedSystem.size}",
+            )
             host.updateState {
                 it.copy(
                     recentEvents = mergeWateringEvents(it.recentEvents, cachedWatering),
@@ -244,8 +276,14 @@ internal class BeetGattSessionCoordinator(
                 )
             }
 
-            val wateringSummary = runCatching { sendCommand(BeetJsonCodec.getHistorySummary()) }.getOrNull()?.historySummary
-            val systemSummary = runCatching { sendCommand(BeetJsonCodec.getSystemHistorySummary()) }.getOrNull()?.systemHistorySummary
+            val wateringSummary = runCatching { sendSyncCommand(BeetJsonCodec.getHistorySummary()) }.getOrNull()?.historySummary
+            val systemSummary = runCatching { sendSyncCommand(BeetJsonCodec.getSystemHistorySummary()) }.getOrNull()?.systemHistorySummary
+            Log.d(
+                TAG,
+                "startBackgroundEventSync summaries " +
+                    "wateringLatest=${wateringSummary?.latestSequenceNumber} wateringCount=${wateringSummary?.eventCount} " +
+                    "systemLatest=${systemSummary?.latestSequenceNumber} systemCount=${systemSummary?.eventCount}",
+            )
             host.updateState {
                 it.copy(
                     historySummary = wateringSummary ?: it.historySummary,
@@ -279,6 +317,10 @@ internal class BeetGattSessionCoordinator(
                 isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
                 isPauseRequested = { syncPauseRequested },
                 onProgress = { progress ->
+                    Log.d(
+                        TAG,
+                        "eventSync progress phase=${progress.phase} downloaded=${progress.downloaded} total=${progress.total} active=${progress.active}",
+                    )
                     host.updateState {
                         it.copy(
                             eventSync = it.eventSync.copy(
@@ -295,6 +337,7 @@ internal class BeetGattSessionCoordinator(
                 fetchWateringEvent = { sequence -> fetchWateringEventForSync(sequence) },
                 fetchSystemEvent = { sequence -> fetchSystemEventForSync(sequence) },
             )
+            Log.d(TAG, "startBackgroundEventSync completed")
 
             host.updateState { state ->
                 state.copy(
@@ -306,9 +349,17 @@ internal class BeetGattSessionCoordinator(
     }
 
     private suspend fun fetchWateringEventForSync(sequence: Long): BeetBacklogFetchResult<BeetWateringEvent> {
-        val result = runCatching { sendCommand(BeetJsonCodec.getEvent(sequence)) }.getOrNull()
-            ?: return BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Failed)
+        val result = runCatching { sendSyncCommand(BeetJsonCodec.getEvent(sequence)) }.getOrNull()
+            ?: run {
+                Log.w(TAG, "fetchWateringEventForSync seq=$sequence command failed before a result was returned")
+                return BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Failed)
+            }
         val reason = result.reason.lowercase()
+        Log.d(
+            TAG,
+            "fetchWateringEventForSync seq=$sequence status=${result.status} reason=$reason " +
+                "hasEvent=${result.event != null} eventTimeValid=${result.event?.timeValid}",
+        )
         return when {
             result.status == "accepted" && result.event != null ->
                 BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Accepted, event = result.event)
@@ -324,9 +375,17 @@ internal class BeetGattSessionCoordinator(
     }
 
     private suspend fun fetchSystemEventForSync(sequence: Long): BeetBacklogFetchResult<BeetSystemEvent> {
-        val result = runCatching { sendCommand(BeetJsonCodec.getSystemEvent(sequence)) }.getOrNull()
-            ?: return BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Failed)
+        val result = runCatching { sendSyncCommand(BeetJsonCodec.getSystemEvent(sequence)) }.getOrNull()
+            ?: run {
+                Log.w(TAG, "fetchSystemEventForSync seq=$sequence command failed before a result was returned")
+                return BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Failed)
+            }
         val reason = result.reason.lowercase()
+        Log.d(
+            TAG,
+            "fetchSystemEventForSync seq=$sequence status=${result.status} reason=$reason " +
+                "hasEvent=${result.systemEvent != null} eventTimeValid=${result.systemEvent?.timeValid}",
+        )
         return when {
             result.status == "accepted" && result.systemEvent != null ->
                 BeetBacklogFetchResult(status = BeetBacklogFetchStatus.Accepted, event = result.systemEvent)
@@ -367,25 +426,36 @@ internal class BeetGattSessionCoordinator(
 
     private suspend fun synchronizeControllerTimeIfNeeded(): Boolean {
         val deviceState = host.state.value.deviceState ?: return false
+        Log.d(
+            TAG,
+            "synchronizeControllerTimeIfNeeded bootId=${deviceState.bootId} timeValid=${deviceState.timeValid} " +
+                "syncedTimeBootId=${host.session.syncedTimeBootId}",
+        )
         if (deviceState.timeValid) {
             host.session.syncedTimeBootId = deviceState.bootId
+            Log.d(TAG, "synchronizeControllerTimeIfNeeded skipped because controller time is already valid")
             return true
         }
         if (deviceState.bootId > 0L && host.session.syncedTimeBootId == deviceState.bootId) {
+            Log.w(TAG, "synchronizeControllerTimeIfNeeded refusing duplicate set_time attempt for bootId=${deviceState.bootId}")
             return false
         }
         val unixSeconds = System.currentTimeMillis() / 1000L
+        Log.d(TAG, "synchronizeControllerTimeIfNeeded sending set_time unixSeconds=$unixSeconds")
         val result = runCatching { sendCommand(BeetJsonCodec.setTime(unixSeconds)) }.getOrNull() ?: return false
+        Log.d(TAG, "synchronizeControllerTimeIfNeeded set_time status=${result.status} reason=${result.reason}")
         if (result.status == "accepted") {
             repeat(10) {
                 val refreshed = host.state.value.deviceState
                 if (refreshed?.timeValid == true) {
                     host.session.syncedTimeBootId = refreshed.bootId
+                    Log.d(TAG, "synchronizeControllerTimeIfNeeded confirmed time_valid after poll=$it bootId=${refreshed.bootId}")
                     return true
                 }
                 delay(150L)
             }
         }
+        Log.w(TAG, "synchronizeControllerTimeIfNeeded timed out waiting for time_valid after set_time")
         return false
     }
 
@@ -507,7 +577,6 @@ internal class BeetGattSessionCoordinator(
         host.persistLastAddress(host.currentAddress)
         Log.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
         host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
-        refreshCalibrations()
         startBackgroundEventSync()
     }
 
@@ -591,13 +660,47 @@ internal class BeetGattSessionCoordinator(
     }
 
     private fun handleCommandPayload(payload: ByteArray) {
-        val result = try {
-            BeetJsonCodec.parseCommandResult(payload.toString(StandardCharsets.UTF_8))
+        val payloadString = payload.toString(StandardCharsets.UTF_8)
+        val chunkFrame = try {
+            BeetJsonCodec.parseCommandChunk(payloadString)
         } catch (error: Exception) {
-            Log.e(TAG, "Command payload parse failed", error)
+            Log.e(TAG, "Command chunk parse failed payload=$payloadString", error)
+            commandChunkAssembler.reset()
             return
         }
-        Log.d(TAG, "handleCommandPayload(cmd=${result.command} status=${result.status} reason=${result.reason} pair=${result.pairIndex})")
+        val decodedPayload = if (chunkFrame != null) {
+            Log.d(
+                TAG,
+                "handleCommandPayload(chunk id=${chunkFrame.id} index=${chunkFrame.index} count=${chunkFrame.count} size=${payload.size})",
+            )
+            try {
+                commandChunkAssembler.consume(chunkFrame, System.currentTimeMillis())
+            } catch (error: Exception) {
+                Log.e(
+                    TAG,
+                    "Command chunk reassembly failed id=${chunkFrame.id} index=${chunkFrame.index} count=${chunkFrame.count}",
+                    error,
+                )
+                commandChunkAssembler.reset()
+                return
+            } ?: return
+        } else {
+            if (commandChunkAssembler.hasActiveChunks) {
+                Log.w(TAG, "Command chunk reassembly reset due to non-chunk payload while chunked response is active")
+                commandChunkAssembler.reset()
+            }
+            payloadString
+        }
+        val result = try {
+            BeetJsonCodec.parseCommandResult(decodedPayload)
+        } catch (error: Exception) {
+            Log.e(TAG, "Command payload parse failed payload=$decodedPayload", error)
+            return
+        }
+        Log.d(
+            TAG,
+            "handleCommandPayload(cmd=${result.command} status=${result.status} reason=${result.reason} pair=${result.pairIndex} payload=$decodedPayload)",
+        )
         result.calibration?.let { calibration ->
             host.updateState { state -> state.copy(calibrations = state.calibrations + (calibration.pairIndex to calibration)) }
         }
@@ -628,6 +731,7 @@ internal class BeetGattSessionCoordinator(
 
     private fun resetSyncState() {
         Log.d(TAG, "resetSyncState()")
+        commandChunkAssembler.reset()
         cancelControllerInfoRetry("reset sync state")
         host.resetSyncState()
     }
@@ -777,14 +881,14 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DESIRED_MTU = 247
-        private const val EXPECTED_PROTOCOL_VERSION = 5
+        private const val EXPECTED_PROTOCOL_VERSION = 6
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
-        private const val INITIAL_SYNC_BATCH_SIZE = 20
-        private const val MAX_SYNC_BATCH_SIZE = 160
-        private const val SYNC_BATCH_GROWTH_STEP = 20
-        private const val SYNC_BURST_DELAY_MS = 120L
-        private const val SYNC_PAUSE_POLL_MS = 200L
-        private const val SYNC_CONGESTION_DELAY_MS = 500L
+        private const val INITIAL_SYNC_BATCH_SIZE = 1
+        private const val MAX_SYNC_BATCH_SIZE = 8
+        private const val SYNC_BATCH_GROWTH_STEP = 1
+        private const val SYNC_BURST_DELAY_MS = 20L
+        private const val SYNC_PAUSE_POLL_MS = 50L
+        private const val SYNC_CONGESTION_DELAY_MS = 150L
         private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
         private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
