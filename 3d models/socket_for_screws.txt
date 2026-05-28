@@ -1,0 +1,6 @@
+It might be hard to get the fittings in.
+You can use this:
+
+https://makerworld.com/en/models/1939064-ultimate-set-of-socket-wrenches-with-rack
+for me the socket_wrench_m4_7 worked.
+You can cut the model in half to not waste material.
