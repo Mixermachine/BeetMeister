@@ -10,5 +10,7 @@ description: Format GitHub pull requests for this repo. Use when creating or edi
 - Keep bullets flat. Do not use nested bullets unless a short two-item split is necessary.
 - List affected areas using repo terms such as `app`, `firmware`, `docs`, `hardware`, and `firmware/tests/host`.
 - Under `Validation`, list the exact commands that were run. Do not claim tests you did not run.
+- Use repo-root-relative paths only in PR text. Do not include machine-specific absolute local paths.
+- If validation used a local tool outside the repo, describe the validation against the repo-relative target instead of pasting the absolute tool path.
 - Keep the PR focused on the changes being proposed. Do not describe local files or uncommitted work that are not part of the PR.
 - Keep the body concise. Avoid long narrative status updates or debug history.
