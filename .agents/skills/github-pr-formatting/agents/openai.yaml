@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub PR Formatting"
+  short_description: "Format GitHub pull requests clearly and consistently"
+  default_prompt: "Use this skill when creating or editing a GitHub pull request for this repo."
