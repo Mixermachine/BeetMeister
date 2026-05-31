@@ -832,7 +832,7 @@ internal class BeetGattSessionCoordinator(
     companion object {
         private const val TAG = "BeetGattSession"
         private const val COMMAND_TIMEOUT_MS = 7_000L
-        private const val CONNECTION_TIMEOUT_MS = 15_000L
+        private const val CONNECTION_TIMEOUT_MS = 30_000L
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DESIRED_MTU = 247
