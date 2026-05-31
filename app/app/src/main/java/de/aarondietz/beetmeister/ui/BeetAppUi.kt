@@ -102,6 +102,10 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         selectedPair = 0
     }
 
+    BackHandler(enabled = showEventTable) {
+        showEventTable = false
+    }
+
     if (connectionGateVisible) {
         ConnectionGate(
             state = state,
