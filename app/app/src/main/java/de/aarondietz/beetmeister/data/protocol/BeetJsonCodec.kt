@@ -17,6 +17,7 @@ import de.aarondietz.beetmeister.model.command.BeetManualStartCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairCommandData
 import de.aarondietz.beetmeister.model.command.BeetSetTimeCommandData
 import de.aarondietz.beetmeister.model.command.BeetValveConfigCommandData
+import de.aarondietz.beetmeister.model.command.BeetValvePreviewCommandData
 import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
@@ -69,6 +70,7 @@ object BeetJsonCodec {
     private val eventRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEventRequestData::class.java)
     private val setTimeRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetSetTimeCommandData::class.java)
     private val valveConfigRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetValveConfigCommandData::class.java)
+    private val valvePreviewRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetValvePreviewCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
 
     data class CommandChunkFrame(
@@ -300,12 +302,22 @@ object BeetJsonCodec {
                 cmd = "store_valve_config",
                 data = BeetValveConfigCommandData(
                     valveEnabled = config.valveEnabled,
-                    openAngleDegrees = config.openAngleDegrees,
-                    closeAngleDegrees = config.closeAngleDegrees,
+                    servoMinPulseMicros = config.servoMinPulseMicros,
+                    servoMaxPulseMicros = config.servoMaxPulseMicros,
+                    openPulseMicros = config.openPulseMicros,
+                    shutPulseMicros = config.shutPulseMicros,
                     moveDurationMillis = config.moveDurationMillis,
                     settleDelayMillis = config.settleDelayMillis,
                     openHoldMillis = config.openHoldMillis,
                 ),
+            ),
+        )
+
+    fun previewValvePosition(pulseMicros: Int): String =
+        valvePreviewRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "preview_valve_position",
+                data = BeetValvePreviewCommandData(pulseMicros = pulseMicros),
             ),
         )
 

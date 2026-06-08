@@ -31,6 +31,7 @@ typedef enum {
     BEET_IFACE_COMMAND_STORE_VALVE_CONFIG = 20,
     BEET_IFACE_COMMAND_OPEN_VALVE = 21,
     BEET_IFACE_COMMAND_CLOSE_VALVE = 22,
+    BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION = 23,
 } beet_iface_command_t;
 
 typedef enum {
@@ -90,11 +91,14 @@ typedef struct {
     uint64_t seq_no;
     uint64_t unix_s;
     bool valve_enabled;
-    uint8_t valve_open_angle_deg;
-    uint8_t valve_close_angle_deg;
+    uint16_t valve_servo_min_pulse_us;
+    uint16_t valve_servo_max_pulse_us;
+    uint16_t valve_open_pulse_us;
+    uint16_t valve_shut_pulse_us;
     uint16_t valve_move_duration_ms;
     uint16_t valve_settle_delay_ms;
     uint16_t valve_open_hold_ms;
+    uint16_t valve_preview_pulse_us;
 } beet_iface_command_request_t;
 
 typedef struct {
@@ -121,8 +125,10 @@ typedef struct {
     uint32_t system_event_unix_s;
     bool has_valve_config;
     bool valve_enabled;
-    uint8_t valve_open_angle_deg;
-    uint8_t valve_close_angle_deg;
+    uint16_t valve_servo_min_pulse_us;
+    uint16_t valve_servo_max_pulse_us;
+    uint16_t valve_open_pulse_us;
+    uint16_t valve_shut_pulse_us;
     uint16_t valve_move_duration_ms;
     uint16_t valve_settle_delay_ms;
     uint16_t valve_open_hold_ms;

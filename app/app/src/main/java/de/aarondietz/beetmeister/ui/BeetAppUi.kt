@@ -52,6 +52,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
     var selectedPair by rememberSaveable { mutableIntStateOf(0) }
     var pairDetailReturnScreen by rememberSaveable { mutableStateOf(TopLevelScreen.Overview) }
     var showEventTable by rememberSaveable { mutableStateOf(false) }
+    var showValveCalibration by rememberSaveable { mutableStateOf(false) }
     var connectionGateVisible by rememberSaveable { mutableStateOf(true) }
     var permissionRequestAttempted by rememberSaveable { mutableStateOf(false) }
 
@@ -106,6 +107,10 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         showEventTable = false
     }
 
+    BackHandler(enabled = showValveCalibration) {
+        showValveCalibration = false
+    }
+
     if (connectionGateVisible) {
         ConnectionGate(
             state = state,
@@ -131,6 +136,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                         topLevelScreen = destination
                         selectedPair = 0
                         showEventTable = false
+                        showValveCalibration = false
                     },
                 )
             }
@@ -155,6 +161,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     topLevelScreen = topLevelScreen,
                     selectedPair = selectedPair,
                     showEventTable = showEventTable,
+                    showValveCalibration = showValveCalibration,
                     onSelectedPairChange = { pairIndex ->
                         pairDetailReturnScreen = topLevelScreen
                         selectedPair = pairIndex
@@ -164,6 +171,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                         selectedPair = 0
                     },
                     onShowEventTableChange = { showEventTable = it },
+                    onShowValveCalibrationChange = { showValveCalibration = it },
                     onToggleEnabled = viewModel::togglePairEnabled,
                     onManualStart = viewModel::manualStart,
                     onManualStop = viewModel::manualStop,
@@ -175,6 +183,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     onSaveCalibration = viewModel::saveCalibration,
                     onRefreshValveConfig = viewModel::refreshValveConfig,
                     onSaveValveConfig = viewModel::saveValveConfig,
+                    onPreviewValvePosition = viewModel::previewValvePosition,
                     onOpenValve = viewModel::openValve,
                     onCloseValve = viewModel::closeValve,
                     onDisconnect = viewModel::disconnect,

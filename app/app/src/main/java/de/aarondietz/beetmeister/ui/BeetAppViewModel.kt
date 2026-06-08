@@ -61,6 +61,8 @@ internal class BeetAppViewModel(
 
     fun saveValveConfig(config: BeetValveConfig) = repository.saveValveConfig(config)
 
+    fun previewValvePosition(pulseMicros: Int) = repository.previewValvePosition(pulseMicros)
+
     fun openValve() = repository.openValve()
 
     fun closeValve() = repository.closeValve()

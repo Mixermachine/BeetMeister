@@ -35,7 +35,9 @@ typedef struct {
     beet_valve_state_t state;
     int64_t motion_started_us;
     int64_t open_hold_deadline_us;
+    int64_t preview_release_due_us;
     bool servo_active;
+    bool preview_active;
 } beet_valve_runtime_t;
 
 typedef struct {
@@ -124,9 +126,12 @@ static void beet_controller_sync_boost_output(void);
 static void beet_stop_relay_test(bool log_stop);
 static esp_err_t beet_start_relay_test(uint8_t pair_index);
 static bool beet_valve_motion_active(void);
+static bool beet_valve_preview_active(void);
+static bool beet_valve_servo_activity_active(void);
 static bool beet_valve_ready_for_flow(void);
 static esp_err_t beet_valve_start_open(int64_t now_us);
 static esp_err_t beet_valve_start_close(int64_t now_us);
+static esp_err_t beet_valve_preview_position(uint16_t pulse_us, int64_t now_us);
 static void beet_service_valve(int64_t now_us);
 static bool beet_validate_valve_config_request(const beet_iface_command_request_t *request);
 static void beet_apply_stored_valve_config(const beet_iface_command_request_t *request);
@@ -225,7 +230,7 @@ static void beet_mark_activity(int64_t now_us)
 static void beet_controller_sync_boost_output(void)
 {
 #if CONFIG_BEET_ENABLE_PUMP_OUTPUTS
-    const bool should_enable = s_state.active_pumps > 0U || beet_valve_motion_active();
+    const bool should_enable = s_state.active_pumps > 0U || beet_valve_servo_activity_active();
 #else
     const bool should_enable = false;
 #endif
@@ -238,6 +243,16 @@ static void beet_controller_sync_boost_output(void)
 static bool beet_valve_motion_active(void)
 {
     return s_state.valve.state == BEET_VALVE_STATE_OPENING || s_state.valve.state == BEET_VALVE_STATE_CLOSING;
+}
+
+static bool beet_valve_preview_active(void)
+{
+    return s_state.valve.preview_active;
+}
+
+static bool beet_valve_servo_activity_active(void)
+{
+    return beet_valve_motion_active() || beet_valve_preview_active();
 }
 
 static bool beet_valve_ready_for_flow(void)
@@ -260,7 +275,7 @@ static esp_err_t beet_valve_start_open(int64_t now_us)
     s_state.valve.motion_started_us = now_us;
     s_state.valve.servo_active = false;
     beet_controller_sync_boost_output();
-    esp_err_t err = beet_board_drive_valve_servo(s_state.config.valve_open_angle_deg);
+    esp_err_t err = beet_board_drive_valve_servo(s_state.config.valve_open_pulse_us);
     if (err != ESP_OK) {
         s_state.valve.state = BEET_VALVE_STATE_FAULT;
         s_state.valve.motion_started_us = 0LL;
@@ -288,7 +303,7 @@ static esp_err_t beet_valve_start_close(int64_t now_us)
     s_state.valve.motion_started_us = now_us;
     s_state.valve.servo_active = false;
     beet_controller_sync_boost_output();
-    esp_err_t err = beet_board_drive_valve_servo(s_state.config.valve_close_angle_deg);
+    esp_err_t err = beet_board_drive_valve_servo(s_state.config.valve_shut_pulse_us);
     if (err != ESP_OK) {
         s_state.valve.state = BEET_VALVE_STATE_FAULT;
         s_state.valve.motion_started_us = 0LL;
@@ -304,6 +319,18 @@ static void beet_service_valve(int64_t now_us)
 {
     int64_t move_done_us = s_state.valve.motion_started_us + ((int64_t)s_state.config.valve_move_duration_ms * 1000LL);
     int64_t settle_done_us = move_done_us + ((int64_t)s_state.config.valve_settle_delay_ms * 1000LL);
+
+    if (s_state.valve.preview_active &&
+        s_state.valve.preview_release_due_us > 0LL &&
+        now_us >= s_state.valve.preview_release_due_us) {
+        if (s_state.valve.servo_active) {
+            beet_board_release_valve_servo();
+            s_state.valve.servo_active = false;
+        }
+        s_state.valve.preview_active = false;
+        s_state.valve.preview_release_due_us = 0LL;
+        beet_controller_sync_boost_output();
+    }
 
     if (!s_state.config.valve_enabled) {
         if (beet_valve_motion_active() || s_state.valve.state == BEET_VALVE_STATE_OPEN) {
@@ -352,11 +379,38 @@ static void beet_service_valve(int64_t now_us)
     }
 }
 
+static esp_err_t beet_valve_preview_position(uint16_t pulse_us, int64_t now_us)
+{
+    ESP_RETURN_ON_FALSE(beet_is_valid_valve_pulse_us(pulse_us), ESP_ERR_INVALID_ARG, TAG, "invalid valve preview pulse");
+    if (s_state.active_pumps > 0U || beet_has_any_runtime() || beet_valve_motion_active()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_state.valve.open_hold_deadline_us = 0LL;
+    s_state.valve.preview_active = true;
+    s_state.valve.preview_release_due_us = now_us + ((int64_t)s_state.config.valve_move_duration_ms * 1000LL);
+    s_state.valve.servo_active = false;
+    beet_controller_sync_boost_output();
+    esp_err_t err = beet_board_drive_valve_servo(pulse_us);
+    if (err != ESP_OK) {
+        s_state.valve.preview_active = false;
+        s_state.valve.preview_release_due_us = 0LL;
+        s_state.valve.servo_active = false;
+        beet_controller_sync_boost_output();
+        ESP_RETURN_ON_ERROR(err, TAG, "valve preview drive failed");
+    }
+    s_state.valve.servo_active = true;
+    return ESP_OK;
+}
+
 static bool beet_validate_valve_config_request(const beet_iface_command_request_t *request)
 {
     return request != NULL &&
-        beet_is_valid_valve_angle_deg(request->valve_open_angle_deg) &&
-        beet_is_valid_valve_angle_deg(request->valve_close_angle_deg) &&
+        beet_is_valid_valve_pulse_range(request->valve_servo_min_pulse_us, request->valve_servo_max_pulse_us) &&
+        request->valve_open_pulse_us >= request->valve_servo_min_pulse_us &&
+        request->valve_open_pulse_us <= request->valve_servo_max_pulse_us &&
+        request->valve_shut_pulse_us >= request->valve_servo_min_pulse_us &&
+        request->valve_shut_pulse_us <= request->valve_servo_max_pulse_us &&
         beet_is_valid_valve_move_duration_ms(request->valve_move_duration_ms) &&
         beet_is_valid_valve_settle_delay_ms(request->valve_settle_delay_ms) &&
         beet_is_valid_valve_open_hold_ms(request->valve_open_hold_ms);
@@ -365,8 +419,10 @@ static bool beet_validate_valve_config_request(const beet_iface_command_request_
 static void beet_apply_stored_valve_config(const beet_iface_command_request_t *request)
 {
     s_state.config.valve_enabled = request->valve_enabled;
-    s_state.config.valve_open_angle_deg = request->valve_open_angle_deg;
-    s_state.config.valve_close_angle_deg = request->valve_close_angle_deg;
+    s_state.config.valve_servo_min_pulse_us = request->valve_servo_min_pulse_us;
+    s_state.config.valve_servo_max_pulse_us = request->valve_servo_max_pulse_us;
+    s_state.config.valve_open_pulse_us = request->valve_open_pulse_us;
+    s_state.config.valve_shut_pulse_us = request->valve_shut_pulse_us;
     s_state.config.valve_move_duration_ms = request->valve_move_duration_ms;
     s_state.config.valve_settle_delay_ms = request->valve_settle_delay_ms;
     s_state.config.valve_open_hold_ms = request->valve_open_hold_ms;
@@ -1220,6 +1276,9 @@ static void beet_service_waiting_pairs(int64_t now_us)
             beet_finish_pair_state(selected_pair, BEET_PAIR_STATE_IDLE, BEET_STOP_REASON_SYSTEM_ABORT, BEET_BLOCK_REASON_NONE);
             continue;
         }
+        if (beet_valve_preview_active()) {
+            return;
+        }
         if (s_state.config.valve_enabled) {
             if (s_state.valve.state == BEET_VALVE_STATE_FAULT) {
                 beet_finish_pair_state(selected_pair, BEET_PAIR_STATE_IDLE, BEET_STOP_REASON_SYSTEM_ABORT, BEET_BLOCK_REASON_NONE);
@@ -1227,7 +1286,7 @@ static void beet_service_waiting_pairs(int64_t now_us)
             }
             if (s_state.valve.state == BEET_VALVE_STATE_CLOSED) {
                 if (beet_valve_start_open(now_us) != ESP_OK) {
-                    s_state.valve.state = BEET_VALVE_STATE_FAULT;
+                    ESP_LOGW(TAG, "valve open start failed while releasing waiting pair");
                 }
                 return;
             }
@@ -1823,7 +1882,7 @@ esp_err_t beet_iface_submit_command(
             response->reason = BEET_IFACE_REASON_LOW_BATTERY;
             return ESP_OK;
         }
-        if (beet_has_any_runtime() || beet_valve_motion_active()) {
+        if (beet_has_any_runtime() || beet_valve_servo_activity_active()) {
             response->reason = BEET_IFACE_REASON_ALREADY_ACTIVE;
             return ESP_OK;
         }
@@ -2076,8 +2135,10 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_valve_config = true;
         response->valve_enabled = s_state.config.valve_enabled;
-        response->valve_open_angle_deg = s_state.config.valve_open_angle_deg;
-        response->valve_close_angle_deg = s_state.config.valve_close_angle_deg;
+        response->valve_servo_min_pulse_us = s_state.config.valve_servo_min_pulse_us;
+        response->valve_servo_max_pulse_us = s_state.config.valve_servo_max_pulse_us;
+        response->valve_open_pulse_us = s_state.config.valve_open_pulse_us;
+        response->valve_shut_pulse_us = s_state.config.valve_shut_pulse_us;
         response->valve_move_duration_ms = s_state.config.valve_move_duration_ms;
         response->valve_settle_delay_ms = s_state.config.valve_settle_delay_ms;
         response->valve_open_hold_ms = s_state.config.valve_open_hold_ms;
@@ -2106,8 +2167,10 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_valve_config = true;
         response->valve_enabled = s_state.config.valve_enabled;
-        response->valve_open_angle_deg = s_state.config.valve_open_angle_deg;
-        response->valve_close_angle_deg = s_state.config.valve_close_angle_deg;
+        response->valve_servo_min_pulse_us = s_state.config.valve_servo_min_pulse_us;
+        response->valve_servo_max_pulse_us = s_state.config.valve_servo_max_pulse_us;
+        response->valve_open_pulse_us = s_state.config.valve_open_pulse_us;
+        response->valve_shut_pulse_us = s_state.config.valve_shut_pulse_us;
         response->valve_move_duration_ms = s_state.config.valve_move_duration_ms;
         response->valve_settle_delay_ms = s_state.config.valve_settle_delay_ms;
         response->valve_open_hold_ms = s_state.config.valve_open_hold_ms;
@@ -2130,7 +2193,7 @@ esp_err_t beet_iface_submit_command(
             response->reason = BEET_IFACE_REASON_WATERING_ACTIVE;
             return ESP_OK;
         }
-        if (beet_valve_motion_active()) {
+        if (beet_valve_servo_activity_active()) {
             response->reason = BEET_IFACE_REASON_VALVE_BUSY;
             return ESP_OK;
         }
@@ -2165,7 +2228,7 @@ esp_err_t beet_iface_submit_command(
             response->reason = BEET_IFACE_REASON_WATERING_ACTIVE;
             return ESP_OK;
         }
-        if (beet_valve_motion_active()) {
+        if (beet_valve_servo_activity_active()) {
             response->reason = BEET_IFACE_REASON_VALVE_BUSY;
             return ESP_OK;
         }
@@ -2181,6 +2244,32 @@ esp_err_t beet_iface_submit_command(
         }
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_VALVE_CLOSED;
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION:
+        if (s_state.battery_state == BEET_BATTERY_STATE_OTA_IN_PROGRESS) {
+            response->reason = BEET_IFACE_REASON_OTA_IN_PROGRESS;
+            return ESP_OK;
+        }
+        if (s_state.battery_state != BEET_BATTERY_STATE_ACTIVE) {
+            response->reason = BEET_IFACE_REASON_LOW_BATTERY;
+            return ESP_OK;
+        }
+        if (!beet_is_valid_valve_pulse_us(request->valve_preview_pulse_us)) {
+            response->reason = BEET_IFACE_REASON_INVALID_VALVE_CONFIG;
+            return ESP_OK;
+        }
+        if (beet_valve_motion_active() || s_state.active_pumps > 0U || beet_has_any_runtime()) {
+            response->reason = beet_valve_motion_active() ? BEET_IFACE_REASON_VALVE_BUSY : BEET_IFACE_REASON_WATERING_ACTIVE;
+            return ESP_OK;
+        }
+        beet_mark_activity(now_us);
+        if (beet_valve_preview_position(request->valve_preview_pulse_us, now_us) != ESP_OK) {
+            response->reason = BEET_IFACE_REASON_BUSY;
+            return ESP_OK;
+        }
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
         return ESP_OK;
 
     case BEET_IFACE_COMMAND_START_OTA:
@@ -2533,14 +2622,19 @@ esp_err_t beet_controller_init(void)
         beet_storage_load_or_init(&s_state.config, s_state.calibrations, s_state.snapshots, &s_state.power_state),
         TAG,
         "storage load failed");
-    if (!beet_is_valid_valve_angle_deg(s_state.config.valve_open_angle_deg) ||
-        !beet_is_valid_valve_angle_deg(s_state.config.valve_close_angle_deg) ||
+    if (!beet_is_valid_valve_pulse_range(s_state.config.valve_servo_min_pulse_us, s_state.config.valve_servo_max_pulse_us) ||
+        s_state.config.valve_open_pulse_us < s_state.config.valve_servo_min_pulse_us ||
+        s_state.config.valve_open_pulse_us > s_state.config.valve_servo_max_pulse_us ||
+        s_state.config.valve_shut_pulse_us < s_state.config.valve_servo_min_pulse_us ||
+        s_state.config.valve_shut_pulse_us > s_state.config.valve_servo_max_pulse_us ||
         !beet_is_valid_valve_move_duration_ms(s_state.config.valve_move_duration_ms) ||
         !beet_is_valid_valve_settle_delay_ms(s_state.config.valve_settle_delay_ms) ||
         !beet_is_valid_valve_open_hold_ms(s_state.config.valve_open_hold_ms)) {
         s_state.config.valve_enabled = false;
-        s_state.config.valve_open_angle_deg = BEET_VALVE_OPEN_ANGLE_DEG;
-        s_state.config.valve_close_angle_deg = BEET_VALVE_CLOSE_ANGLE_DEG;
+        s_state.config.valve_servo_min_pulse_us = BEET_VALVE_SERVO_MIN_PULSE_US;
+        s_state.config.valve_servo_max_pulse_us = BEET_VALVE_SERVO_MAX_PULSE_US;
+        s_state.config.valve_open_pulse_us = BEET_VALVE_OPEN_PULSE_US;
+        s_state.config.valve_shut_pulse_us = BEET_VALVE_SHUT_PULSE_US;
         s_state.config.valve_move_duration_ms = BEET_VALVE_MOVE_DURATION_MS;
         s_state.config.valve_settle_delay_ms = BEET_VALVE_SETTLE_DELAY_MS;
         s_state.config.valve_open_hold_ms = BEET_VALVE_OPEN_HOLD_MS;

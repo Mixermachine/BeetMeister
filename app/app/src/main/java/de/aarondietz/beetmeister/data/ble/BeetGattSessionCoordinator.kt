@@ -157,8 +157,11 @@ internal class BeetGattSessionCoordinator(
     fun saveValveConfig(config: BeetValveConfig) {
         host.scope.launch {
             if (
-                config.openAngleDegrees !in 0..180 ||
-                config.closeAngleDegrees !in 0..180 ||
+                config.servoMinPulseMicros !in 500..2500 ||
+                config.servoMaxPulseMicros !in 500..2500 ||
+                config.servoMinPulseMicros >= config.servoMaxPulseMicros ||
+                config.openPulseMicros !in config.servoMinPulseMicros..config.servoMaxPulseMicros ||
+                config.shutPulseMicros !in config.servoMinPulseMicros..config.servoMaxPulseMicros ||
                 config.moveDurationMillis !in 100..5000 ||
                 config.settleDelayMillis !in 0..5000 ||
                 config.openHoldMillis !in 0..10000
@@ -167,6 +170,13 @@ internal class BeetGattSessionCoordinator(
                 return@launch
             }
             sendUserCommand(BeetJsonCodec.storeValveConfig(config))
+        }
+    }
+
+    fun previewValvePosition(pulseMicros: Int) {
+        host.scope.launch {
+            runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.previewValvePosition(pulseMicros)) } }
+                .onFailure { error -> host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed)) }
         }
     }
 
@@ -874,7 +884,7 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DESIRED_MTU = 247
-        private const val EXPECTED_PROTOCOL_VERSION = 7
+        private const val EXPECTED_PROTOCOL_VERSION = 8
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
         private const val INITIAL_SYNC_BATCH_SIZE = 1
         private const val MAX_SYNC_BATCH_SIZE = 8

@@ -49,6 +49,8 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "open_valve";
     case BEET_IFACE_COMMAND_CLOSE_VALVE:
         return "close_valve";
+    case BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION:
+        return "preview_valve_position";
     default:
         return "unknown";
     }

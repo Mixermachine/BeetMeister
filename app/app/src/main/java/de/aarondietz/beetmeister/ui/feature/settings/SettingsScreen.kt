@@ -40,6 +40,7 @@ internal fun SettingsScreen(
     state: BeetRepositoryState,
     onRefreshValveConfig: () -> Unit,
     onSaveValveConfig: (BeetValveConfig) -> Unit,
+    onOpenValveCalibration: () -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
     onDisconnect: () -> Unit,
@@ -50,8 +51,6 @@ internal fun SettingsScreen(
     val valveConfig = state.valveConfig
     val deviceState = state.deviceState
     var valveEnabled by remember { mutableStateOf(false) }
-    var openAngleText by remember { mutableStateOf("") }
-    var closeAngleText by remember { mutableStateOf("") }
     var moveDurationText by remember { mutableStateOf("") }
     var settleDelayText by remember { mutableStateOf("") }
     var openHoldText by remember { mutableStateOf("") }
@@ -65,8 +64,6 @@ internal fun SettingsScreen(
     LaunchedEffect(valveConfig) {
         if (valveConfig != null) {
             valveEnabled = valveConfig.valveEnabled
-            openAngleText = valveConfig.openAngleDegrees.toString()
-            closeAngleText = valveConfig.closeAngleDegrees.toString()
             moveDurationText = valveConfig.moveDurationMillis.toString()
             settleDelayText = valveConfig.settleDelayMillis.toString()
             openHoldText = valveConfig.openHoldMillis.toString()
@@ -74,9 +71,8 @@ internal fun SettingsScreen(
     }
 
     val editedValveConfig = parseValveConfig(
+        base = valveConfig,
         valveEnabled = valveEnabled,
-        openAngleText = openAngleText,
-        closeAngleText = closeAngleText,
         moveDurationText = moveDurationText,
         settleDelayText = settleDelayText,
         openHoldText = openHoldText,
@@ -143,6 +139,12 @@ internal fun SettingsScreen(
                         Button(onClick = onCloseValve, enabled = valveManualControlEnabled) {
                             Text(strings.get(R.string.settings_close_valve))
                         }
+                        Button(
+                            onClick = onOpenValveCalibration,
+                            enabled = state.connection.phase == BeetConnectionPhase.Connected,
+                        ) {
+                            Text(strings.get(R.string.settings_open_valve_calibration))
+                        }
                         TextButton(onClick = onRefreshValveConfig) {
                             Text(strings.get(R.string.common_reload))
                         }
@@ -164,16 +166,6 @@ internal fun SettingsScreen(
                         Text(strings.get(R.string.settings_label_valve_enabled))
                         Switch(checked = valveEnabled, onCheckedChange = { valveEnabled = it })
                     }
-                    ValveNumberField(
-                        value = openAngleText,
-                        label = strings.get(R.string.settings_label_valve_open_angle),
-                        onValueChange = { openAngleText = it },
-                    )
-                    ValveNumberField(
-                        value = closeAngleText,
-                        label = strings.get(R.string.settings_label_valve_close_angle),
-                        onValueChange = { closeAngleText = it },
-                    )
                     ValveNumberField(
                         value = moveDurationText,
                         label = strings.get(R.string.settings_label_valve_move_duration),
@@ -221,24 +213,19 @@ private fun ValveNumberField(
 }
 
 private fun parseValveConfig(
+    base: BeetValveConfig?,
     valveEnabled: Boolean,
-    openAngleText: String,
-    closeAngleText: String,
     moveDurationText: String,
     settleDelayText: String,
     openHoldText: String,
 ): BeetValveConfig? {
-    val openAngle = openAngleText.toIntOrNull() ?: return null
-    val closeAngle = closeAngleText.toIntOrNull() ?: return null
+    val current = base ?: return null
     val moveDuration = moveDurationText.toIntOrNull() ?: return null
     val settleDelay = settleDelayText.toIntOrNull() ?: return null
     val openHold = openHoldText.toIntOrNull() ?: return null
-    if (openAngle !in 0..180 || closeAngle !in 0..180) return null
     if (moveDuration !in 100..5000 || settleDelay !in 0..5000 || openHold !in 0..10000) return null
-    return BeetValveConfig(
+    return current.copy(
         valveEnabled = valveEnabled,
-        openAngleDegrees = openAngle,
-        closeAngleDegrees = closeAngle,
         moveDurationMillis = moveDuration,
         settleDelayMillis = settleDelay,
         openHoldMillis = openHold,

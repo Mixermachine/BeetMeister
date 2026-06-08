@@ -17,6 +17,7 @@
     <string name="common_pair_number" localizePipeContext="Label for irrigation pair number. Keep %1$d as the numeric pair index.">Pair %1$d</string>
     <string name="common_sequence_number" localizePipeContext="Short event sequence label. Keep %1$d as the numeric sequence number.">Seq %1$d</string>
     <string name="common_millivolts" translatable="false" localizePipeContext="Numeric voltage format. Keep %1$d as the number and translate only the millivolt unit abbreviation if needed.">%1$d mV</string>
+    <string name="common_microseconds" translatable="false" localizePipeContext="Numeric microsecond format. Keep %1$d as the number and preserve the us unit abbreviation.">%1$d us</string>
     <string name="common_percent" translatable="false" localizePipeContext="Numeric percent format. Keep %1$d as the number and preserve the percent sign.">%1$d%%</string>
     <string name="common_rssi" translatable="false" localizePipeContext="Numeric signal strength format. RSSI and dBm are technical abbreviations and usually stay unchanged; keep %1$d as the number.">RSSI %1$d dBm</string>
     <string name="common_percent_and_millivolts" translatable="false" localizePipeContext="Compact measurement format: first value is percent, second value is voltage in millivolts. Keep %1$d and %2$d as numbers.">%1$d%% / %2$d mV</string>
@@ -71,13 +72,27 @@
     <string name="settings_label_valve_enabled">Valve enabled</string>
     <string name="settings_open_valve">Open valve</string>
     <string name="settings_close_valve">Close valve</string>
+    <string name="settings_open_valve_calibration">Valve calibration</string>
     <string name="settings_valve_config_title">Valve motion settings</string>
-    <string name="settings_label_valve_open_angle">Open angle (deg)</string>
-    <string name="settings_label_valve_close_angle">Close angle (deg)</string>
     <string name="settings_label_valve_move_duration">Move duration (ms)</string>
     <string name="settings_label_valve_settle_delay">Settle delay (ms)</string>
     <string name="settings_label_valve_open_hold">Open hold (ms)</string>
     <string name="settings_save_valve">Save valve settings</string>
+    <string name="valve_calibration_title">Valve calibration</string>
+    <string name="valve_calibration_subtitle">Jog the servo in small steps, define the safe pulse range, and store the open and shut positions for this valve linkage.</string>
+    <string name="valve_calibration_label_preview_percent">Preview</string>
+    <string name="valve_calibration_label_preview_pulse">Pulse</string>
+    <string name="valve_calibration_label_open_marker">Open marker</string>
+    <string name="valve_calibration_label_shut_marker">Shut marker</string>
+    <string name="valve_calibration_marker_value" translatable="false" localizePipeContext="Combined marker display for percent of travel and raw pulse. Keep %1$d and %2$d numeric.">%1$d%% / %2$d us</string>
+    <string name="valve_calibration_set_open">Set current as open</string>
+    <string name="valve_calibration_set_shut">Set current as shut</string>
+    <string name="valve_calibration_range_title">Servo pulse range</string>
+    <string name="valve_calibration_label_min_pulse">Minimum pulse (us)</string>
+    <string name="valve_calibration_label_max_pulse">Maximum pulse (us)</string>
+    <string name="valve_calibration_label_open_pulse">Open position (us)</string>
+    <string name="valve_calibration_label_shut_pulse">Shut position (us)</string>
+    <string name="valve_calibration_save">Save calibration</string>
 
     <string name="overview_title_system_values">Current system values</string>
     <string name="overview_label_battery">Battery</string>

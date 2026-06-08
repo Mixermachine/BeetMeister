@@ -227,7 +227,7 @@ static void test_schema_defaults(void)
     beet_default_app_config(&config);
     beet_default_power_runtime_state(&power_state);
 
-    TEST_ASSERT_U32_EQ(2U, BEET_APP_CONFIG_SCHEMA_VERSION);
+    TEST_ASSERT_U32_EQ(3U, BEET_APP_CONFIG_SCHEMA_VERSION);
     TEST_ASSERT_U32_EQ(1U, BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION);
     TEST_ASSERT_U32_EQ(BEET_APP_CONFIG_SCHEMA_VERSION, config.schema_version);
     TEST_ASSERT_U32_EQ(BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION, power_state.schema_version);
@@ -405,6 +405,29 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_TRUE(beet_ble_parse_command_json(
         "{\"cmd\":\"clear_ble_bonds\",\"data\":{}}", &request));
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_CLEAR_BLE_BONDS, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_valve_config\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_VALVE_CONFIG, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true,\"servo_min_pulse_us\":700,"
+        "\"servo_max_pulse_us\":2400,\"open_pulse_us\":850,\"shut_pulse_us\":2050,\"move_duration_ms\":700,"
+        "\"settle_delay_ms\":200,\"open_hold_ms\":1500}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_VALVE_CONFIG, request.command);
+    TEST_ASSERT_TRUE(request.valve_enabled);
+    TEST_ASSERT_U32_EQ(700U, request.valve_servo_min_pulse_us);
+    TEST_ASSERT_U32_EQ(2400U, request.valve_servo_max_pulse_us);
+    TEST_ASSERT_U32_EQ(850U, request.valve_open_pulse_us);
+    TEST_ASSERT_U32_EQ(2050U, request.valve_shut_pulse_us);
+    TEST_ASSERT_U32_EQ(700U, request.valve_move_duration_ms);
+    TEST_ASSERT_U32_EQ(200U, request.valve_settle_delay_ms);
+    TEST_ASSERT_U32_EQ(1500U, request.valve_open_hold_ms);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"preview_valve_position\",\"data\":{\"pulse_us\":1600}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION, request.command);
+    TEST_ASSERT_U32_EQ(1600U, request.valve_preview_pulse_us);
 
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"manual_start\",\"data\":{\"duration_s\":1200}}", &request));
@@ -651,6 +674,27 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_STR_EQ(
         "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":true,\"detail\":0}}",
         json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_VALVE_CONFIG;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_valve_config = true;
+    response.valve_enabled = true;
+    response.valve_servo_min_pulse_us = 700U;
+    response.valve_servo_max_pulse_us = 2400U;
+    response.valve_open_pulse_us = 880U;
+    response.valve_shut_pulse_us = 2010U;
+    response.valve_move_duration_ms = 700U;
+    response.valve_settle_delay_ms = 200U;
+    response.valve_open_hold_ms = 1500U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_valve_config\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":"
+        "{\"valve_enabled\":true,\"servo_min_pulse_us\":700,\"servo_max_pulse_us\":2400,"
+        "\"open_pulse_us\":880,\"shut_pulse_us\":2010,\"move_duration_ms\":700,"
+        "\"settle_delay_ms\":200,\"open_hold_ms\":1500}}",
+        json);
 }
 
 static void test_ble_system_event_data_consistency(void)
@@ -777,6 +821,7 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ("manual_start", beet_iface_command_name(BEET_IFACE_COMMAND_MANUAL_START));
     TEST_ASSERT_STR_EQ("relay_test_start", beet_iface_command_name(BEET_IFACE_COMMAND_RELAY_TEST_START));
     TEST_ASSERT_STR_EQ("moisture_test_start", beet_iface_command_name(BEET_IFACE_COMMAND_MOISTURE_TEST_START));
+    TEST_ASSERT_STR_EQ("preview_valve_position", beet_iface_command_name(BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION));
     TEST_ASSERT_STR_EQ("accepted", beet_iface_status_name(BEET_IFACE_STATUS_ACCEPTED));
     TEST_ASSERT_STR_EQ("invalid_duration", beet_iface_reason_name(BEET_IFACE_REASON_INVALID_DURATION));
     TEST_ASSERT_STR_EQ("relay_test_stopped", beet_iface_reason_name(BEET_IFACE_REASON_RELAY_TEST_STOPPED));

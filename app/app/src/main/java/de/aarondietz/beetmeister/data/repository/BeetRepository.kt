@@ -113,6 +113,8 @@ internal class BeetRepository(
 
     fun saveValveConfig(config: BeetValveConfig) = gattSessionCoordinator.saveValveConfig(config)
 
+    fun previewValvePosition(pulseMicros: Int) = gattSessionCoordinator.previewValvePosition(pulseMicros)
+
     fun openValve() = gattSessionCoordinator.openValve()
 
     fun closeValve() = gattSessionCoordinator.closeValve()

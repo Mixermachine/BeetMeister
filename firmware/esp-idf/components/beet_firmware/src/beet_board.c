@@ -69,8 +69,6 @@ static bool s_initialized;
 #define BEET_VALVE_SERVO_CHANNEL LEDC_CHANNEL_0
 #define BEET_VALVE_SERVO_FREQUENCY_HZ 50U
 #define BEET_VALVE_SERVO_RESOLUTION LEDC_TIMER_12_BIT
-#define BEET_VALVE_SERVO_MIN_PULSE_US 500U
-#define BEET_VALVE_SERVO_MAX_PULSE_US 2500U
 #define BEET_VALVE_SERVO_PERIOD_US (1000000U / BEET_VALVE_SERVO_FREQUENCY_HZ)
 #define BEET_VALVE_SERVO_MAX_DUTY ((1U << 12) - 1U)
 
@@ -606,16 +604,12 @@ bool beet_board_is_boost_enabled(void)
     return s_boost_enabled;
 }
 
-esp_err_t beet_board_drive_valve_servo(uint8_t angle_deg)
+esp_err_t beet_board_drive_valve_servo(uint16_t pulse_us)
 {
-    uint32_t pulse_us;
     uint32_t duty;
 
     ESP_RETURN_ON_FALSE(s_initialized, ESP_ERR_INVALID_STATE, TAG, "board not initialized");
-    ESP_RETURN_ON_FALSE(beet_is_valid_valve_angle_deg(angle_deg), ESP_ERR_INVALID_ARG, TAG, "invalid valve angle");
-
-    pulse_us = BEET_VALVE_SERVO_MIN_PULSE_US +
-        (((uint32_t)angle_deg * (BEET_VALVE_SERVO_MAX_PULSE_US - BEET_VALVE_SERVO_MIN_PULSE_US)) / 180U);
+    ESP_RETURN_ON_FALSE(beet_is_valid_valve_pulse_us(pulse_us), ESP_ERR_INVALID_ARG, TAG, "invalid valve pulse");
     duty = (pulse_us * BEET_VALVE_SERVO_MAX_DUTY) / BEET_VALVE_SERVO_PERIOD_US;
 
     ESP_RETURN_ON_ERROR(

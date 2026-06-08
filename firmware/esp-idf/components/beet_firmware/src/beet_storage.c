@@ -32,6 +32,75 @@ typedef struct {
     uint16_t flags;
 } beet_app_config_v1_t;
 
+typedef struct {
+    uint16_t schema_version;
+    char device_id[BEET_DEVICE_ID_MAX_LEN + 1U];
+    uint8_t pair_count;
+    uint32_t watering_interval_s;
+    uint16_t idle_sleep_threshold_mv;
+    uint16_t deep_sleep_threshold_mv;
+    uint16_t deep_sleep_resume_mv;
+    uint16_t watering_abort_threshold_mv;
+    uint16_t inactivity_sleep_timeout_s;
+    char mqtt_broker_host[BEET_MQTT_HOST_MAX_LEN + 1U];
+    uint16_t mqtt_broker_port;
+    char mqtt_username[BEET_MQTT_USER_MAX_LEN + 1U];
+    char mqtt_password[BEET_MQTT_PASSWORD_MAX_LEN + 1U];
+    char mqtt_base_topic[BEET_MQTT_BASE_TOPIC_MAX_LEN + 1U];
+    char ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
+    bool valve_enabled;
+    uint8_t valve_open_angle_deg;
+    uint8_t valve_close_angle_deg;
+    uint16_t valve_move_duration_ms;
+    uint16_t valve_settle_delay_ms;
+    uint16_t valve_open_hold_ms;
+    uint16_t flags;
+} beet_app_config_v2_t;
+
+static void beet_copy_common_legacy_config_fields(
+    beet_app_config_t *config,
+    const char *device_id,
+    uint8_t pair_count,
+    uint32_t watering_interval_s,
+    uint16_t idle_sleep_threshold_mv,
+    uint16_t deep_sleep_threshold_mv,
+    uint16_t deep_sleep_resume_mv,
+    uint16_t watering_abort_threshold_mv,
+    uint16_t inactivity_sleep_timeout_s,
+    const char *mqtt_broker_host,
+    uint16_t mqtt_broker_port,
+    const char *mqtt_username,
+    const char *mqtt_password,
+    const char *mqtt_base_topic,
+    const char *ota_base_url,
+    uint16_t flags)
+{
+    memcpy(config->device_id, device_id, sizeof(config->device_id));
+    config->pair_count = pair_count;
+    config->watering_interval_s = watering_interval_s;
+    config->idle_sleep_threshold_mv = idle_sleep_threshold_mv;
+    config->deep_sleep_threshold_mv = deep_sleep_threshold_mv;
+    config->deep_sleep_resume_mv = deep_sleep_resume_mv;
+    config->watering_abort_threshold_mv = watering_abort_threshold_mv;
+    config->inactivity_sleep_timeout_s = inactivity_sleep_timeout_s;
+    memcpy(config->mqtt_broker_host, mqtt_broker_host, sizeof(config->mqtt_broker_host));
+    config->mqtt_broker_port = mqtt_broker_port;
+    memcpy(config->mqtt_username, mqtt_username, sizeof(config->mqtt_username));
+    memcpy(config->mqtt_password, mqtt_password, sizeof(config->mqtt_password));
+    memcpy(config->mqtt_base_topic, mqtt_base_topic, sizeof(config->mqtt_base_topic));
+    memcpy(config->ota_base_url, ota_base_url, sizeof(config->ota_base_url));
+    config->flags = flags;
+}
+
+static uint16_t beet_legacy_angle_to_pulse_us(uint8_t angle_deg)
+{
+    if (angle_deg > 180U) {
+        angle_deg = 180U;
+    }
+    return (uint16_t)(BEET_VALVE_SERVO_MIN_PULSE_US +
+        (((uint32_t)angle_deg * (BEET_VALVE_SERVO_MAX_PULSE_US - BEET_VALVE_SERVO_MIN_PULSE_US)) / 180U));
+}
+
 static esp_err_t beet_open_namespace(
     const char *partition,
     const char *namespace_name,
@@ -145,27 +214,68 @@ static esp_err_t beet_load_config(beet_app_config_t *config, bool *was_initializ
         return ESP_OK;
     }
 
+    if (err == ESP_OK && required_size == sizeof(beet_app_config_v2_t)) {
+        beet_app_config_v2_t legacy = { 0 };
+        required_size = sizeof(legacy);
+        err = nvs_get_blob(handle, "app", &legacy, &required_size);
+        if (err == ESP_OK && legacy.schema_version == 2U) {
+            beet_default_app_config(config);
+            beet_copy_common_legacy_config_fields(
+                config,
+                legacy.device_id,
+                legacy.pair_count,
+                legacy.watering_interval_s,
+                legacy.idle_sleep_threshold_mv,
+                legacy.deep_sleep_threshold_mv,
+                legacy.deep_sleep_resume_mv,
+                legacy.watering_abort_threshold_mv,
+                legacy.inactivity_sleep_timeout_s,
+                legacy.mqtt_broker_host,
+                legacy.mqtt_broker_port,
+                legacy.mqtt_username,
+                legacy.mqtt_password,
+                legacy.mqtt_base_topic,
+                legacy.ota_base_url,
+                legacy.flags);
+            config->valve_enabled = legacy.valve_enabled;
+            config->valve_open_pulse_us = beet_legacy_angle_to_pulse_us(legacy.valve_open_angle_deg);
+            config->valve_shut_pulse_us = beet_legacy_angle_to_pulse_us(legacy.valve_close_angle_deg);
+            config->valve_move_duration_ms = legacy.valve_move_duration_ms;
+            config->valve_settle_delay_ms = legacy.valve_settle_delay_ms;
+            config->valve_open_hold_ms = legacy.valve_open_hold_ms;
+            err = nvs_set_blob(handle, "app", config, sizeof(*config));
+            if (err == ESP_OK) {
+                err = nvs_commit(handle);
+            }
+            *was_initialized = false;
+            nvs_close(handle);
+            return err;
+        }
+    }
+
     if (err == ESP_OK && required_size == sizeof(beet_app_config_v1_t)) {
         beet_app_config_v1_t legacy = { 0 };
         required_size = sizeof(legacy);
         err = nvs_get_blob(handle, "app", &legacy, &required_size);
         if (err == ESP_OK && legacy.schema_version == 1U) {
             beet_default_app_config(config);
-            memcpy(config->device_id, legacy.device_id, sizeof(legacy.device_id));
-            config->pair_count = legacy.pair_count;
-            config->watering_interval_s = legacy.watering_interval_s;
-            config->idle_sleep_threshold_mv = legacy.idle_sleep_threshold_mv;
-            config->deep_sleep_threshold_mv = legacy.deep_sleep_threshold_mv;
-            config->deep_sleep_resume_mv = legacy.deep_sleep_resume_mv;
-            config->watering_abort_threshold_mv = legacy.watering_abort_threshold_mv;
-            config->inactivity_sleep_timeout_s = legacy.inactivity_sleep_timeout_s;
-            memcpy(config->mqtt_broker_host, legacy.mqtt_broker_host, sizeof(legacy.mqtt_broker_host));
-            config->mqtt_broker_port = legacy.mqtt_broker_port;
-            memcpy(config->mqtt_username, legacy.mqtt_username, sizeof(legacy.mqtt_username));
-            memcpy(config->mqtt_password, legacy.mqtt_password, sizeof(legacy.mqtt_password));
-            memcpy(config->mqtt_base_topic, legacy.mqtt_base_topic, sizeof(legacy.mqtt_base_topic));
-            memcpy(config->ota_base_url, legacy.ota_base_url, sizeof(legacy.ota_base_url));
-            config->flags = legacy.flags;
+            beet_copy_common_legacy_config_fields(
+                config,
+                legacy.device_id,
+                legacy.pair_count,
+                legacy.watering_interval_s,
+                legacy.idle_sleep_threshold_mv,
+                legacy.deep_sleep_threshold_mv,
+                legacy.deep_sleep_resume_mv,
+                legacy.watering_abort_threshold_mv,
+                legacy.inactivity_sleep_timeout_s,
+                legacy.mqtt_broker_host,
+                legacy.mqtt_broker_port,
+                legacy.mqtt_username,
+                legacy.mqtt_password,
+                legacy.mqtt_base_topic,
+                legacy.ota_base_url,
+                legacy.flags);
             err = nvs_set_blob(handle, "app", config, sizeof(*config));
             if (err == ESP_OK) {
                 err = nvs_commit(handle);

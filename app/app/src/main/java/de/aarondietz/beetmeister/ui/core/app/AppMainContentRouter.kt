@@ -11,6 +11,7 @@ import de.aarondietz.beetmeister.ui.feature.events.EventsScreen
 import de.aarondietz.beetmeister.ui.feature.overview.OverviewScreen
 import de.aarondietz.beetmeister.ui.feature.pairdetail.PairDetailScreen
 import de.aarondietz.beetmeister.ui.feature.settings.SettingsScreen
+import de.aarondietz.beetmeister.ui.feature.settings.ValveCalibrationScreen
 
 @Composable
 internal fun AppMainContentRouter(
@@ -18,9 +19,11 @@ internal fun AppMainContentRouter(
     topLevelScreen: TopLevelScreen,
     selectedPair: Int,
     showEventTable: Boolean,
+    showValveCalibration: Boolean,
     onSelectedPairChange: (Int) -> Unit,
     onPairDetailBack: () -> Unit,
     onShowEventTableChange: (Boolean) -> Unit,
+    onShowValveCalibrationChange: (Boolean) -> Unit,
     onToggleEnabled: (Int) -> Unit,
     onManualStart: (Int, Int?) -> Unit,
     onManualStop: (Int) -> Unit,
@@ -32,6 +35,7 @@ internal fun AppMainContentRouter(
     onSaveCalibration: (Int, Int, Int) -> Unit,
     onRefreshValveConfig: () -> Unit,
     onSaveValveConfig: (BeetValveConfig) -> Unit,
+    onPreviewValvePosition: (Int) -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
     onDisconnect: () -> Unit,
@@ -53,6 +57,15 @@ internal fun AppMainContentRouter(
             state = state,
             onBack = { onShowEventTableChange(false) },
             onReload = onLoadRecentEvents,
+            modifier = modifier.fillMaxSize(),
+        )
+
+        showValveCalibration -> ValveCalibrationScreen(
+            state = state,
+            onBack = { onShowValveCalibrationChange(false) },
+            onRefreshValveConfig = onRefreshValveConfig,
+            onPreviewValvePosition = onPreviewValvePosition,
+            onSaveValveConfig = onSaveValveConfig,
             modifier = modifier.fillMaxSize(),
         )
 
@@ -85,6 +98,7 @@ internal fun AppMainContentRouter(
             state = state,
             onRefreshValveConfig = onRefreshValveConfig,
             onSaveValveConfig = onSaveValveConfig,
+            onOpenValveCalibration = { onShowValveCalibrationChange(true) },
             onOpenValve = onOpenValve,
             onCloseValve = onCloseValve,
             onDisconnect = onDisconnect,

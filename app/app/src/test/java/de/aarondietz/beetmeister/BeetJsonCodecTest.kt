@@ -315,8 +315,10 @@ class BeetJsonCodecTest {
               "reason":"none",
               "data":{
                 "valve_enabled":true,
-                "open_angle_deg":15,
-                "close_angle_deg":102,
+                "servo_min_pulse_us":700,
+                "servo_max_pulse_us":2300,
+                "open_pulse_us":930,
+                "shut_pulse_us":2010,
                 "move_duration_ms":800,
                 "settle_delay_ms":250,
                 "open_hold_ms":1200
@@ -327,8 +329,10 @@ class BeetJsonCodecTest {
         val result = BeetJsonCodec.parseCommandResult(payload)
 
         assertTrue(result.valveConfig!!.valveEnabled)
-        assertEquals(15, result.valveConfig!!.openAngleDegrees)
-        assertEquals(102, result.valveConfig!!.closeAngleDegrees)
+        assertEquals(700, result.valveConfig!!.servoMinPulseMicros)
+        assertEquals(2300, result.valveConfig!!.servoMaxPulseMicros)
+        assertEquals(930, result.valveConfig!!.openPulseMicros)
+        assertEquals(2010, result.valveConfig!!.shutPulseMicros)
         assertEquals(800, result.valveConfig!!.moveDurationMillis)
         assertEquals(250, result.valveConfig!!.settleDelayMillis)
         assertEquals(1200, result.valveConfig!!.openHoldMillis)
@@ -339,13 +343,16 @@ class BeetJsonCodecTest {
         assertEquals("""{"cmd":"get_valve_config","data":{}}""", BeetJsonCodec.getValveConfig())
         assertEquals("""{"cmd":"open_valve","data":{}}""", BeetJsonCodec.openValve())
         assertEquals("""{"cmd":"close_valve","data":{}}""", BeetJsonCodec.closeValve())
+        assertEquals("""{"cmd":"preview_valve_position","data":{"pulse_us":1600}}""", BeetJsonCodec.previewValvePosition(1600))
         assertEquals(
-            """{"cmd":"store_valve_config","data":{"valve_enabled":true,"open_angle_deg":10,"close_angle_deg":95,"move_duration_ms":700,"settle_delay_ms":200,"open_hold_ms":1500}}""",
+            """{"cmd":"store_valve_config","data":{"valve_enabled":true,"servo_min_pulse_us":600,"servo_max_pulse_us":2400,"open_pulse_us":920,"shut_pulse_us":2080,"move_duration_ms":700,"settle_delay_ms":200,"open_hold_ms":1500}}""",
             BeetJsonCodec.storeValveConfig(
                 BeetValveConfig(
                     valveEnabled = true,
-                    openAngleDegrees = 10,
-                    closeAngleDegrees = 95,
+                    servoMinPulseMicros = 600,
+                    servoMaxPulseMicros = 2400,
+                    openPulseMicros = 920,
+                    shutPulseMicros = 2080,
                     moveDurationMillis = 700,
                     settleDelayMillis = 200,
                     openHoldMillis = 1500,

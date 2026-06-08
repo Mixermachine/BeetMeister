@@ -21,8 +21,10 @@ void beet_default_app_config(beet_app_config_t *config)
     config->inactivity_sleep_timeout_s = BEET_INACTIVITY_SLEEP_TIMEOUT_S;
     strncpy(config->mqtt_base_topic, "beetmeister", sizeof(config->mqtt_base_topic) - 1U);
     config->valve_enabled = false;
-    config->valve_open_angle_deg = BEET_VALVE_OPEN_ANGLE_DEG;
-    config->valve_close_angle_deg = BEET_VALVE_CLOSE_ANGLE_DEG;
+    config->valve_servo_min_pulse_us = BEET_VALVE_SERVO_MIN_PULSE_US;
+    config->valve_servo_max_pulse_us = BEET_VALVE_SERVO_MAX_PULSE_US;
+    config->valve_open_pulse_us = BEET_VALVE_OPEN_PULSE_US;
+    config->valve_shut_pulse_us = BEET_VALVE_SHUT_PULSE_US;
     config->valve_move_duration_ms = BEET_VALVE_MOVE_DURATION_MS;
     config->valve_settle_delay_ms = BEET_VALVE_SETTLE_DELAY_MS;
     config->valve_open_hold_ms = BEET_VALVE_OPEN_HOLD_MS;
@@ -95,9 +97,16 @@ bool beet_is_valid_valve_state(beet_valve_state_t state)
     return state >= BEET_VALVE_STATE_CLOSED && state <= BEET_VALVE_STATE_FAULT;
 }
 
-bool beet_is_valid_valve_angle_deg(uint8_t angle_deg)
+bool beet_is_valid_valve_pulse_us(uint16_t pulse_us)
 {
-    return angle_deg <= 180U;
+    return pulse_us >= BEET_VALVE_SERVO_MIN_PULSE_US && pulse_us <= BEET_VALVE_SERVO_MAX_PULSE_US;
+}
+
+bool beet_is_valid_valve_pulse_range(uint16_t min_pulse_us, uint16_t max_pulse_us)
+{
+    return beet_is_valid_valve_pulse_us(min_pulse_us) &&
+        beet_is_valid_valve_pulse_us(max_pulse_us) &&
+        min_pulse_us < max_pulse_us;
 }
 
 bool beet_is_valid_valve_move_duration_ms(uint16_t duration_ms)

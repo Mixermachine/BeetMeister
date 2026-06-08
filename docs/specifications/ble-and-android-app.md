@@ -79,7 +79,7 @@ Example payload:
 ```json
 {
   "device_id": "beetmeister-01",
-  "protocol_version": 7,
+  "protocol_version": 8,
   "firmware_version": "0.1.0",
   "pair_count": 8
 }
@@ -272,8 +272,10 @@ This starts the same 10-second moisture response check that is used before autom
   "cmd": "store_valve_config",
   "data": {
     "valve_enabled": true,
-    "open_angle_deg": 0,
-    "close_angle_deg": 90,
+    "servo_min_pulse_us": 500,
+    "servo_max_pulse_us": 2500,
+    "open_pulse_us": 850,
+    "shut_pulse_us": 2050,
     "move_duration_ms": 700,
     "settle_delay_ms": 200,
     "open_hold_ms": 1500
@@ -295,6 +297,18 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
+```json
+{
+  "cmd": "preview_valve_position",
+  "data": {
+    "pulse_us": 1600
+  }
+}
+```
+
+`preview_valve_position` is a transient calibration command.
+It may move the servo while the controller is otherwise idle, but it shall not persist a new logical open or shut position by itself.
+
 ## `command_result` semantics
 
 Every accepted or rejected command shall produce one result frame.
@@ -308,8 +322,10 @@ Valve config results shall return:
   "reason": "none",
   "data": {
     "valve_enabled": true,
-    "open_angle_deg": 0,
-    "close_angle_deg": 90,
+    "servo_min_pulse_us": 500,
+    "servo_max_pulse_us": 2500,
+    "open_pulse_us": 850,
+    "shut_pulse_us": 2050,
     "move_duration_ms": 700,
     "settle_delay_ms": 200,
     "open_hold_ms": 1500
@@ -368,6 +384,8 @@ If a full command-result JSON payload exceeds the negotiated ATT indication payl
 - `relay_test_start` shall reject requests while watering, OTA is in progress, or the controller is not in normal active battery state.
 - `store_calibration` shall reject invalid dry or wet values and dry values that are not greater than wet values.
 - `set_time` shall accept the current Unix time from the app, mark controller time valid for the current boot, and backfill unresolved current-boot events.
+- `store_valve_config` shall reject changes while watering or valve motion is already in progress.
+- `preview_valve_position` shall reject requests while watering, queued runtime work, valve motion, OTA, or low-battery policy prevents operation.
 - Commands shall be rejected while the controller is in `DEEP_LOW_BATTERY`.
 - Commands that would violate controller safety rules shall be rejected rather than queued indefinitely.
 - Access attempts from an unbonded client shall be rejected before command parsing.
@@ -409,7 +427,8 @@ If a full command-result JSON payload exceeds the negotiated ATT indication payl
 - Device dashboard: show battery state, battery voltage, next scheduler check, and pair summary cards.
 - Pair detail: show current moisture, current state, remaining watering time, block state, and manual start or stop actions.
 - Calibration screen: show live sensor value and allow storing dry and wet calibration references.
-- Settings screen: show firmware version, protocol version, and OTA trigger input.
+- Settings screen: show firmware version, protocol version, valve state, and valve timing controls.
+- Valve calibration screen: show transient servo preview, pulse range, and saved open or shut markers.
 
 ## App behavior requirements
 
@@ -422,4 +441,4 @@ If a full command-result JSON payload exceeds the negotiated ATT indication payl
 - The app shall send `set_time` after connect when `time_valid = false` before downloading persisted history.
 - The app shall start background event synchronization after live state is connected and shall not block live device or pair updates while history is downloading.
 - The app shall de-duplicate downloaded events by sequence number and keep a local per-controller cache.
-- Legacy or unresolved persisted events that cannot be placed on a real timeline shall be ignored by the app.
+- The app shall keep unresolved system events and render them in boot-relative order when no wall-clock timestamp is available.

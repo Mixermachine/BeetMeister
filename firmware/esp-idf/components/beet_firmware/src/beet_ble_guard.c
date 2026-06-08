@@ -64,6 +64,7 @@ beet_ble_command_lane_t beet_ble_classify_command_lane(beet_iface_command_t comm
     case BEET_IFACE_COMMAND_STORE_VALVE_CONFIG:
     case BEET_IFACE_COMMAND_OPEN_VALVE:
     case BEET_IFACE_COMMAND_CLOSE_VALVE:
+    case BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION:
     default:
         return BEET_BLE_COMMAND_LANE_REAL;
     }

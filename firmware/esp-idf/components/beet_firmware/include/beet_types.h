@@ -19,7 +19,7 @@
 #define BEET_PACKED __attribute__((packed))
 #endif
 
-#define BEET_APP_CONFIG_SCHEMA_VERSION 2U
+#define BEET_APP_CONFIG_SCHEMA_VERSION 3U
 #define BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION 1U
 #define BEET_EVENT_RECORD_VERSION 3U
 #define BEET_SYSTEM_EVENT_RECORD_VERSION 3U
@@ -54,8 +54,10 @@
 #define BEET_BATTERY_SPIKE_REJECT_MV 400U
 #define BEET_BATTERY_OUTLIER_ACCEPT_COUNT 3U
 #define BEET_WAKE_INDICATOR_PULSE_MS 120U
-#define BEET_VALVE_OPEN_ANGLE_DEG 0U
-#define BEET_VALVE_CLOSE_ANGLE_DEG 90U
+#define BEET_VALVE_SERVO_MIN_PULSE_US 500U
+#define BEET_VALVE_SERVO_MAX_PULSE_US 2500U
+#define BEET_VALVE_OPEN_PULSE_US 500U
+#define BEET_VALVE_SHUT_PULSE_US 1500U
 #define BEET_VALVE_MOVE_DURATION_MS 700U
 #define BEET_VALVE_SETTLE_DELAY_MS 200U
 #define BEET_VALVE_OPEN_HOLD_MS 1500U
@@ -155,8 +157,10 @@ typedef struct {
     char mqtt_base_topic[BEET_MQTT_BASE_TOPIC_MAX_LEN + 1U];
     char ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
     bool valve_enabled;
-    uint8_t valve_open_angle_deg;
-    uint8_t valve_close_angle_deg;
+    uint16_t valve_servo_min_pulse_us;
+    uint16_t valve_servo_max_pulse_us;
+    uint16_t valve_open_pulse_us;
+    uint16_t valve_shut_pulse_us;
     uint16_t valve_move_duration_ms;
     uint16_t valve_settle_delay_ms;
     uint16_t valve_open_hold_ms;
@@ -270,7 +274,8 @@ bool beet_is_valid_stop_reason(beet_stop_reason_t reason);
 bool beet_is_valid_sleep_mode(beet_sleep_mode_t mode);
 bool beet_is_valid_valve_state(beet_valve_state_t state);
 bool beet_is_valid_system_event_type(beet_system_event_type_t type);
-bool beet_is_valid_valve_angle_deg(uint8_t angle_deg);
+bool beet_is_valid_valve_pulse_us(uint16_t pulse_us);
+bool beet_is_valid_valve_pulse_range(uint16_t min_pulse_us, uint16_t max_pulse_us);
 bool beet_is_valid_valve_move_duration_ms(uint16_t duration_ms);
 bool beet_is_valid_valve_settle_delay_ms(uint16_t delay_ms);
 bool beet_is_valid_valve_open_hold_ms(uint16_t hold_ms);
