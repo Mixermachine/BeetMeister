@@ -27,6 +27,10 @@ typedef enum {
     BEET_IFACE_COMMAND_GET_WATERING_HISTORY_SUMMARY = 16,
     BEET_IFACE_COMMAND_GET_WATERING_EVENT = 17,
     BEET_IFACE_COMMAND_SET_TIME = 18,
+    BEET_IFACE_COMMAND_GET_VALVE_CONFIG = 19,
+    BEET_IFACE_COMMAND_STORE_VALVE_CONFIG = 20,
+    BEET_IFACE_COMMAND_OPEN_VALVE = 21,
+    BEET_IFACE_COMMAND_CLOSE_VALVE = 22,
 } beet_iface_command_t;
 
 typedef enum {
@@ -68,6 +72,12 @@ typedef enum {
     BEET_IFACE_REASON_BUSY = 30,
     BEET_IFACE_REASON_RATE_LIMITED = 31,
     BEET_IFACE_REASON_TIME_NOT_SET = 32,
+    BEET_IFACE_REASON_VALVE_OPENED = 33,
+    BEET_IFACE_REASON_VALVE_CLOSED = 34,
+    BEET_IFACE_REASON_VALVE_DISABLED = 35,
+    BEET_IFACE_REASON_VALVE_BUSY = 36,
+    BEET_IFACE_REASON_INVALID_VALVE_CONFIG = 37,
+    BEET_IFACE_REASON_WATERING_ACTIVE = 38,
 } beet_iface_reason_t;
 
 typedef struct {
@@ -79,6 +89,12 @@ typedef struct {
     uint16_t wet_mv;
     uint64_t seq_no;
     uint64_t unix_s;
+    bool valve_enabled;
+    uint8_t valve_open_angle_deg;
+    uint8_t valve_close_angle_deg;
+    uint16_t valve_move_duration_ms;
+    uint16_t valve_settle_delay_ms;
+    uint16_t valve_open_hold_ms;
 } beet_iface_command_request_t;
 
 typedef struct {
@@ -103,6 +119,13 @@ typedef struct {
     bool has_system_event;
     beet_system_event_record_t system_event;
     uint32_t system_event_unix_s;
+    bool has_valve_config;
+    bool valve_enabled;
+    uint8_t valve_open_angle_deg;
+    uint8_t valve_close_angle_deg;
+    uint16_t valve_move_duration_ms;
+    uint16_t valve_settle_delay_ms;
+    uint16_t valve_open_hold_ms;
 } beet_iface_command_response_t;
 
 typedef struct {
@@ -116,6 +139,8 @@ typedef struct {
     bool wifi_connected;
     bool mqtt_connected;
     uint32_t uptime_s;
+    bool valve_enabled;
+    beet_valve_state_t valve_state;
 } beet_iface_device_state_t;
 
 typedef struct {

@@ -1,6 +1,7 @@
 package de.aarondietz.beetmeister.ui
 
 import de.aarondietz.beetmeister.data.repository.BeetRepository
+import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import kotlinx.coroutines.flow.StateFlow
 import androidx.lifecycle.ViewModel
@@ -55,6 +56,14 @@ internal class BeetAppViewModel(
 
     fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) =
         repository.saveCalibration(pairIndex, dryMillivolts, wetMillivolts)
+
+    fun refreshValveConfig() = repository.refreshValveConfig()
+
+    fun saveValveConfig(config: BeetValveConfig) = repository.saveValveConfig(config)
+
+    fun openValve() = repository.openValve()
+
+    fun closeValve() = repository.closeValve()
 
     override fun onCleared() {
         repository.close()

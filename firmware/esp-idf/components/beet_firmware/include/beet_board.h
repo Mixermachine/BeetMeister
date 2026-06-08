@@ -39,6 +39,8 @@ esp_err_t beet_board_set_sensor_power_enabled(bool enabled);
 bool beet_board_is_sensor_power_enabled(void);
 esp_err_t beet_board_set_boost_enabled(bool enabled);
 bool beet_board_is_boost_enabled(void);
+esp_err_t beet_board_drive_valve_servo(uint8_t angle_deg);
+esp_err_t beet_board_release_valve_servo(void);
 esp_err_t beet_board_read_moisture_sample(uint8_t pair_index, beet_board_sensor_sample_t *sample);
 esp_err_t beet_board_read_moisture_mv(uint8_t pair_index, uint16_t *out_mv);
 esp_err_t beet_board_read_battery_sample(beet_board_battery_sample_t *sample);

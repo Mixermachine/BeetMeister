@@ -65,6 +65,19 @@
     <string name="settings_label_pairs">Pairs</string>
     <string name="settings_label_connection">Connection</string>
     <string name="settings_label_address">Address</string>
+    <string name="settings_valve_title">Main valve</string>
+    <string name="settings_valve_subtitle">Shared upstream ball valve driven by the servo on the boost rail.</string>
+    <string name="settings_label_valve_state">Valve state</string>
+    <string name="settings_label_valve_enabled">Valve enabled</string>
+    <string name="settings_open_valve">Open valve</string>
+    <string name="settings_close_valve">Close valve</string>
+    <string name="settings_valve_config_title">Valve motion settings</string>
+    <string name="settings_label_valve_open_angle">Open angle (deg)</string>
+    <string name="settings_label_valve_close_angle">Close angle (deg)</string>
+    <string name="settings_label_valve_move_duration">Move duration (ms)</string>
+    <string name="settings_label_valve_settle_delay">Settle delay (ms)</string>
+    <string name="settings_label_valve_open_hold">Open hold (ms)</string>
+    <string name="settings_save_valve">Save valve settings</string>
 
     <string name="overview_title_system_values">Current system values</string>
     <string name="overview_label_battery">Battery</string>
@@ -77,6 +90,7 @@
     <string name="overview_label_mqtt" translatable="false">MQTT</string>
     <string name="overview_label_running_since">Running since</string>
     <string name="overview_label_uptime">Uptime</string>
+    <string name="overview_label_valve">Valve</string>
     <string name="overview_label_moisture">Moisture</string>
     <string name="overview_label_sensor">Sensor</string>
     <string name="overview_label_source">Source</string>
@@ -178,6 +192,11 @@
     <string name="battery_state_idle_low_power">Idle low-power</string>
     <string name="battery_state_deep_low_battery">Deep low-battery</string>
     <string name="battery_state_ota_in_progress">OTA in progress</string>
+    <string name="valve_state_closed">Closed</string>
+    <string name="valve_state_opening">Opening</string>
+    <string name="valve_state_open">Open</string>
+    <string name="valve_state_closing">Closing</string>
+    <string name="valve_state_fault">Fault</string>
 
     <string name="pair_state_idle">Idle</string>
     <string name="pair_state_waiting_for_slot">Waiting for slot</string>
@@ -266,11 +285,18 @@
     <string name="command_reason_time_not_set">Controller time is not set yet</string>
     <string name="command_reason_busy">Controller is busy</string>
     <string name="command_reason_rate_limited">Too many commands; try again</string>
+    <string name="command_reason_valve_opened">Valve opened</string>
+    <string name="command_reason_valve_closed">Valve closed</string>
+    <string name="command_reason_valve_disabled">Valve is disabled</string>
+    <string name="command_reason_valve_busy">Valve is moving</string>
+    <string name="command_reason_invalid_valve_config">Invalid valve configuration</string>
+    <string name="command_reason_watering_active">Watering is active</string>
 
     <string name="runtime_calibration_refresh_failed">Calibration refresh failed for pair %1$d.</string>
     <string name="runtime_manual_duration_invalid">Manual duration must be between 1 second and 20 minutes.</string>
     <string name="runtime_command_failed">Command failed.</string>
     <string name="runtime_calibration_invalid_order">Dry calibration must be greater than wet calibration.</string>
+    <string name="runtime_valve_config_invalid">Valve settings are outside the supported range.</string>
     <string name="runtime_connecting_to_controller" localizePipeContext="Connection progress message. Keep %1$s as the Bluetooth MAC address or device address.">Connecting to %1$s.</string>
     <string name="runtime_connection_timed_out">Connection timed out. Searching again.</string>
     <string name="runtime_no_connected_controller">No connected controller.</string>

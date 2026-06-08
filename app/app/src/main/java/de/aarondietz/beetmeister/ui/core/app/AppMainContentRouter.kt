@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.ui.feature.calibration.CalibrationScreen
 import de.aarondietz.beetmeister.ui.feature.events.EventDetailScreen
 import de.aarondietz.beetmeister.ui.feature.events.EventsScreen
@@ -29,6 +30,10 @@ internal fun AppMainContentRouter(
     onRefreshHistorySummary: () -> Unit,
     onRefreshCalibrations: () -> Unit,
     onSaveCalibration: (Int, Int, Int) -> Unit,
+    onRefreshValveConfig: () -> Unit,
+    onSaveValveConfig: (BeetValveConfig) -> Unit,
+    onOpenValve: () -> Unit,
+    onCloseValve: () -> Unit,
     onDisconnect: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -78,6 +83,10 @@ internal fun AppMainContentRouter(
 
         else -> SettingsScreen(
             state = state,
+            onRefreshValveConfig = onRefreshValveConfig,
+            onSaveValveConfig = onSaveValveConfig,
+            onOpenValve = onOpenValve,
+            onCloseValve = onCloseValve,
             onDisconnect = onDisconnect,
             modifier = modifier.fillMaxSize(),
         )

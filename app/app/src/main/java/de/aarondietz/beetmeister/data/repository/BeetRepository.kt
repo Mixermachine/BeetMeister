@@ -13,6 +13,7 @@ import de.aarondietz.beetmeister.data.ble.BeetGattSessionCoordinator
 import de.aarondietz.beetmeister.data.ble.BeetScanBondCoordinator
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.connection.BeetConnectionState
+import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
 import de.aarondietz.beetmeister.strings.AndroidBeetStringResolver
@@ -108,6 +109,14 @@ internal class BeetRepository(
     fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) =
         gattSessionCoordinator.saveCalibration(pairIndex, dryMillivolts, wetMillivolts)
 
+    fun refreshValveConfig() = gattSessionCoordinator.refreshValveConfig()
+
+    fun saveValveConfig(config: BeetValveConfig) = gattSessionCoordinator.saveValveConfig(config)
+
+    fun openValve() = gattSessionCoordinator.openValve()
+
+    fun closeValve() = gattSessionCoordinator.closeValve()
+
     override fun updateConnection(phase: BeetConnectionPhase, detail: String?) {
         val previous = state.value.connection
         Log.d(TAG, "updateConnection(${previous.phase} -> $phase, previousDetail=${previous.detail}, detail=$detail, selected=$currentAddress)")
@@ -136,6 +145,7 @@ internal class BeetRepository(
             it.copy(
                 controllerInfo = null,
                 deviceState = null,
+                valveConfig = null,
                 calibrations = emptyMap(),
                 historySummary = null,
                 systemHistorySummary = null,

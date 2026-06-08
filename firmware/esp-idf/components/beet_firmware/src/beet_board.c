@@ -6,6 +6,7 @@
 
 #include "driver/i2c_master.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
@@ -51,6 +52,7 @@ static bool s_oled_ready;
 static bool s_oled_enabled;
 static bool s_sensor_power_enabled;
 static bool s_boost_enabled;
+static bool s_valve_servo_active;
 static uint8_t s_oled_buffer[128 * 64 / 8];
 static bool s_initialized;
 
@@ -62,6 +64,15 @@ static bool s_initialized;
 #define BEET_OLED_MAX_LINES (BEET_OLED_HEIGHT / BEET_OLED_LINE_HEIGHT)
 #define BEET_OLED_MAX_CHARS_PER_LINE (BEET_OLED_WIDTH / BEET_OLED_CHAR_WIDTH)
 #define BEET_OLED_COLUMN2_X 69
+#define BEET_VALVE_SERVO_TIMER LEDC_TIMER_0
+#define BEET_VALVE_SERVO_MODE LEDC_LOW_SPEED_MODE
+#define BEET_VALVE_SERVO_CHANNEL LEDC_CHANNEL_0
+#define BEET_VALVE_SERVO_FREQUENCY_HZ 50U
+#define BEET_VALVE_SERVO_RESOLUTION LEDC_TIMER_12_BIT
+#define BEET_VALVE_SERVO_MIN_PULSE_US 500U
+#define BEET_VALVE_SERVO_MAX_PULSE_US 2500U
+#define BEET_VALVE_SERVO_PERIOD_US (1000000U / BEET_VALVE_SERVO_FREQUENCY_HZ)
+#define BEET_VALVE_SERVO_MAX_DUTY ((1U << 12) - 1U)
 
 static int beet_relay_inactive_level(void)
 {
@@ -413,6 +424,32 @@ static esp_err_t beet_board_init_power_controls(void)
     return ESP_OK;
 }
 
+static esp_err_t beet_board_init_valve_servo(void)
+{
+    ledc_timer_config_t timer_config = {
+        .speed_mode = BEET_VALVE_SERVO_MODE,
+        .duty_resolution = BEET_VALVE_SERVO_RESOLUTION,
+        .timer_num = BEET_VALVE_SERVO_TIMER,
+        .freq_hz = BEET_VALVE_SERVO_FREQUENCY_HZ,
+        .clk_cfg = LEDC_AUTO_CLK,
+    };
+    ledc_channel_config_t channel_config = {
+        .gpio_num = CONFIG_BEET_VALVE_SERVO_GPIO,
+        .speed_mode = BEET_VALVE_SERVO_MODE,
+        .channel = BEET_VALVE_SERVO_CHANNEL,
+        .intr_type = LEDC_INTR_DISABLE,
+        .timer_sel = BEET_VALVE_SERVO_TIMER,
+        .duty = 0,
+        .hpoint = 0,
+        .sleep_mode = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD,
+    };
+
+    ESP_RETURN_ON_ERROR(ledc_timer_config(&timer_config), TAG, "valve servo timer init failed");
+    ESP_RETURN_ON_ERROR(ledc_channel_config(&channel_config), TAG, "valve servo channel init failed");
+    s_valve_servo_active = false;
+    return ESP_OK;
+}
+
 static esp_err_t beet_board_init_adc(void)
 {
     adc_oneshot_unit_init_cfg_t unit_cfg = {
@@ -468,6 +505,7 @@ esp_err_t beet_board_init(void)
 
     ESP_RETURN_ON_ERROR(beet_board_init_relays(), TAG, "relay init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_power_controls(), TAG, "power control init failed");
+    ESP_RETURN_ON_ERROR(beet_board_init_valve_servo(), TAG, "valve servo init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_adc(), TAG, "adc init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_led(), TAG, "led init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_oled(), TAG, "oled init failed");
@@ -489,6 +527,7 @@ void beet_board_deinit(void)
 {
     if (s_initialized) {
         beet_board_set_boost_enabled(false);
+        beet_board_release_valve_servo();
         beet_board_set_sensor_power_enabled(false);
         beet_board_all_relays_off();
     }
@@ -565,6 +604,41 @@ esp_err_t beet_board_set_boost_enabled(bool enabled)
 bool beet_board_is_boost_enabled(void)
 {
     return s_boost_enabled;
+}
+
+esp_err_t beet_board_drive_valve_servo(uint8_t angle_deg)
+{
+    uint32_t pulse_us;
+    uint32_t duty;
+
+    ESP_RETURN_ON_FALSE(s_initialized, ESP_ERR_INVALID_STATE, TAG, "board not initialized");
+    ESP_RETURN_ON_FALSE(beet_is_valid_valve_angle_deg(angle_deg), ESP_ERR_INVALID_ARG, TAG, "invalid valve angle");
+
+    pulse_us = BEET_VALVE_SERVO_MIN_PULSE_US +
+        (((uint32_t)angle_deg * (BEET_VALVE_SERVO_MAX_PULSE_US - BEET_VALVE_SERVO_MIN_PULSE_US)) / 180U);
+    duty = (pulse_us * BEET_VALVE_SERVO_MAX_DUTY) / BEET_VALVE_SERVO_PERIOD_US;
+
+    ESP_RETURN_ON_ERROR(
+        ledc_set_duty(BEET_VALVE_SERVO_MODE, BEET_VALVE_SERVO_CHANNEL, duty),
+        TAG,
+        "valve servo duty set failed");
+    ESP_RETURN_ON_ERROR(
+        ledc_update_duty(BEET_VALVE_SERVO_MODE, BEET_VALVE_SERVO_CHANNEL),
+        TAG,
+        "valve servo update failed");
+    s_valve_servo_active = true;
+    return ESP_OK;
+}
+
+esp_err_t beet_board_release_valve_servo(void)
+{
+    ESP_RETURN_ON_FALSE(s_initialized, ESP_ERR_INVALID_STATE, TAG, "board not initialized");
+    ESP_RETURN_ON_ERROR(
+        ledc_stop(BEET_VALVE_SERVO_MODE, BEET_VALVE_SERVO_CHANNEL, 0),
+        TAG,
+        "valve servo stop failed");
+    s_valve_servo_active = false;
+    return ESP_OK;
 }
 
 esp_err_t beet_board_read_moisture_sample(uint8_t pair_index, beet_board_sensor_sample_t *sample)

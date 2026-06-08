@@ -13,6 +13,25 @@ static const char *TAG = "beet_storage";
 static const char *BOOT_EPOCH_NS = "btm";
 static const char *BOOT_EPOCH_INDEX_KEY = "idx";
 
+typedef struct {
+    uint16_t schema_version;
+    char device_id[BEET_DEVICE_ID_MAX_LEN + 1U];
+    uint8_t pair_count;
+    uint32_t watering_interval_s;
+    uint16_t idle_sleep_threshold_mv;
+    uint16_t deep_sleep_threshold_mv;
+    uint16_t deep_sleep_resume_mv;
+    uint16_t watering_abort_threshold_mv;
+    uint16_t inactivity_sleep_timeout_s;
+    char mqtt_broker_host[BEET_MQTT_HOST_MAX_LEN + 1U];
+    uint16_t mqtt_broker_port;
+    char mqtt_username[BEET_MQTT_USER_MAX_LEN + 1U];
+    char mqtt_password[BEET_MQTT_PASSWORD_MAX_LEN + 1U];
+    char mqtt_base_topic[BEET_MQTT_BASE_TOPIC_MAX_LEN + 1U];
+    char ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
+    uint16_t flags;
+} beet_app_config_v1_t;
+
 static esp_err_t beet_open_namespace(
     const char *partition,
     const char *namespace_name,
@@ -118,7 +137,48 @@ static esp_err_t beet_load_config(beet_app_config_t *config, bool *was_initializ
 
     size_t required_size = sizeof(*config);
     esp_err_t err = nvs_get_blob(handle, "app", config, &required_size);
-    if (err == ESP_ERR_NVS_NOT_FOUND || required_size != sizeof(*config) || config->schema_version != BEET_SCHEMA_VERSION) {
+    if (err == ESP_OK &&
+        required_size == sizeof(*config) &&
+        config->schema_version == BEET_APP_CONFIG_SCHEMA_VERSION) {
+        *was_initialized = false;
+        nvs_close(handle);
+        return ESP_OK;
+    }
+
+    if (err == ESP_OK && required_size == sizeof(beet_app_config_v1_t)) {
+        beet_app_config_v1_t legacy = { 0 };
+        required_size = sizeof(legacy);
+        err = nvs_get_blob(handle, "app", &legacy, &required_size);
+        if (err == ESP_OK && legacy.schema_version == 1U) {
+            beet_default_app_config(config);
+            memcpy(config->device_id, legacy.device_id, sizeof(legacy.device_id));
+            config->pair_count = legacy.pair_count;
+            config->watering_interval_s = legacy.watering_interval_s;
+            config->idle_sleep_threshold_mv = legacy.idle_sleep_threshold_mv;
+            config->deep_sleep_threshold_mv = legacy.deep_sleep_threshold_mv;
+            config->deep_sleep_resume_mv = legacy.deep_sleep_resume_mv;
+            config->watering_abort_threshold_mv = legacy.watering_abort_threshold_mv;
+            config->inactivity_sleep_timeout_s = legacy.inactivity_sleep_timeout_s;
+            memcpy(config->mqtt_broker_host, legacy.mqtt_broker_host, sizeof(legacy.mqtt_broker_host));
+            config->mqtt_broker_port = legacy.mqtt_broker_port;
+            memcpy(config->mqtt_username, legacy.mqtt_username, sizeof(legacy.mqtt_username));
+            memcpy(config->mqtt_password, legacy.mqtt_password, sizeof(legacy.mqtt_password));
+            memcpy(config->mqtt_base_topic, legacy.mqtt_base_topic, sizeof(legacy.mqtt_base_topic));
+            memcpy(config->ota_base_url, legacy.ota_base_url, sizeof(legacy.ota_base_url));
+            config->flags = legacy.flags;
+            err = nvs_set_blob(handle, "app", config, sizeof(*config));
+            if (err == ESP_OK) {
+                err = nvs_commit(handle);
+            }
+            *was_initialized = (err == ESP_OK);
+            nvs_close(handle);
+            return err;
+        }
+    }
+
+    if (err == ESP_ERR_NVS_NOT_FOUND ||
+        required_size != sizeof(*config) ||
+        config->schema_version != BEET_APP_CONFIG_SCHEMA_VERSION) {
         beet_default_app_config(config);
         err = nvs_set_blob(handle, "app", config, sizeof(*config));
         if (err == ESP_OK) {
@@ -186,7 +246,7 @@ static esp_err_t beet_load_power_state(beet_power_runtime_state_t *state)
     esp_err_t err = nvs_get_blob(handle, "state", state, &required_size);
     if (err == ESP_ERR_NVS_NOT_FOUND ||
         required_size != sizeof(*state) ||
-        state->schema_version != BEET_SCHEMA_VERSION ||
+        state->schema_version != BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION ||
         !beet_is_valid_sleep_mode(state->last_sleep_mode)) {
         beet_default_power_runtime_state(state);
         ESP_RETURN_ON_ERROR(

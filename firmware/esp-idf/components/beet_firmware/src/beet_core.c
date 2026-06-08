@@ -10,7 +10,7 @@ BEET_STATIC_ASSERT(sizeof(beet_system_event_record_t) == 64U, "system event reco
 void beet_default_app_config(beet_app_config_t *config)
 {
     memset(config, 0, sizeof(*config));
-    config->schema_version = BEET_SCHEMA_VERSION;
+    config->schema_version = BEET_APP_CONFIG_SCHEMA_VERSION;
     strncpy(config->device_id, "beetmeister-01", sizeof(config->device_id) - 1U);
     config->pair_count = BEET_PAIR_COUNT;
     config->watering_interval_s = BEET_SCHEDULER_INTERVAL_S;
@@ -20,6 +20,12 @@ void beet_default_app_config(beet_app_config_t *config)
     config->watering_abort_threshold_mv = BEET_WATERING_ABORT_THRESHOLD_MV;
     config->inactivity_sleep_timeout_s = BEET_INACTIVITY_SLEEP_TIMEOUT_S;
     strncpy(config->mqtt_base_topic, "beetmeister", sizeof(config->mqtt_base_topic) - 1U);
+    config->valve_enabled = false;
+    config->valve_open_angle_deg = BEET_VALVE_OPEN_ANGLE_DEG;
+    config->valve_close_angle_deg = BEET_VALVE_CLOSE_ANGLE_DEG;
+    config->valve_move_duration_ms = BEET_VALVE_MOVE_DURATION_MS;
+    config->valve_settle_delay_ms = BEET_VALVE_SETTLE_DELAY_MS;
+    config->valve_open_hold_ms = BEET_VALVE_OPEN_HOLD_MS;
 }
 
 void beet_default_calibration(uint8_t pair_index, beet_pair_calibration_t *calibration)
@@ -44,7 +50,7 @@ void beet_default_snapshot(uint8_t pair_index, beet_pair_runtime_snapshot_t *sna
 void beet_default_power_runtime_state(beet_power_runtime_state_t *state)
 {
     memset(state, 0, sizeof(*state));
-    state->schema_version = BEET_SCHEMA_VERSION;
+    state->schema_version = BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION;
     state->last_sleep_mode = BEET_SLEEP_MODE_NONE;
     state->boot_counter = 0U;
 }
@@ -84,6 +90,31 @@ bool beet_is_valid_sleep_mode(beet_sleep_mode_t mode)
     return mode >= BEET_SLEEP_MODE_NONE && mode <= BEET_SLEEP_MODE_DEEP_LOW_BATTERY;
 }
 
+bool beet_is_valid_valve_state(beet_valve_state_t state)
+{
+    return state >= BEET_VALVE_STATE_CLOSED && state <= BEET_VALVE_STATE_FAULT;
+}
+
+bool beet_is_valid_valve_angle_deg(uint8_t angle_deg)
+{
+    return angle_deg <= 180U;
+}
+
+bool beet_is_valid_valve_move_duration_ms(uint16_t duration_ms)
+{
+    return duration_ms >= 100U && duration_ms <= 5000U;
+}
+
+bool beet_is_valid_valve_settle_delay_ms(uint16_t delay_ms)
+{
+    return delay_ms <= 5000U;
+}
+
+bool beet_is_valid_valve_open_hold_ms(uint16_t hold_ms)
+{
+    return hold_ms <= 10000U;
+}
+
 bool beet_is_valid_system_event_type(beet_system_event_type_t type)
 {
     switch (type) {
@@ -103,6 +134,24 @@ bool beet_is_valid_system_event_type(beet_system_event_type_t type)
         return true;
     default:
         return false;
+    }
+}
+
+const char *beet_valve_state_name(beet_valve_state_t state)
+{
+    switch (state) {
+    case BEET_VALVE_STATE_CLOSED:
+        return "CLOSED";
+    case BEET_VALVE_STATE_OPENING:
+        return "OPENING";
+    case BEET_VALVE_STATE_OPEN:
+        return "OPEN";
+    case BEET_VALVE_STATE_CLOSING:
+        return "CLOSING";
+    case BEET_VALVE_STATE_FAULT:
+        return "FAULT";
+    default:
+        return "UNKNOWN";
     }
 }
 

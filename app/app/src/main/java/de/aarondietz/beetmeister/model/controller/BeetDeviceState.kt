@@ -12,6 +12,8 @@ data class BeetDeviceState(
     @param:Json(name = "wifi_connected") val wifiConnected: Boolean,
     @param:Json(name = "mqtt_connected") val mqttConnected: Boolean,
     @param:Json(name = "uptime_s") val uptimeSeconds: Long = 0L,
+    @param:Json(name = "valve_enabled") val valveEnabled: Boolean = false,
+    @param:Json(name = "valve_state") val valveState: String = "CLOSED",
 ) {
     val batteryPercentApprox: Int
         get() {

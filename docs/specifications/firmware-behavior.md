@@ -74,6 +74,17 @@ The lookup shall use the integer moisture percentage after clamping and any requ
 - A pair in `WAITING_FOR_SLOT` shall remain visible as waiting through MQTT and BLE.
 - A queued manual request shall time out after 30 seconds if no slot becomes free and shall then return to `IDLE` with a command rejection result.
 
+## Main valve behavior
+
+- When the shared main valve feature is enabled, the controller shall treat the upstream ball valve as a global flow interlock.
+- No pump may start until the valve is logically `OPEN`.
+- Automatic watering, manual watering, automatic sanity-check, and manual moisture-response test shall all require the valve to open first.
+- Relay test shall not move the valve.
+- The valve shall be closed whenever no watering is active, except for a short configurable hold window between adjacent runs.
+- Valve motion shall never overlap active pump output.
+- The servo shall be powered only for short open and close actions and released after the configured move time.
+- Manual valve open and close commands shall be rejected while watering is active, while the valve is already moving, when OTA is in progress, or when battery policy does not permit the action.
+
 ## Automatic sanity-check flow
 
 The sanity check applies to automatic watering and to an operator-triggered moisture response test.

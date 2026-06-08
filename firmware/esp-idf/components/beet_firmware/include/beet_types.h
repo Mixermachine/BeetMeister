@@ -19,7 +19,8 @@
 #define BEET_PACKED __attribute__((packed))
 #endif
 
-#define BEET_SCHEMA_VERSION 1U
+#define BEET_APP_CONFIG_SCHEMA_VERSION 2U
+#define BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION 1U
 #define BEET_EVENT_RECORD_VERSION 3U
 #define BEET_SYSTEM_EVENT_RECORD_VERSION 3U
 #define BEET_PAIR_COUNT 8U
@@ -53,6 +54,19 @@
 #define BEET_BATTERY_SPIKE_REJECT_MV 400U
 #define BEET_BATTERY_OUTLIER_ACCEPT_COUNT 3U
 #define BEET_WAKE_INDICATOR_PULSE_MS 120U
+#define BEET_VALVE_OPEN_ANGLE_DEG 0U
+#define BEET_VALVE_CLOSE_ANGLE_DEG 90U
+#define BEET_VALVE_MOVE_DURATION_MS 700U
+#define BEET_VALVE_SETTLE_DELAY_MS 200U
+#define BEET_VALVE_OPEN_HOLD_MS 1500U
+
+typedef enum {
+    BEET_VALVE_STATE_CLOSED = 0,
+    BEET_VALVE_STATE_OPENING = 1,
+    BEET_VALVE_STATE_OPEN = 2,
+    BEET_VALVE_STATE_CLOSING = 3,
+    BEET_VALVE_STATE_FAULT = 4,
+} beet_valve_state_t;
 
 typedef enum {
     BEET_PAIR_STATE_IDLE = 0,
@@ -140,6 +154,12 @@ typedef struct {
     char mqtt_password[BEET_MQTT_PASSWORD_MAX_LEN + 1U];
     char mqtt_base_topic[BEET_MQTT_BASE_TOPIC_MAX_LEN + 1U];
     char ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
+    bool valve_enabled;
+    uint8_t valve_open_angle_deg;
+    uint8_t valve_close_angle_deg;
+    uint16_t valve_move_duration_ms;
+    uint16_t valve_settle_delay_ms;
+    uint16_t valve_open_hold_ms;
     uint16_t flags;
 } beet_app_config_t;
 
@@ -248,7 +268,12 @@ bool beet_is_valid_run_source(beet_run_source_t source);
 bool beet_is_valid_block_reason(beet_block_reason_t reason);
 bool beet_is_valid_stop_reason(beet_stop_reason_t reason);
 bool beet_is_valid_sleep_mode(beet_sleep_mode_t mode);
+bool beet_is_valid_valve_state(beet_valve_state_t state);
 bool beet_is_valid_system_event_type(beet_system_event_type_t type);
+bool beet_is_valid_valve_angle_deg(uint8_t angle_deg);
+bool beet_is_valid_valve_move_duration_ms(uint16_t duration_ms);
+bool beet_is_valid_valve_settle_delay_ms(uint16_t delay_ms);
+bool beet_is_valid_valve_open_hold_ms(uint16_t hold_ms);
 uint16_t beet_correct_moisture_sensor_mv(uint16_t sensor_mv, uint16_t battery_mv);
 bool beet_is_sensor_mv_plausible(uint16_t corrected_sensor_mv, uint16_t dry_mv, uint16_t wet_mv);
 uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sensor_mv);
@@ -276,5 +301,6 @@ const char *beet_battery_state_name(beet_battery_state_t state);
 const char *beet_block_reason_name(beet_block_reason_t reason);
 const char *beet_stop_reason_name(beet_stop_reason_t reason);
 const char *beet_system_event_type_name(beet_system_event_type_t type);
+const char *beet_valve_state_name(beet_valve_state_t state);
 
 #endif

@@ -32,7 +32,7 @@
 
 static const char *TAG = "beet_ble";
 
-#define BEET_BLE_PROTOCOL_VERSION 6U
+#define BEET_BLE_PROTOCOL_VERSION 7U
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
 #define BEET_BLE_JSON_MAX_LEN 320U
 #define BEET_BLE_RESULT_STAGE_MAX_LEN 1024U
@@ -231,7 +231,9 @@ static bool beet_ble_device_states_equal(
         a->next_check_in_s == b->next_check_in_s &&
         a->active_pumps == b->active_pumps &&
         a->wifi_connected == b->wifi_connected &&
-        a->mqtt_connected == b->mqtt_connected;
+        a->mqtt_connected == b->mqtt_connected &&
+        a->valve_enabled == b->valve_enabled &&
+        a->valve_state == b->valve_state;
 }
 
 static bool beet_ble_is_bonded_conn(uint16_t conn_handle)

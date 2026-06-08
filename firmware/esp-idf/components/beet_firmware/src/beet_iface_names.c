@@ -41,6 +41,14 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "get_watering_event";
     case BEET_IFACE_COMMAND_SET_TIME:
         return "set_time";
+    case BEET_IFACE_COMMAND_GET_VALVE_CONFIG:
+        return "get_valve_config";
+    case BEET_IFACE_COMMAND_STORE_VALVE_CONFIG:
+        return "store_valve_config";
+    case BEET_IFACE_COMMAND_OPEN_VALVE:
+        return "open_valve";
+    case BEET_IFACE_COMMAND_CLOSE_VALVE:
+        return "close_valve";
     default:
         return "unknown";
     }
@@ -127,6 +135,18 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "rate_limited";
     case BEET_IFACE_REASON_TIME_NOT_SET:
         return "time_not_set";
+    case BEET_IFACE_REASON_VALVE_OPENED:
+        return "valve_opened";
+    case BEET_IFACE_REASON_VALVE_CLOSED:
+        return "valve_closed";
+    case BEET_IFACE_REASON_VALVE_DISABLED:
+        return "valve_disabled";
+    case BEET_IFACE_REASON_VALVE_BUSY:
+        return "valve_busy";
+    case BEET_IFACE_REASON_INVALID_VALVE_CONFIG:
+        return "invalid_valve_config";
+    case BEET_IFACE_REASON_WATERING_ACTIVE:
+        return "watering_active";
     default:
         return "unknown";
     }

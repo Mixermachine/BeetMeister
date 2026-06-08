@@ -1,6 +1,7 @@
 package de.aarondietz.beetmeister
 
 import de.aarondietz.beetmeister.data.protocol.BeetJsonCodec
+import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,7 +23,9 @@ class BeetJsonCodecTest {
                 "active_pumps":1,
                 "wifi_connected":true,
                 "mqtt_connected":false,
-                "uptime_s":123
+                "uptime_s":123,
+                "valve_enabled":true,
+                "valve_state":"OPEN"
               }
             }
         """.trimIndent()
@@ -40,6 +43,8 @@ class BeetJsonCodecTest {
         assertTrue(state.wifiConnected)
         assertFalse(state.mqttConnected)
         assertEquals(123L, state.uptimeSeconds)
+        assertTrue(state.valveEnabled)
+        assertEquals("OPEN", state.valveState)
     }
 
     @Test
@@ -299,5 +304,53 @@ class BeetJsonCodecTest {
     @Test
     fun buildsClearBleBondsCommand() {
         assertEquals("""{"cmd":"clear_ble_bonds","data":{}}""", BeetJsonCodec.clearBleBonds())
+    }
+
+    @Test
+    fun parsesValveConfigResult() {
+        val payload = """
+            {
+              "cmd":"get_valve_config",
+              "status":"accepted",
+              "reason":"none",
+              "data":{
+                "valve_enabled":true,
+                "open_angle_deg":15,
+                "close_angle_deg":102,
+                "move_duration_ms":800,
+                "settle_delay_ms":250,
+                "open_hold_ms":1200
+              }
+            }
+        """.trimIndent()
+
+        val result = BeetJsonCodec.parseCommandResult(payload)
+
+        assertTrue(result.valveConfig!!.valveEnabled)
+        assertEquals(15, result.valveConfig!!.openAngleDegrees)
+        assertEquals(102, result.valveConfig!!.closeAngleDegrees)
+        assertEquals(800, result.valveConfig!!.moveDurationMillis)
+        assertEquals(250, result.valveConfig!!.settleDelayMillis)
+        assertEquals(1200, result.valveConfig!!.openHoldMillis)
+    }
+
+    @Test
+    fun buildsValveCommands() {
+        assertEquals("""{"cmd":"get_valve_config","data":{}}""", BeetJsonCodec.getValveConfig())
+        assertEquals("""{"cmd":"open_valve","data":{}}""", BeetJsonCodec.openValve())
+        assertEquals("""{"cmd":"close_valve","data":{}}""", BeetJsonCodec.closeValve())
+        assertEquals(
+            """{"cmd":"store_valve_config","data":{"valve_enabled":true,"open_angle_deg":10,"close_angle_deg":95,"move_duration_ms":700,"settle_delay_ms":200,"open_hold_ms":1500}}""",
+            BeetJsonCodec.storeValveConfig(
+                BeetValveConfig(
+                    valveEnabled = true,
+                    openAngleDegrees = 10,
+                    closeAngleDegrees = 95,
+                    moveDurationMillis = 700,
+                    settleDelayMillis = 200,
+                    openHoldMillis = 1500,
+                ),
+            ),
+        )
     }
 }

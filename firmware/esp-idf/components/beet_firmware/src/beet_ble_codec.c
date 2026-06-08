@@ -176,7 +176,8 @@ int beet_ble_format_device_frame_json(
         buf,
         len,
         "{\"type\":\"device\",\"data\":{\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
-        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,\"wifi_connected\":%s,\"mqtt_connected\":%s,\"uptime_s\":%lu}}",
+        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,\"wifi_connected\":%s,\"mqtt_connected\":%s,"
+        "\"uptime_s\":%lu,\"valve_enabled\":%s,\"valve_state\":\"%s\"}}",
         beet_battery_state_name(state->battery_state),
         state->battery_mv,
         state->time_valid ? "true" : "false",
@@ -185,7 +186,9 @@ int beet_ble_format_device_frame_json(
         state->active_pumps,
         state->wifi_connected ? "true" : "false",
         state->mqtt_connected ? "true" : "false",
-        (unsigned long)state->uptime_s);
+        (unsigned long)state->uptime_s,
+        state->valve_enabled ? "true" : "false",
+        beet_valve_state_name(state->valve_state));
 }
 
 int beet_ble_format_pair_frame_json(
@@ -391,6 +394,27 @@ int beet_ble_format_command_result_json(
             &response->system_event,
             response->system_event_unix_s,
             "}");
+    }
+
+    if ((response->command == BEET_IFACE_COMMAND_GET_VALVE_CONFIG ||
+            response->command == BEET_IFACE_COMMAND_STORE_VALVE_CONFIG) &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_valve_config) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"valve_enabled\":%s,"
+            "\"open_angle_deg\":%u,\"close_angle_deg\":%u,\"move_duration_ms\":%u,"
+            "\"settle_delay_ms\":%u,\"open_hold_ms\":%u}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            response->valve_enabled ? "true" : "false",
+            response->valve_open_angle_deg,
+            response->valve_close_angle_deg,
+            response->valve_move_duration_ms,
+            response->valve_settle_delay_ms,
+            response->valve_open_hold_ms);
     }
 
     if (response->accepted_duration_s > 0U) {
@@ -678,6 +702,22 @@ static bool beet_ble_parse_u16(const char **cursor, uint16_t *value)
     }
     *value = (uint16_t)parsed;
     return true;
+}
+
+static bool beet_ble_parse_bool(const char **cursor, bool *value)
+{
+    beet_ble_skip_ws(cursor);
+    if (strncmp(*cursor, "true", 4U) == 0) {
+        *cursor += 4;
+        *value = true;
+        return true;
+    }
+    if (strncmp(*cursor, "false", 5U) == 0) {
+        *cursor += 5;
+        *value = false;
+        return true;
+    }
+    return false;
 }
 
 static bool beet_ble_parse_pair_data(const char **cursor, uint8_t *pair_index)
@@ -978,6 +1018,96 @@ static bool beet_ble_parse_empty_data(const char **cursor)
     return true;
 }
 
+static bool beet_ble_parse_valve_config_data(
+    const char **cursor,
+    beet_iface_command_request_t *request)
+{
+    bool seen_enabled = false;
+    bool seen_open = false;
+    bool seen_close = false;
+    bool seen_move = false;
+    bool seen_settle = false;
+    bool seen_hold = false;
+
+    if (!beet_ble_consume_char(cursor, '{')) {
+        return false;
+    }
+
+    while (true) {
+        char key[32];
+        uint16_t parsed_u16 = 0U;
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+
+        if (!beet_ble_parse_string(cursor, key, sizeof(key)) ||
+            !beet_ble_consume_char(cursor, ':')) {
+            return false;
+        }
+
+        if (strcmp(key, "valve_enabled") == 0 && !seen_enabled) {
+            if (!beet_ble_parse_bool(cursor, &request->valve_enabled)) {
+                return false;
+            }
+            seen_enabled = true;
+        } else if (strcmp(key, "open_angle_deg") == 0 && !seen_open) {
+            if (!beet_ble_parse_u16(cursor, &parsed_u16)) {
+                return false;
+            }
+            request->valve_open_angle_deg = (uint8_t)parsed_u16;
+            seen_open = true;
+        } else if (strcmp(key, "close_angle_deg") == 0 && !seen_close) {
+            if (!beet_ble_parse_u16(cursor, &parsed_u16)) {
+                return false;
+            }
+            request->valve_close_angle_deg = (uint8_t)parsed_u16;
+            seen_close = true;
+        } else if (strcmp(key, "move_duration_ms") == 0 && !seen_move) {
+            if (!beet_ble_parse_u16(cursor, &request->valve_move_duration_ms)) {
+                return false;
+            }
+            seen_move = true;
+        } else if (strcmp(key, "settle_delay_ms") == 0 && !seen_settle) {
+            if (!beet_ble_parse_u16(cursor, &request->valve_settle_delay_ms)) {
+                return false;
+            }
+            seen_settle = true;
+        } else if (strcmp(key, "open_hold_ms") == 0 && !seen_hold) {
+            if (!beet_ble_parse_u16(cursor, &request->valve_open_hold_ms)) {
+                return false;
+            }
+            seen_hold = true;
+        } else if (strcmp(key, "valve_enabled") == 0 ||
+            strcmp(key, "open_angle_deg") == 0 ||
+            strcmp(key, "close_angle_deg") == 0 ||
+            strcmp(key, "move_duration_ms") == 0 ||
+            strcmp(key, "settle_delay_ms") == 0 ||
+            strcmp(key, "open_hold_ms") == 0) {
+            return false;
+        } else {
+            if (!beet_ble_skip_json_value(cursor)) {
+                return false;
+            }
+        }
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == ',') {
+            ++(*cursor);
+            continue;
+        }
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+        return false;
+    }
+
+    return seen_enabled && seen_open && seen_close && seen_move && seen_settle && seen_hold;
+}
+
 bool beet_ble_parse_command_json(
     const char *json,
     beet_iface_command_request_t *request)
@@ -1108,6 +1238,26 @@ bool beet_ble_parse_command_json(
             } else if (strcmp(cmd, "enable_pair") == 0) {
                 request->command = BEET_IFACE_COMMAND_ENABLE_PAIR;
                 if (!beet_ble_parse_pair_data(&cursor, &request->pair_index)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "get_valve_config") == 0) {
+                request->command = BEET_IFACE_COMMAND_GET_VALVE_CONFIG;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "store_valve_config") == 0) {
+                request->command = BEET_IFACE_COMMAND_STORE_VALVE_CONFIG;
+                if (!beet_ble_parse_valve_config_data(&cursor, request)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "open_valve") == 0) {
+                request->command = BEET_IFACE_COMMAND_OPEN_VALVE;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "close_valve") == 0) {
+                request->command = BEET_IFACE_COMMAND_CLOSE_VALVE;
+                if (!beet_ble_parse_empty_data(&cursor)) {
                     return false;
                 }
             } else {

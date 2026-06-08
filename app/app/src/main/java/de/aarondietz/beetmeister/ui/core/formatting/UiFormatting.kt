@@ -87,6 +87,18 @@ internal fun batteryStateLabel(state: String, strings: BeetStringResolver): Stri
     return strings.get(resId)
 }
 
+internal fun valveStateLabel(state: String, strings: BeetStringResolver): String {
+    val resId = when (state) {
+        "CLOSED" -> R.string.valve_state_closed
+        "OPENING" -> R.string.valve_state_opening
+        "OPEN" -> R.string.valve_state_open
+        "CLOSING" -> R.string.valve_state_closing
+        "FAULT" -> R.string.valve_state_fault
+        else -> return strings.get(R.string.common_unknown_with_code, state)
+    }
+    return strings.get(resId)
+}
+
 internal fun pairStateLabel(state: String, strings: BeetStringResolver): String {
     val resId = when (state) {
         "IDLE" -> R.string.pair_state_idle

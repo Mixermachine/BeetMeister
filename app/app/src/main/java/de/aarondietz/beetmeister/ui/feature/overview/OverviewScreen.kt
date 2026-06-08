@@ -41,6 +41,7 @@ import de.aarondietz.beetmeister.ui.core.formatting.formatPercent
 import de.aarondietz.beetmeister.ui.core.formatting.formatUnixSeconds
 import de.aarondietz.beetmeister.ui.core.formatting.pairStateLabel
 import de.aarondietz.beetmeister.ui.core.formatting.runSourceLabel
+import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
 import de.aarondietz.beetmeister.ui.core.formatting.yesNo
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -112,20 +113,26 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
             ValueGridRow(
                 strings.get(R.string.overview_label_active_pumps),
                 device.activePumps.toString(),
-                strings.get(R.string.overview_label_time_valid),
-                yesNo(device.timeValid, strings),
+                strings.get(R.string.overview_label_valve),
+                valveStateLabel(device.valveState, strings),
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_wifi),
                 yesNo(device.wifiConnected, strings),
-                strings.get(R.string.overview_label_mqtt),
-                yesNo(device.mqttConnected, strings),
+                strings.get(R.string.overview_label_time_valid),
+                yesNo(device.timeValid, strings),
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_running_since),
                 formatUnixSeconds(runningSinceUnixSeconds, strings),
+                strings.get(R.string.overview_label_mqtt),
+                yesNo(device.mqttConnected, strings),
+            )
+            ValueGridRow(
                 strings.get(R.string.overview_label_uptime),
                 formatDuration(device.uptimeSeconds.toInt(), strings),
+                strings.get(R.string.settings_label_valve_enabled),
+                yesNo(device.valveEnabled, strings),
             )
         }
     }

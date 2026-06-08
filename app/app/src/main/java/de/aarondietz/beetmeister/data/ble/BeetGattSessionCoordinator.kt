@@ -20,6 +20,7 @@ import de.aarondietz.beetmeister.data.repository.commandMessageForResult
 import de.aarondietz.beetmeister.model.command.BeetCommandResult
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.controller.BeetPairState
+import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncPhase
@@ -142,6 +143,39 @@ internal class BeetGattSessionCoordinator(
             sendUserCommand(BeetJsonCodec.storeCalibration(pairIndex, dryMillivolts, wetMillivolts))
             refreshCalibrations()
         }
+    }
+
+    fun refreshValveConfig() {
+        host.scope.launch {
+            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
+                return@launch
+            }
+            runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getValveConfig()) } }
+        }
+    }
+
+    fun saveValveConfig(config: BeetValveConfig) {
+        host.scope.launch {
+            if (
+                config.openAngleDegrees !in 0..180 ||
+                config.closeAngleDegrees !in 0..180 ||
+                config.moveDurationMillis !in 100..5000 ||
+                config.settleDelayMillis !in 0..5000 ||
+                config.openHoldMillis !in 0..10000
+            ) {
+                host.setCommandMessage(strings.get(R.string.runtime_valve_config_invalid))
+                return@launch
+            }
+            sendUserCommand(BeetJsonCodec.storeValveConfig(config))
+        }
+    }
+
+    fun openValve() {
+        host.scope.launch { sendUserCommand(BeetJsonCodec.openValve()) }
+    }
+
+    fun closeValve() {
+        host.scope.launch { sendUserCommand(BeetJsonCodec.closeValve()) }
     }
 
     fun openGatt(device: BluetoothDevice) {
@@ -540,6 +574,7 @@ internal class BeetGattSessionCoordinator(
         host.persistLastAddress(host.currentAddress)
         Log.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
         host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
+        refreshValveConfig()
         startBackgroundEventSync()
     }
 
@@ -680,6 +715,9 @@ internal class BeetGattSessionCoordinator(
             } else {
                 host.updateState { state -> state.copy(systemEvents = mergeSystemEvents(state.systemEvents, listOf(event))) }
             }
+        }
+        result.valveConfig?.let { config ->
+            host.updateState { it.copy(valveConfig = config) }
         }
         host.session.pendingCommand?.complete(result)
     }
@@ -836,7 +874,7 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DESIRED_MTU = 247
-        private const val EXPECTED_PROTOCOL_VERSION = 6
+        private const val EXPECTED_PROTOCOL_VERSION = 7
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
         private const val INITIAL_SYNC_BATCH_SIZE = 1
         private const val MAX_SYNC_BATCH_SIZE = 8

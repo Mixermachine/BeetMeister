@@ -60,6 +60,10 @@ beet_ble_command_lane_t beet_ble_classify_command_lane(beet_iface_command_t comm
     case BEET_IFACE_COMMAND_ENABLE_PAIR:
     case BEET_IFACE_COMMAND_MOISTURE_TEST_START:
     case BEET_IFACE_COMMAND_SET_TIME:
+    case BEET_IFACE_COMMAND_GET_VALVE_CONFIG:
+    case BEET_IFACE_COMMAND_STORE_VALVE_CONFIG:
+    case BEET_IFACE_COMMAND_OPEN_VALVE:
+    case BEET_IFACE_COMMAND_CLOSE_VALVE:
     default:
         return BEET_BLE_COMMAND_LANE_REAL;
     }

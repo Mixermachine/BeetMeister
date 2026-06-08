@@ -13,6 +13,7 @@ idf_component_register(
     REQUIRES
         esp_adc
         esp_driver_i2c
+        esp_driver_ledc
         esp_lcd
         bt
         esp_app_format

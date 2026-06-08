@@ -79,7 +79,7 @@ Example payload:
 ```json
 {
   "device_id": "beetmeister-01",
-  "protocol_version": 6,
+  "protocol_version": 7,
   "firmware_version": "0.1.0",
   "pair_count": 8
 }
@@ -98,15 +98,19 @@ The controller shall emit three frame types:
 ```json
 {
   "type": "device",
-  "battery_state": "ACTIVE",
-  "battery_mv": 3340,
-  "time_valid": true,
-  "boot_id": 42,
-  "next_check_in_s": 4812,
-  "active_pumps": 1,
-  "wifi_connected": true,
-  "mqtt_connected": true,
-  "uptime_s": 12345
+  "data": {
+    "battery_state": "ACTIVE",
+    "battery_mv": 3340,
+    "time_valid": true,
+    "boot_id": 42,
+    "next_check_in_s": 4812,
+    "active_pumps": 1,
+    "wifi_connected": true,
+    "mqtt_connected": true,
+    "uptime_s": 12345,
+    "valve_enabled": true,
+    "valve_state": "OPEN"
+  }
 }
 ```
 
@@ -254,9 +258,64 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
+### Valve configuration and manual valve commands
+
+```json
+{
+  "cmd": "get_valve_config",
+  "data": {}
+}
+```
+
+```json
+{
+  "cmd": "store_valve_config",
+  "data": {
+    "valve_enabled": true,
+    "open_angle_deg": 0,
+    "close_angle_deg": 90,
+    "move_duration_ms": 700,
+    "settle_delay_ms": 200,
+    "open_hold_ms": 1500
+  }
+}
+```
+
+```json
+{
+  "cmd": "open_valve",
+  "data": {}
+}
+```
+
+```json
+{
+  "cmd": "close_valve",
+  "data": {}
+}
+```
+
 ## `command_result` semantics
 
 Every accepted or rejected command shall produce one result frame.
+
+Valve config results shall return:
+
+```json
+{
+  "cmd": "get_valve_config",
+  "status": "accepted",
+  "reason": "none",
+  "data": {
+    "valve_enabled": true,
+    "open_angle_deg": 0,
+    "close_angle_deg": 90,
+    "move_duration_ms": 700,
+    "settle_delay_ms": 200,
+    "open_hold_ms": 1500
+  }
+}
+```
 
 ```json
 {

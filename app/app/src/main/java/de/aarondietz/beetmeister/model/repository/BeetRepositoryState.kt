@@ -6,6 +6,7 @@ import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
 import de.aarondietz.beetmeister.model.controller.BeetPairState
+import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
@@ -17,6 +18,7 @@ data class BeetRepositoryState(
     val discoveredDevices: List<BeetDiscoveredDevice> = emptyList(),
     val controllerInfo: BeetControllerInfo? = null,
     val deviceState: BeetDeviceState? = null,
+    val valveConfig: BeetValveConfig? = null,
     val pairStates: List<BeetPairState> = List(8) { index ->
         BeetPairState(
             pairIndex = index + 1,

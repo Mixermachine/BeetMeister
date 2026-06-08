@@ -100,6 +100,13 @@ menu "BeetMeister Configuration"
         help
             GPIO used to enable the pump and relay DC-DC boost converter.
 
+    config BEET_VALVE_SERVO_GPIO
+        int "Main valve servo PWM GPIO number"
+        range ENV_GPIO_RANGE_MIN ENV_GPIO_OUT_RANGE_MAX
+        default 17
+        help
+            GPIO used for the shared main water valve servo PWM signal.
+
     config BEET_RELAY_ACTIVE_LOW
         bool "Relay inputs are active-low"
         default y

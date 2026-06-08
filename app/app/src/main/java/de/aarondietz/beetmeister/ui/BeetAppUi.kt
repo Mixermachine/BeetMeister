@@ -173,6 +173,10 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     onRefreshHistorySummary = viewModel::refreshHistorySummary,
                     onRefreshCalibrations = viewModel::refreshCalibrations,
                     onSaveCalibration = viewModel::saveCalibration,
+                    onRefreshValveConfig = viewModel::refreshValveConfig,
+                    onSaveValveConfig = viewModel::saveValveConfig,
+                    onOpenValve = viewModel::openValve,
+                    onCloseValve = viewModel::closeValve,
                     onDisconnect = viewModel::disconnect,
                 )
             }

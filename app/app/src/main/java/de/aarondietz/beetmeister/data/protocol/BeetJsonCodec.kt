@@ -16,10 +16,12 @@ import de.aarondietz.beetmeister.model.command.BeetEventRequestData
 import de.aarondietz.beetmeister.model.command.BeetManualStartCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairCommandData
 import de.aarondietz.beetmeister.model.command.BeetSetTimeCommandData
+import de.aarondietz.beetmeister.model.command.BeetValveConfigCommandData
 import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
 import de.aarondietz.beetmeister.model.controller.BeetPairState
+import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
@@ -52,6 +54,8 @@ object BeetJsonCodec {
         moshi.adapter(BeetCommandAckData::class.java)
     private val calibrationPayloadAdapter: JsonAdapter<BeetCalibration> =
         moshi.adapter(BeetCalibration::class.java)
+    private val valveConfigPayloadAdapter: JsonAdapter<BeetValveConfig> =
+        moshi.adapter(BeetValveConfig::class.java)
     private val historySummaryPayloadAdapter: JsonAdapter<BeetHistorySummary> =
         moshi.adapter(BeetHistorySummary::class.java)
     private val systemHistorySummaryPayloadAdapter: JsonAdapter<BeetSystemHistorySummary> =
@@ -64,6 +68,7 @@ object BeetJsonCodec {
     private val calibrationRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetCalibrationCommandData::class.java)
     private val eventRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEventRequestData::class.java)
     private val setTimeRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetSetTimeCommandData::class.java)
+    private val valveConfigRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetValveConfigCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
 
     data class CommandChunkFrame(
@@ -138,6 +143,14 @@ object BeetJsonCodec {
         } else {
             null
         }
+        val valveConfig = if (
+            (header.cmd == "get_valve_config" || header.cmd == "store_valve_config") &&
+            header.status == "accepted"
+        ) {
+            valveConfigPayloadAdapter.fromJson(dataJson) ?: error("Invalid valve config payload.")
+        } else {
+            null
+        }
         val ack = commandAckPayloadAdapter.fromJson(dataJson)
         return BeetCommandResult(
             command = header.cmd,
@@ -150,6 +163,7 @@ object BeetJsonCodec {
             event = event,
             systemHistorySummary = systemHistorySummary,
             systemEvent = systemEvent,
+            valveConfig = valveConfig,
         )
     }
 
@@ -268,6 +282,45 @@ object BeetJsonCodec {
         emptyRequestEnvelopeAdapter.toJson(
             CommandRequestEnvelopeDto(
                 cmd = "clear_ble_bonds",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun getValveConfig(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_valve_config",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun storeValveConfig(config: BeetValveConfig): String =
+        valveConfigRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "store_valve_config",
+                data = BeetValveConfigCommandData(
+                    valveEnabled = config.valveEnabled,
+                    openAngleDegrees = config.openAngleDegrees,
+                    closeAngleDegrees = config.closeAngleDegrees,
+                    moveDurationMillis = config.moveDurationMillis,
+                    settleDelayMillis = config.settleDelayMillis,
+                    openHoldMillis = config.openHoldMillis,
+                ),
+            ),
+        )
+
+    fun openValve(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "open_valve",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun closeValve(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "close_valve",
                 data = BeetEmptyCommandData(),
             ),
         )

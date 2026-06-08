@@ -37,6 +37,7 @@ The planned baseline allocation is:
 - future single-button local control and bond-admit input on `GPIO13`
 - moisture sensor supply enable on `GPIO15`
 - pump and relay boost-converter enable on `GPIO16`
+- main valve servo PWM on `GPIO17`
 - relay outputs on `GPIO14`, `GPIO21`, `GPIO47`, `GPIO38`, `GPIO39`, `GPIO40`, `GPIO41`, and `GPIO42`
 
 Rationale:
@@ -67,6 +68,8 @@ These are preferred for later expansion because they are not strapping pins, are
 - Pump supply may be either direct battery voltage or a boosted 5.0 V rail.
 - If a boost converter is used, pump ground, relay-board ground, and controller ground shall share a common reference.
 - If a boost converter is used, `GPIO16` shall drive its enable input and remain low whenever no pumping is active.
+- If a shared upstream ball valve servo is used, its PWM signal shall use `GPIO17` and the servo shall share the boosted rail.
+- The controller shall energize the servo only during short open and close actions and shall not move the servo while any pump is running.
 
 ## Relay and pump design rules
 

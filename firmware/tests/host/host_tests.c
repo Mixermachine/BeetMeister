@@ -219,6 +219,21 @@ static void test_duration_lookup_boundaries(void)
     TEST_ASSERT_FALSE(beet_is_valid_manual_duration_s((uint16_t)(BEET_MAX_MANUAL_DURATION_S + 1U)));
 }
 
+static void test_schema_defaults(void)
+{
+    beet_app_config_t config;
+    beet_power_runtime_state_t power_state;
+
+    beet_default_app_config(&config);
+    beet_default_power_runtime_state(&power_state);
+
+    TEST_ASSERT_U32_EQ(2U, BEET_APP_CONFIG_SCHEMA_VERSION);
+    TEST_ASSERT_U32_EQ(1U, BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION);
+    TEST_ASSERT_U32_EQ(BEET_APP_CONFIG_SCHEMA_VERSION, config.schema_version);
+    TEST_ASSERT_U32_EQ(BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION, power_state.schema_version);
+    TEST_ASSERT_TRUE(config.schema_version != power_state.schema_version);
+}
+
 static void test_sanity_threshold_and_battery_classification(void)
 {
     TEST_ASSERT_TRUE(beet_sanity_check_passed(10U, 14U));
@@ -557,7 +572,7 @@ static void test_ble_json_formatting(void)
 
     TEST_ASSERT_TRUE(beet_ble_format_device_frame_json(json, sizeof(json), &device) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":false,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":false,\"mqtt_connected\":false,\"uptime_s\":0}}",
+        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":false,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":false,\"mqtt_connected\":false,\"uptime_s\":0,\"valve_enabled\":false,\"valve_state\":\"CLOSED\"}}",
         json);
 
     TEST_ASSERT_TRUE(beet_ble_format_pair_frame_json(json, sizeof(json), &pair) > 0);
@@ -783,6 +798,7 @@ int main(void)
         {"moisture_conversion_boundaries", test_moisture_conversion_boundaries},
         {"sensor_plausibility_and_supply_compensation", test_sensor_plausibility_and_supply_compensation},
         {"duration_lookup_boundaries", test_duration_lookup_boundaries},
+        {"schema_defaults", test_schema_defaults},
         {"sanity_threshold_and_battery_classification", test_sanity_threshold_and_battery_classification},
         {"battery_percentage_and_recovery_cadence", test_battery_percentage_and_recovery_cadence},
         {"event_record_validation", test_event_record_validation},
