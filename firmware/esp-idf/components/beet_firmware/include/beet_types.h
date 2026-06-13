@@ -284,6 +284,7 @@ bool beet_is_valid_valve_move_duration_ms(uint16_t duration_ms);
 bool beet_is_valid_valve_settle_delay_ms(uint16_t delay_ms);
 bool beet_is_valid_valve_open_hold_ms(uint16_t hold_ms);
 bool beet_is_valid_watering_interval_s(uint32_t interval_s);
+uint32_t beet_sensor_refresh_interval_ms(bool ble_connected, bool active_watering);
 uint16_t beet_correct_moisture_sensor_mv(uint16_t sensor_mv, uint16_t battery_mv);
 bool beet_is_sensor_mv_plausible(uint16_t corrected_sensor_mv, uint16_t dry_mv, uint16_t wet_mv);
 uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sensor_mv);

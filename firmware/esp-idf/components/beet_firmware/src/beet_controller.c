@@ -80,6 +80,7 @@ typedef struct {
     uint32_t next_run_id;
     int64_t next_check_due_us;
     int64_t last_tick_us;
+    int64_t last_sensor_refresh_us;
     int64_t last_status_log_us;
     int64_t last_bench_log_us;
     int64_t relay_test_phase_started_us;
@@ -141,6 +142,11 @@ static esp_err_t beet_apply_time_update(uint32_t unix_s);
 static bool beet_lookup_boot_epoch(uint32_t boot_id, uint32_t *boot_epoch_unix_s);
 static bool beet_boot_low_voltage_grace_active(int64_t now_us);
 static bool beet_should_run_scheduler_immediately_on_boot(void);
+static bool beet_refresh_sensors(void);
+static bool beet_has_active_pump_runtime(void);
+static bool beet_sensor_refresh_due(int64_t now_us);
+static bool beet_refresh_sensors_if_due(int64_t now_us);
+static bool beet_refresh_sensors_force(int64_t now_us);
 
 static int64_t beet_now_us(void)
 {
@@ -207,6 +213,16 @@ static uint32_t beet_abs_diff_u16(uint16_t a, uint16_t b)
 static bool beet_runtime_has_pump(const beet_pair_runtime_t *runtime)
 {
     return runtime->phase == BEET_RUN_PHASE_SANITY_CHECK || runtime->phase == BEET_RUN_PHASE_WATERING;
+}
+
+static bool beet_has_active_pump_runtime(void)
+{
+    for (size_t i = 0; i < BEET_PAIR_COUNT; ++i) {
+        if (beet_runtime_has_pump(&s_state.runtimes[i])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool beet_has_any_runtime(void)
@@ -1327,6 +1343,16 @@ static void beet_service_waiting_pairs(int64_t now_us)
             beet_finish_pair_state(selected_pair, BEET_PAIR_STATE_IDLE, BEET_STOP_REASON_SYSTEM_ABORT, BEET_BLOCK_REASON_NONE);
             continue;
         }
+        if (s_state.runtimes[selected_pair - 1U].source != BEET_RUN_SOURCE_MANUAL) {
+            beet_refresh_sensors_force(now_us);
+            if (s_state.runtimes[selected_pair - 1U].phase != BEET_RUN_PHASE_WAITING) {
+                continue;
+            }
+            s_state.runtimes[selected_pair - 1U].moisture_before_pct =
+                s_state.snapshots[selected_pair - 1U].last_moisture_pct;
+            s_state.runtimes[selected_pair - 1U].sensor_before_mv =
+                s_state.snapshots[selected_pair - 1U].last_sensor_mv;
+        }
         if (beet_valve_preview_active()) {
             return;
         }
@@ -1355,11 +1381,11 @@ static void beet_service_waiting_pairs(int64_t now_us)
     }
 }
 
-static void beet_refresh_sensors(void)
+static bool beet_refresh_sensors(void)
 {
     if (beet_board_set_sensor_power_enabled(true) != ESP_OK) {
         ESP_LOGW(TAG, "sensor power enable failed");
-        return;
+        return false;
     }
 
     vTaskDelay(pdMS_TO_TICKS(CONFIG_BEET_SENSOR_POWER_SETTLE_MS));
@@ -1428,6 +1454,42 @@ static void beet_refresh_sensors(void)
     if (beet_board_set_sensor_power_enabled(false) != ESP_OK) {
         ESP_LOGW(TAG, "sensor power disable failed");
     }
+    return true;
+}
+
+static bool beet_sensor_refresh_due(int64_t now_us)
+{
+    beet_ble_diag_status_t ble_status;
+    uint32_t interval_ms;
+
+    beet_ble_get_diag_status(&ble_status);
+    interval_ms = beet_sensor_refresh_interval_ms(ble_status.connected, beet_has_active_pump_runtime());
+
+    if (s_state.last_sensor_refresh_us <= 0LL) {
+        return true;
+    }
+
+    return (now_us - s_state.last_sensor_refresh_us) >= ((int64_t)interval_ms * 1000LL);
+}
+
+static bool beet_refresh_sensors_if_due(int64_t now_us)
+{
+    if (!beet_sensor_refresh_due(now_us)) {
+        return false;
+    }
+    return beet_refresh_sensors_force(now_us);
+}
+
+static bool beet_refresh_sensors_force(int64_t now_us)
+{
+    int64_t refreshed_at_us;
+
+    if (!beet_refresh_sensors()) {
+        return false;
+    }
+    refreshed_at_us = beet_now_us();
+    s_state.last_sensor_refresh_us = refreshed_at_us > now_us ? refreshed_at_us : now_us;
+    return true;
 }
 
 static void beet_restore_snapshots(void)
@@ -2041,7 +2103,7 @@ esp_err_t beet_iface_submit_command(
             beet_storage_save_calibration(&s_state.calibrations[request->pair_index - 1U]),
             TAG,
             "calibration save failed");
-        beet_refresh_sensors();
+        (void)beet_refresh_sensors_force(now_us);
         beet_flush_dirty_snapshots(true);
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_CALIBRATION_SAVED;
@@ -2457,6 +2519,7 @@ static void beet_service_relay_self_test(int64_t now_us)
 static void beet_run_scheduler_cycle(int64_t now_us)
 {
     ESP_LOGI(TAG, "running scheduler cycle");
+    beet_refresh_sensors_force(now_us);
 
     for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
         beet_pair_runtime_snapshot_t *snapshot = &s_state.snapshots[pair - 1U];
@@ -2555,6 +2618,7 @@ static void beet_progress_runs(int64_t now_us)
 #if CONFIG_BEET_ENABLE_PUMP_OUTPUTS
             beet_board_set_relay(pair, false);
 #endif
+            beet_refresh_sensors_force(now_us);
             runtime->delivered_duration_s = BEET_SANITY_CHECK_DURATION_S;
 
             if (!beet_sanity_check_passed(runtime->moisture_before_pct, snapshot->last_moisture_pct)) {
@@ -2604,7 +2668,7 @@ static void beet_controller_service_coarse_tick(int64_t now_us, uint32_t elapsed
 
     s_state.last_tick_us = now_us;
     beet_refresh_battery();
-    beet_refresh_sensors();
+    beet_refresh_sensors_if_due(now_us);
     beet_tick_blocks(elapsed_s);
 }
 
@@ -2734,7 +2798,7 @@ esp_err_t beet_controller_init(void)
     ESP_RETURN_ON_ERROR(beet_valve_close_during_boot(), TAG, "boot valve close failed");
     beet_restore_snapshots();
     beet_refresh_battery();
-    beet_refresh_sensors();
+    (void)beet_refresh_sensors_force(beet_now_us());
     s_state.active_pumps = beet_count_active_pumps();
     beet_controller_sync_boost_output();
     beet_controller_handle_boot_wakeup();

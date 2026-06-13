@@ -202,6 +202,14 @@ static void test_sensor_plausibility_and_supply_compensation(void)
     TEST_ASSERT_FALSE(beet_is_sensor_mv_plausible(499U, 2765U, 900U));
 }
 
+static void test_sensor_refresh_policy(void)
+{
+    TEST_ASSERT_U32_EQ(30000U, beet_sensor_refresh_interval_ms(false, false));
+    TEST_ASSERT_U32_EQ(5000U, beet_sensor_refresh_interval_ms(false, true));
+    TEST_ASSERT_U32_EQ(1000U, beet_sensor_refresh_interval_ms(true, false));
+    TEST_ASSERT_U32_EQ(1000U, beet_sensor_refresh_interval_ms(true, true));
+}
+
 static void test_duration_lookup_boundaries(void)
 {
     const uint8_t moisture_values[] = {100U, 81U, 80U, 79U, 70U, 69U, 60U, 59U, 50U, 49U, 0U};
@@ -870,6 +878,7 @@ int main(void)
     const beet_test_case_t tests[] = {
         {"moisture_conversion_boundaries", test_moisture_conversion_boundaries},
         {"sensor_plausibility_and_supply_compensation", test_sensor_plausibility_and_supply_compensation},
+        {"sensor_refresh_policy", test_sensor_refresh_policy},
         {"duration_lookup_boundaries", test_duration_lookup_boundaries},
         {"schema_defaults", test_schema_defaults},
         {"sanity_threshold_and_battery_classification", test_sanity_threshold_and_battery_classification},

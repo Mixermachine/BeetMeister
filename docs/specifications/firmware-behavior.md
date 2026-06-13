@@ -43,6 +43,16 @@ Runtime snapshots shall be authoritative for:
 
 If a persisted snapshot indicates that a pair was watering before reset or power loss, the controller shall restore that pair with pump output off, clear any stale runtime state, and recover the pair to `IDLE` unless the pair is still sensor-invalid.
 
+## Moisture sensor refresh behavior
+
+- The shared moisture sensor supply rail shall remain off except during explicit sampling windows.
+- On boot, the controller shall perform one immediate full sensor refresh.
+- While BLE is connected, the controller shall refresh all sensor channels about once per second.
+- While a watering or sanity-check pump phase is active without BLE connected, the controller shall refresh all sensor channels about every 5 seconds.
+- While idle and not BLE connected, the controller shall refresh all sensor channels about every 30 seconds.
+- Automatic scheduler evaluation shall force a fresh sensor refresh before computing watering decisions.
+- The sanity-check path shall force a fresh sensor refresh before capturing the pre-run baseline and again after stopping the pump before evaluating the moisture delta.
+
 ## Scheduler behavior
 
 - The controller shall maintain one global configurable scheduler interval.
