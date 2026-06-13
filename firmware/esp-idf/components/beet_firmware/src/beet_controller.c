@@ -131,6 +131,7 @@ static bool beet_valve_servo_activity_active(void);
 static bool beet_valve_ready_for_flow(void);
 static esp_err_t beet_valve_start_open(int64_t now_us);
 static esp_err_t beet_valve_start_close(int64_t now_us);
+static esp_err_t beet_valve_close_during_boot(void);
 static esp_err_t beet_valve_preview_position(uint16_t pulse_us, int64_t now_us);
 static void beet_service_valve(int64_t now_us);
 static bool beet_validate_valve_config_request(const beet_iface_command_request_t *request);
@@ -312,6 +313,37 @@ static esp_err_t beet_valve_start_close(int64_t now_us)
         ESP_RETURN_ON_ERROR(err, TAG, "valve close drive failed");
     }
     s_state.valve.servo_active = true;
+    return ESP_OK;
+}
+
+static esp_err_t beet_valve_close_during_boot(void)
+{
+    if (!s_state.config.valve_enabled) {
+        s_state.valve.state = BEET_VALVE_STATE_CLOSED;
+        s_state.valve.open_hold_deadline_us = 0LL;
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(beet_valve_start_close(beet_now_us()), TAG, "boot valve close start failed");
+
+    vTaskDelay(pdMS_TO_TICKS(s_state.config.valve_move_duration_ms));
+    if (s_state.valve.servo_active) {
+        esp_err_t release_err = beet_board_release_valve_servo();
+        if (release_err != ESP_OK) {
+            s_state.valve.state = BEET_VALVE_STATE_FAULT;
+            s_state.valve.motion_started_us = 0LL;
+            s_state.valve.servo_active = false;
+            beet_controller_sync_boost_output();
+            ESP_RETURN_ON_ERROR(release_err, TAG, "boot valve close release failed");
+        }
+        s_state.valve.servo_active = false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(s_state.config.valve_settle_delay_ms));
+    s_state.valve.state = BEET_VALVE_STATE_CLOSED;
+    s_state.valve.motion_started_us = 0LL;
+    beet_log_system_event(BEET_SYSTEM_EVENT_VALVE_CLOSED, 0U, NULL, 0U, false, 0U);
+    beet_controller_sync_boost_output();
     return ESP_OK;
 }
 
@@ -2664,6 +2696,11 @@ esp_err_t beet_controller_init(void)
     beet_controller_handle_boot_wakeup();
     s_state.next_check_due_us = beet_now_us();
     beet_update_next_check_fields();
+    beet_controller_set_indicator();
+    beet_controller_set_display_power();
+    beet_flush_dirty_snapshots(true);
+    beet_log_system_event(BEET_SYSTEM_EVENT_STARTUP, 0U, NULL, 0U, false, 0U);
+    ESP_RETURN_ON_ERROR(beet_valve_close_during_boot(), TAG, "boot valve close failed");
     ESP_LOGI(
         TAG,
         "controller init BLE gate battery_state=%s battery_mv=%u force_enable=%d",
@@ -2675,10 +2712,6 @@ esp_err_t beet_controller_init(void)
     beet_log_ble_diag_status("after_ble_init");
     beet_ble_set_enabled(beet_ble_should_be_enabled());
     beet_log_ble_diag_status("after_ble_gate");
-    beet_controller_set_indicator();
-    beet_controller_set_display_power();
-    beet_flush_dirty_snapshots(true);
-    beet_log_system_event(BEET_SYSTEM_EVENT_STARTUP, 0U, NULL, 0U, false, 0U);
 
     if (s_controller_task == NULL) {
         BaseType_t task_ok = xTaskCreate(
