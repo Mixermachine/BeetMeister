@@ -134,6 +134,8 @@ bool beet_is_valid_system_event_type(beet_system_event_type_t type)
     case BEET_SYSTEM_EVENT_BLE_BOND_SUCCESS:
     case BEET_SYSTEM_EVENT_BLE_BOND_FAILED:
     case BEET_SYSTEM_EVENT_BLE_BONDS_CLEARED:
+    case BEET_SYSTEM_EVENT_VALVE_OPENED:
+    case BEET_SYSTEM_EVENT_VALVE_CLOSED:
     case BEET_SYSTEM_EVENT_MQTT_CONNECT:
     case BEET_SYSTEM_EVENT_MQTT_DISCONNECT:
     case BEET_SYSTEM_EVENT_MQTT_PUBLISH_FAILED:
@@ -515,6 +517,10 @@ const char *beet_system_event_type_name(beet_system_event_type_t type)
         return "BLE_BOND_FAILED";
     case BEET_SYSTEM_EVENT_BLE_BONDS_CLEARED:
         return "BLE_BONDS_CLEARED";
+    case BEET_SYSTEM_EVENT_VALVE_OPENED:
+        return "VALVE_OPENED";
+    case BEET_SYSTEM_EVENT_VALVE_CLOSED:
+        return "VALVE_CLOSED";
     case BEET_SYSTEM_EVENT_MQTT_CONNECT:
         return "MQTT_CONNECT";
     case BEET_SYSTEM_EVENT_MQTT_DISCONNECT:

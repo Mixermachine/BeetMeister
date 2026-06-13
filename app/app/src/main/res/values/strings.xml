@@ -268,6 +268,8 @@
     <string name="system_event_ble_bond_success">Bluetooth bonded</string>
     <string name="system_event_ble_bond_failed">Bluetooth bond failed</string>
     <string name="system_event_ble_bonds_cleared">Bluetooth bonds cleared</string>
+    <string name="system_event_valve_opened">Valve opened</string>
+    <string name="system_event_valve_closed">Valve closed</string>
     <string name="system_event_mqtt_connect">MQTT connected</string>
     <string name="system_event_mqtt_disconnect">MQTT disconnected</string>
     <string name="system_event_mqtt_publish_failed">MQTT publish failed</string>

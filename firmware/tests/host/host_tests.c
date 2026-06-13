@@ -295,6 +295,14 @@ static void test_event_record_validation(void)
     TEST_ASSERT_FALSE(beet_validate_system_event_record(&system));
 }
 
+static void test_valve_system_event_types(void)
+{
+    TEST_ASSERT_TRUE(beet_is_valid_system_event_type(BEET_SYSTEM_EVENT_VALVE_OPENED));
+    TEST_ASSERT_TRUE(beet_is_valid_system_event_type(BEET_SYSTEM_EVENT_VALVE_CLOSED));
+    TEST_ASSERT_STR_EQ("VALVE_OPENED", beet_system_event_type_name(BEET_SYSTEM_EVENT_VALVE_OPENED));
+    TEST_ASSERT_STR_EQ("VALVE_CLOSED", beet_system_event_type_name(BEET_SYSTEM_EVENT_VALVE_CLOSED));
+}
+
 static void test_event_ring_reconstruction_and_summary(void)
 {
     beet_event_ring_state_t state;
@@ -847,6 +855,7 @@ int main(void)
         {"sanity_threshold_and_battery_classification", test_sanity_threshold_and_battery_classification},
         {"battery_percentage_and_recovery_cadence", test_battery_percentage_and_recovery_cadence},
         {"event_record_validation", test_event_record_validation},
+        {"valve_system_event_types", test_valve_system_event_types},
         {"event_ring_reconstruction_and_summary", test_event_ring_reconstruction_and_summary},
         {"ble_command_parsing", test_ble_command_parsing},
         {"ble_rate_guard_windowing", test_ble_rate_guard_windowing},

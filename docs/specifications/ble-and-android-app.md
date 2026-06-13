@@ -258,6 +258,13 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
+Valve motion is reported as normal system events when a real valve open or close finishes successfully:
+
+- `VALVE_OPENED`
+- `VALVE_CLOSED`
+
+Calibration preview moves are not reported as system events.
+
 ### Valve configuration and manual valve commands
 
 ```json

@@ -380,6 +380,10 @@ Exact meanings:
 - Persisted ordering of watering events shall use `seq_no`, not timestamps.
 - UTC timestamps shall be used only when the controller has a valid time source.
 - Every persisted watering or system event shall always carry both `boot_id` and uptime fields.
+- Successful real valve motion shall be persisted as system events:
+  - `VALVE_OPENED`
+  - `VALVE_CLOSED`
+- Calibration preview moves shall not be persisted as system events.
 - When UTC time is unavailable, Unix event timestamps shall be recorded as `0` and `time_valid = false`.
 - When UTC becomes valid during the current boot, the controller shall backfill unresolved records from the same `boot_id`.
 - Unresolved records from older boots shall be ignored by history readout.

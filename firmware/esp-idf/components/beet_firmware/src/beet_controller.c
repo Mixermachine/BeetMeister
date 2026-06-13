@@ -353,6 +353,7 @@ static void beet_service_valve(int64_t now_us)
         }
         if (now_us >= settle_done_us) {
             s_state.valve.state = BEET_VALVE_STATE_OPEN;
+            beet_log_system_event(BEET_SYSTEM_EVENT_VALVE_OPENED, 0U, NULL, 0U, false, 0U);
         }
         break;
     case BEET_VALVE_STATE_CLOSING:
@@ -362,6 +363,7 @@ static void beet_service_valve(int64_t now_us)
         }
         if (now_us >= settle_done_us) {
             s_state.valve.state = BEET_VALVE_STATE_CLOSED;
+            beet_log_system_event(BEET_SYSTEM_EVENT_VALVE_CLOSED, 0U, NULL, 0U, false, 0U);
             beet_controller_sync_boost_output();
         }
         break;

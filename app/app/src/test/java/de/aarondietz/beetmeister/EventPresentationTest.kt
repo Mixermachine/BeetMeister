@@ -15,6 +15,7 @@ import de.aarondietz.beetmeister.ui.feature.events.systemEventCompactDetails
 import de.aarondietz.beetmeister.ui.feature.events.systemEventFilters
 import de.aarondietz.beetmeister.ui.feature.events.systemEventPeerLabel
 import de.aarondietz.beetmeister.ui.feature.events.systemEventReasonLabel
+import de.aarondietz.beetmeister.ui.feature.events.systemEventTitle
 import de.aarondietz.beetmeister.ui.feature.events.wateringTotals
 import de.aarondietz.beetmeister.ui.feature.overview.runningSinceUnixSeconds
 import org.junit.Assert.assertEquals
@@ -55,6 +56,18 @@ class EventPresentationTest {
         assertTrue(EventFilter.Ota.acceptsSystem(otaEvent))
         assertFalse(EventFilter.Ota.acceptsSystem(mqttEvent))
         assertTrue(EventFilter.MQTT.acceptsSystem(mqttEvent))
+    }
+
+    @Test
+    fun valveSystemEventsUseReadableLabelsAndSystemCategory() {
+        val valveOpen = systemEvent(eventType = "VALVE_OPENED")
+        val valveClosed = systemEvent(eventType = "VALVE_CLOSED")
+
+        assertEquals("Valve opened", systemEventTitle(valveOpen, strings))
+        assertEquals("Valve closed", systemEventTitle(valveClosed, strings))
+        assertTrue(EventFilter.All.acceptsSystem(valveOpen))
+        assertFalse(EventFilter.Bluetooth.acceptsSystem(valveOpen))
+        assertFalse(EventFilter.MQTT.acceptsSystem(valveClosed))
     }
 
     @Test

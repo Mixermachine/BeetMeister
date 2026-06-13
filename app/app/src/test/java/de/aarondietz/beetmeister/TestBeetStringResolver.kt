@@ -24,6 +24,8 @@ internal class TestBeetStringResolver : BeetStringResolver {
             R.string.events_filter_startup -> "Startup"
             R.string.events_filter_mqtt -> "MQTT"
             R.string.events_filter_ota -> "OTA"
+            R.string.system_event_valve_opened -> "Valve opened"
+            R.string.system_event_valve_closed -> "Valve closed"
             R.string.common_millivolts -> "%1\$d mV"
             R.string.format_duration_hours_minutes -> "%1\$dh %2\$dm"
             R.string.format_duration_minutes_seconds -> "%1\$dm %2\$ds"

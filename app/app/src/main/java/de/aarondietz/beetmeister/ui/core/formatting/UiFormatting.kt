@@ -189,6 +189,8 @@ internal fun systemEventLabel(value: String, strings: BeetStringResolver): Strin
         "BLE_BOND_SUCCESS" -> R.string.system_event_ble_bond_success
         "BLE_BOND_FAILED" -> R.string.system_event_ble_bond_failed
         "BLE_BONDS_CLEARED" -> R.string.system_event_ble_bonds_cleared
+        "VALVE_OPENED" -> R.string.system_event_valve_opened
+        "VALVE_CLOSED" -> R.string.system_event_valve_closed
         "MQTT_CONNECT" -> R.string.system_event_mqtt_connect
         "MQTT_DISCONNECT" -> R.string.system_event_mqtt_disconnect
         "MQTT_PUBLISH_FAILED" -> R.string.system_event_mqtt_publish_failed
