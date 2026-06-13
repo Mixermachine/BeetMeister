@@ -17,11 +17,7 @@ internal class BeetEventCache(
         loadKeys(indexKey).forEach { key ->
             val event = prefs.getString(key, null)
                 ?.let(BeetJsonCodec::wateringEventFromJson)
-            if (event != null &&
-                event.bootId > 0L &&
-                event.timeValid &&
-                event.endedAtUnixSeconds >= cutoffUnixSeconds
-            ) {
+            if (event != null && shouldRetainWateringEvent(event, cutoffUnixSeconds)) {
                 kept += event
                 keysToKeep += key
             } else {
@@ -54,7 +50,7 @@ internal class BeetEventCache(
 
     fun saveWateringEvent(deviceId: String, event: BeetWateringEvent) {
         val cutoffUnixSeconds = retentionCutoffUnixSeconds()
-        if (!event.timeValid || event.endedAtUnixSeconds < cutoffUnixSeconds) {
+        if (!shouldRetainWateringEvent(event, cutoffUnixSeconds)) {
             return
         }
         val key = wateringEventKey(deviceId, event.sequenceNumber)
@@ -102,7 +98,7 @@ internal class BeetEventCache(
         loadKeys(indexKey).forEach { key ->
             val event = prefs.getString(key, null)
                 ?.let(BeetJsonCodec::wateringEventFromJson)
-            if (event != null && event.timeValid && event.endedAtUnixSeconds >= cutoffUnixSeconds) {
+            if (event != null && shouldRetainWateringEvent(event, cutoffUnixSeconds)) {
                 keysToKeep += key
             } else {
                 prefs.edit().remove(key).apply()
@@ -110,6 +106,9 @@ internal class BeetEventCache(
         }
         prefs.edit().putStringSet(indexKey, keysToKeep).apply()
     }
+
+    private fun shouldRetainWateringEvent(event: BeetWateringEvent, cutoffUnixSeconds: Long): Boolean =
+        event.bootId > 0L && (!event.timeValid || event.endedAtUnixSeconds >= cutoffUnixSeconds)
 
     private fun pruneSystemOlderThan(deviceId: String, cutoffUnixSeconds: Long) {
         val indexKey = systemIndexKey(deviceId)

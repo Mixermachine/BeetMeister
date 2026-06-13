@@ -11,6 +11,7 @@ internal class TestBeetStringResolver : BeetStringResolver {
         val template = when (id) {
             R.string.placeholder_dash -> "-"
             R.string.common_none -> "None"
+            R.string.common_time_range -> "%1\$s - %2\$s"
             R.string.common_today -> "Today"
             R.string.common_yesterday -> "Yesterday"
             R.string.common_unknown_with_code -> "Unknown (%1\$s)"

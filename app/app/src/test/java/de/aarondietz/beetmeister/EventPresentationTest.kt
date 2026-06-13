@@ -142,7 +142,7 @@ class EventPresentationTest {
         assertEquals("Pending time sync", formatSystemEventTime(currentBootSystem, state, strings))
         assertEquals("Ignored legacy", formatSystemEventTime(oldBootSystem, state, strings))
         assertEquals("Pending time sync", formatWateringTime(currentBootWatering, state, strings))
-        assertEquals("Ignored legacy", formatWateringTime(oldBootWatering, state, strings))
+        assertEquals("t+1m 40s - t+2m 10s", formatWateringTime(oldBootWatering, state, strings))
     }
 
     @Test

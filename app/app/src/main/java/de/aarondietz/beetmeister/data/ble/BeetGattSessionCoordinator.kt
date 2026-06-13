@@ -432,7 +432,10 @@ internal class BeetGattSessionCoordinator(
 
     private fun mergeWateringEvents(current: List<BeetWateringEvent>, incoming: List<BeetWateringEvent>): List<BeetWateringEvent> =
         (current + incoming)
-            .filter { it.endedAtUnixSeconds >= ((System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS) }
+            .filter {
+                it.bootId > 0L &&
+                    (!it.timeValid || it.endedAtUnixSeconds >= ((System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS))
+            }
             .associateBy { it.sequenceNumber }
             .values
             .sortedByDescending { it.sequenceNumber }

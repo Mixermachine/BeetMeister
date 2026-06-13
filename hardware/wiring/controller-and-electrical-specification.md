@@ -69,7 +69,12 @@ These are preferred for later expansion because they are not strapping pins, are
 - If a boost converter is used, pump ground, relay-board ground, and controller ground shall share a common reference.
 - If a boost converter is used, `GPIO16` shall drive its enable input and remain low whenever no pumping is active.
 - If a shared upstream ball valve servo is used, its PWM signal shall use `GPIO17` and the servo shall share the boosted rail.
+- The shared upstream ball valve servo is optional hardware, not a baseline requirement.
 - The controller shall energize the servo only during short open and close actions and shall not move the servo while any pump is running.
+
+> [!WARNING]
+> If the optional shared valve is physically attached, the valve feature must be activated in the app after setup and after any configuration reset.
+> Otherwise the controller will not treat the valve as a required interlock before watering.
 
 ## Relay and pump design rules
 

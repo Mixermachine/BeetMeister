@@ -18,7 +18,7 @@ On every cold boot, reset, OTA reboot, or wake from deep sleep, the controller s
 8. Decide whether to remain in deep low-battery behavior, active behavior, or idle-low-power awake behavior.
 9. If awake behavior is allowed, initialize ADC, BLE, Wi-Fi, MQTT, and timers.
 10. Publish or stream current controller and pair state once communications become available.
-11. Run a scheduler cycle immediately when the wake reason is a scheduled check or when the next due check is missing or expired.
+11. Run a scheduler cycle immediately only when the wake reason is a scheduled check timer wake. On cold boot, reset, or OTA reboot, initialize the next scheduler deadline one full watering interval in the future instead of running an immediate automatic check.
 
 ## Persistent state model
 
@@ -76,6 +76,8 @@ The lookup shall use the integer moisture percentage after clamping and any requ
 
 ## Main valve behavior
 
+- The shared main valve is an optional hardware feature.
+- When the valve hardware is installed, the feature must be explicitly enabled in persisted controller configuration before it acts as a flow interlock.
 - When the shared main valve feature is enabled, the controller shall treat the upstream ball valve as a global flow interlock.
 - No pump may start until the valve is logically `OPEN`.
 - Automatic watering, manual watering, automatic sanity-check, and manual moisture-response test shall all require the valve to open first.
@@ -84,6 +86,10 @@ The lookup shall use the integer moisture percentage after clamping and any requ
 - Valve motion shall never overlap active pump output.
 - The servo shall be powered only for short open and close actions and released after the configured move time.
 - Manual valve open and close commands shall be rejected while watering is active, while the valve is already moving, when OTA is in progress, or when battery policy does not permit the action.
+
+> [!WARNING]
+> Installing valve hardware without enabling the valve feature in configuration is an unsafe integration state.
+> In that state, the controller behaves as if no shared valve exists and will not open it before watering.
 
 ## Automatic sanity-check flow
 

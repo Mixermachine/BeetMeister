@@ -117,12 +117,13 @@ internal fun formatWateringTime(
         return formatEventTime(event, strings)
     }
     val currentBootId = state.deviceState?.bootId ?: 0L
+    if (event.bootId > 0L && event.bootId == currentBootId) {
+        return strings.get(R.string.events_pending_time_sync)
+    }
     return strings.get(
-        if (event.bootId > 0L && event.bootId == currentBootId) {
-            R.string.events_pending_time_sync
-        } else {
-            R.string.events_ignored_legacy
-        },
+        R.string.common_time_range,
+        strings.get(R.string.events_relative_uptime, formatDuration(event.startedUptimeSeconds.toInt(), strings)),
+        strings.get(R.string.events_relative_uptime, formatDuration(event.endedUptimeSeconds.toInt(), strings)),
     )
 }
 
