@@ -77,7 +77,13 @@ internal fun SettingsScreen(
         settleDelayText = settleDelayText,
         openHoldText = openHoldText,
     )
-    val valveConfigChanged = editedValveConfig != null && editedValveConfig != valveConfig
+    val valveConfigDirty = valveConfig?.let {
+        valveEnabled != it.valveEnabled ||
+            moveDurationText != it.moveDurationMillis.toString() ||
+            settleDelayText != it.settleDelayMillis.toString() ||
+            openHoldText != it.openHoldMillis.toString()
+    } == true
+    val valveConfigChanged = editedValveConfig != null && valveConfigDirty
     val valveMotionActive = deviceState?.valveState == "OPENING" || deviceState?.valveState == "CLOSING"
     val valveManualControlEnabled =
         state.connection.phase == BeetConnectionPhase.Connected &&
@@ -139,6 +145,8 @@ internal fun SettingsScreen(
                         Button(onClick = onCloseValve, enabled = valveManualControlEnabled) {
                             Text(strings.get(R.string.settings_close_valve))
                         }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Button(
                             onClick = onOpenValveCalibration,
                             enabled = state.connection.phase == BeetConnectionPhase.Connected,

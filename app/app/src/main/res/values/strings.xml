@@ -80,6 +80,7 @@
     <string name="settings_save_valve">Save valve settings</string>
     <string name="valve_calibration_title">Valve calibration</string>
     <string name="valve_calibration_subtitle">Jog the servo in small steps, define the safe pulse range, and store the open and shut positions for this valve linkage.</string>
+    <string name="valve_calibration_reload_values">Reload values</string>
     <string name="valve_calibration_label_preview_percent">Preview</string>
     <string name="valve_calibration_label_preview_pulse">Pulse</string>
     <string name="valve_calibration_label_open_marker">Open marker</string>

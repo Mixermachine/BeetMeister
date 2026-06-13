@@ -113,7 +113,7 @@ internal fun ValveCalibrationScreen(
                 Text(strings.get(R.string.valve_calibration_title), style = MaterialTheme.typography.headlineSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
-                    TextButton(onClick = onRefreshValveConfig) { Text(strings.get(R.string.common_reload)) }
+                    TextButton(onClick = onRefreshValveConfig) { Text(strings.get(R.string.valve_calibration_reload_values)) }
                 }
             }
         }
