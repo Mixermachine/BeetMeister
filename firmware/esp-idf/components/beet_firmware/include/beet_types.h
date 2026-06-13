@@ -35,6 +35,8 @@
 #define BEET_OTA_URL_MAX_LEN 96U
 #define BEET_BLOCK_DURATION_S (24U * 60U * 60U)
 #define BEET_SCHEDULER_INTERVAL_S 7200U
+#define BEET_MIN_WATERING_INTERVAL_S 300U
+#define BEET_MAX_WATERING_INTERVAL_S 86400U
 #define BEET_MAX_ACTIVE_PUMPS 3U
 #define BEET_SANITY_CHECK_DURATION_S 10U
 #define BEET_MANUAL_QUEUE_TIMEOUT_S 30U
@@ -281,6 +283,7 @@ bool beet_is_valid_valve_pulse_range(uint16_t min_pulse_us, uint16_t max_pulse_u
 bool beet_is_valid_valve_move_duration_ms(uint16_t duration_ms);
 bool beet_is_valid_valve_settle_delay_ms(uint16_t delay_ms);
 bool beet_is_valid_valve_open_hold_ms(uint16_t hold_ms);
+bool beet_is_valid_watering_interval_s(uint32_t interval_s);
 uint16_t beet_correct_moisture_sensor_mv(uint16_t sensor_mv, uint16_t battery_mv);
 bool beet_is_sensor_mv_plausible(uint16_t corrected_sensor_mv, uint16_t dry_mv, uint16_t wet_mv);
 uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sensor_mv);

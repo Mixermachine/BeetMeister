@@ -79,7 +79,7 @@ Example payload:
 ```json
 {
   "device_id": "beetmeister-01",
-  "protocol_version": 8,
+  "protocol_version": 9,
   "firmware_version": "0.1.0",
   "pair_count": 8
 }
@@ -258,6 +258,24 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
+### Watering evaluation interval
+
+```json
+{
+  "cmd": "get_watering_interval",
+  "data": {}
+}
+```
+
+```json
+{
+  "cmd": "store_watering_interval",
+  "data": {
+    "watering_interval_s": 21600
+  }
+}
+```
+
 Valve motion is reported as normal system events when a real valve open or close finishes successfully:
 
 - `VALVE_OPENED`
@@ -340,6 +358,19 @@ Valve config results shall return:
 }
 ```
 
+Watering interval results shall return:
+
+```json
+{
+  "cmd": "get_watering_interval",
+  "status": "accepted",
+  "reason": "none",
+  "data": {
+    "watering_interval_s": 21600
+  }
+}
+```
+
 ```json
 {
   "cmd": "manual_start",
@@ -393,6 +424,7 @@ If a full command-result JSON payload exceeds the negotiated ATT indication payl
 - `set_time` shall accept the current Unix time from the app, mark controller time valid for the current boot, and backfill unresolved current-boot events.
 - `store_valve_config` shall reject changes while watering or valve motion is already in progress.
 - `preview_valve_position` shall reject requests while watering, queued runtime work, valve motion, OTA, or low-battery policy prevents operation.
+- `store_watering_interval` shall reject values outside `300..86400` seconds.
 - Commands shall be rejected while the controller is in `DEEP_LOW_BATTERY`.
 - Commands that would violate controller safety rules shall be rejected rather than queued indefinitely.
 - Access attempts from an unbonded client shall be rejected before command parsing.

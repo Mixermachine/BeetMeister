@@ -164,6 +164,20 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    fun refreshWateringInterval() {
+        host.scope.launch {
+            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
+                return@launch
+            }
+            host.updateState { state -> state.copy(wateringIntervalRefreshing = true) }
+            try {
+                runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getWateringInterval()) } }
+            } finally {
+                host.updateState { state -> state.copy(wateringIntervalRefreshing = false) }
+            }
+        }
+    }
+
     fun saveValveConfig(config: BeetValveConfig) {
         host.scope.launch {
             if (
@@ -180,6 +194,16 @@ internal class BeetGattSessionCoordinator(
                 return@launch
             }
             sendUserCommand(BeetJsonCodec.storeValveConfig(config))
+        }
+    }
+
+    fun saveWateringInterval(seconds: Int) {
+        host.scope.launch {
+            if (seconds !in 300..86400) {
+                host.setCommandMessage(strings.get(R.string.runtime_watering_interval_invalid))
+                return@launch
+            }
+            sendUserCommand(BeetJsonCodec.storeWateringInterval(seconds))
         }
     }
 
@@ -309,6 +333,7 @@ internal class BeetGattSessionCoordinator(
                             phase = BeetEventSyncPhase.PausedForCommand,
                         ),
                         valveConfigRefreshing = false,
+                        wateringIntervalRefreshing = false,
                     )
                 }
                 return@launch
@@ -383,6 +408,7 @@ internal class BeetGattSessionCoordinator(
                     eventsLoading = false,
                     eventSync = BeetEventSyncState(),
                     valveConfigRefreshing = false,
+                    wateringIntervalRefreshing = false,
                 )
             }
         }
@@ -602,6 +628,7 @@ internal class BeetGattSessionCoordinator(
         Log.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
         host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
         refreshValveConfig()
+        refreshWateringInterval()
         startBackgroundEventSync()
     }
 
@@ -746,6 +773,9 @@ internal class BeetGattSessionCoordinator(
         result.valveConfig?.let { config ->
             host.updateState { it.copy(valveConfig = config) }
         }
+        result.wateringInterval?.let { interval ->
+            host.updateState { it.copy(wateringInterval = interval) }
+        }
         host.session.pendingCommand?.complete(result)
     }
 
@@ -775,6 +805,7 @@ internal class BeetGattSessionCoordinator(
                 eventsLoading = false,
                 eventSync = BeetEventSyncState(),
                 valveConfigRefreshing = false,
+                wateringIntervalRefreshing = false,
             )
         }
         if (clearSelection) {
@@ -909,7 +940,7 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DESIRED_MTU = 247
-        private const val EXPECTED_PROTOCOL_VERSION = 8
+        private const val EXPECTED_PROTOCOL_VERSION = 9
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
         private const val INITIAL_SYNC_BATCH_SIZE = 1
         private const val MAX_SYNC_BATCH_SIZE = 8

@@ -437,6 +437,15 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION, request.command);
     TEST_ASSERT_U32_EQ(1600U, request.valve_preview_pulse_us);
 
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_watering_interval\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_WATERING_INTERVAL, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_watering_interval\",\"data\":{\"watering_interval_s\":21600}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL, request.command);
+    TEST_ASSERT_U32_EQ(21600U, request.watering_interval_s);
+
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"manual_start\",\"data\":{\"duration_s\":1200}}", &request));
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
@@ -702,6 +711,17 @@ static void test_ble_json_formatting(void)
         "{\"valve_enabled\":true,\"servo_min_pulse_us\":700,\"servo_max_pulse_us\":2400,"
         "\"open_pulse_us\":880,\"shut_pulse_us\":2010,\"move_duration_ms\":700,"
         "\"settle_delay_ms\":200,\"open_hold_ms\":1500}}",
+        json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_WATERING_INTERVAL;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_watering_interval = true;
+    response.watering_interval_s = 21600U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_watering_interval\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"watering_interval_s\":21600}}",
         json);
 }
 

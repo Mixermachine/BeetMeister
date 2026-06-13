@@ -67,6 +67,14 @@
     <string name="settings_label_pairs">Pairs</string>
     <string name="settings_label_connection">Connection</string>
     <string name="settings_label_address">Address</string>
+    <string name="settings_watering_interval_title">Watering evaluation interval</string>
+    <string name="settings_watering_interval_subtitle">How often the controller evaluates all pairs for automatic watering.</string>
+    <string name="settings_label_current_watering_interval">Current interval</string>
+    <string name="settings_label_next_check">Next check</string>
+    <string name="settings_label_interval_hours">Hours</string>
+    <string name="settings_label_interval_minutes">Minutes</string>
+    <string name="settings_watering_interval_error">Enter a value from 5 minutes to 24 hours.</string>
+    <string name="settings_save_watering_interval">Save interval</string>
     <string name="settings_valve_title">Main valve</string>
     <string name="settings_valve_subtitle">Shared upstream ball valve driven by the servo on the boost rail.</string>
     <string name="settings_label_valve_state">Valve state</string>
@@ -283,6 +291,7 @@
     <string name="command_message_pair_enabled" localizePipeContext="Confirmation message. Keep %1$d as the irrigation pair number.">Pair %1$d enabled.</string>
     <string name="command_message_bonds_cleared">Bluetooth bonds cleared.</string>
     <string name="command_message_no_bonds">No Bluetooth bonds to clear.</string>
+    <string name="command_message_watering_interval_saved">Watering evaluation interval saved.</string>
     <string name="command_message_pair_prefix" localizePipeContext="Command result prefix. %1$d is the irrigation pair number and %2$s is the already translated result text.">Pair %1$d: %2$s.</string>
 
     <string name="command_reason_slot_allocated">Watering started</string>
@@ -326,6 +335,7 @@
     <string name="runtime_command_failed">Command failed.</string>
     <string name="runtime_calibration_invalid_order">Dry calibration must be greater than wet calibration.</string>
     <string name="runtime_valve_config_invalid">Valve settings are outside the supported range.</string>
+    <string name="runtime_watering_interval_invalid">Watering evaluation interval must be between 5 minutes and 24 hours.</string>
     <string name="runtime_connecting_to_controller" localizePipeContext="Connection progress message. Keep %1$s as the Bluetooth MAC address or device address.">Connecting to %1$s.</string>
     <string name="runtime_connection_timed_out">Connection timed out. Searching again.</string>
     <string name="runtime_no_connected_controller">No connected controller.</string>

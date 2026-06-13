@@ -51,6 +51,10 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "close_valve";
     case BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION:
         return "preview_valve_position";
+    case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
+        return "get_watering_interval";
+    case BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL:
+        return "store_watering_interval";
     default:
         return "unknown";
     }

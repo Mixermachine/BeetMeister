@@ -32,6 +32,8 @@ typedef enum {
     BEET_IFACE_COMMAND_OPEN_VALVE = 21,
     BEET_IFACE_COMMAND_CLOSE_VALVE = 22,
     BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION = 23,
+    BEET_IFACE_COMMAND_GET_WATERING_INTERVAL = 24,
+    BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL = 25,
 } beet_iface_command_t;
 
 typedef enum {
@@ -99,6 +101,7 @@ typedef struct {
     uint16_t valve_settle_delay_ms;
     uint16_t valve_open_hold_ms;
     uint16_t valve_preview_pulse_us;
+    uint32_t watering_interval_s;
 } beet_iface_command_request_t;
 
 typedef struct {
@@ -132,6 +135,8 @@ typedef struct {
     uint16_t valve_move_duration_ms;
     uint16_t valve_settle_delay_ms;
     uint16_t valve_open_hold_ms;
+    bool has_watering_interval;
+    uint32_t watering_interval_s;
 } beet_iface_command_response_t;
 
 typedef struct {

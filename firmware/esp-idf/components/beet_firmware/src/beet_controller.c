@@ -133,6 +133,7 @@ static esp_err_t beet_valve_start_open(int64_t now_us);
 static esp_err_t beet_valve_start_close(int64_t now_us);
 static esp_err_t beet_valve_preview_position(uint16_t pulse_us, int64_t now_us);
 static void beet_service_valve(int64_t now_us);
+static esp_err_t beet_valve_close_during_boot(void);
 static bool beet_validate_valve_config_request(const beet_iface_command_request_t *request);
 static void beet_apply_stored_valve_config(const beet_iface_command_request_t *request);
 static uint32_t beet_current_uptime_s(void);
@@ -386,6 +387,47 @@ static void beet_service_valve(int64_t now_us)
     default:
         break;
     }
+}
+
+static esp_err_t beet_valve_close_during_boot(void)
+{
+    if (!s_state.config.valve_enabled) {
+        s_state.valve.state = BEET_VALVE_STATE_CLOSED;
+        s_state.valve.motion_started_us = 0LL;
+        s_state.valve.open_hold_deadline_us = 0LL;
+        s_state.valve.preview_release_due_us = 0LL;
+        s_state.valve.servo_active = false;
+        s_state.valve.preview_active = false;
+        beet_controller_sync_boost_output();
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(beet_valve_start_close(beet_now_us()), TAG, "boot valve close start failed");
+
+    vTaskDelay(pdMS_TO_TICKS(s_state.config.valve_move_duration_ms));
+
+    if (s_state.valve.servo_active) {
+        esp_err_t release_err = beet_board_release_valve_servo();
+        if (release_err != ESP_OK) {
+            s_state.valve.state = BEET_VALVE_STATE_FAULT;
+            s_state.valve.motion_started_us = 0LL;
+            s_state.valve.servo_active = false;
+            beet_controller_sync_boost_output();
+            ESP_RETURN_ON_ERROR(release_err, TAG, "boot valve close release failed");
+        }
+        s_state.valve.servo_active = false;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(s_state.config.valve_settle_delay_ms));
+
+    s_state.valve.state = BEET_VALVE_STATE_CLOSED;
+    s_state.valve.motion_started_us = 0LL;
+    s_state.valve.open_hold_deadline_us = 0LL;
+    s_state.valve.preview_release_due_us = 0LL;
+    s_state.valve.preview_active = false;
+    beet_controller_sync_boost_output();
+    beet_log_system_event(BEET_SYSTEM_EVENT_VALVE_CLOSED, 0U, NULL, 0U, false, 0U);
+    return ESP_OK;
 }
 
 static esp_err_t beet_valve_preview_position(uint16_t pulse_us, int64_t now_us)
@@ -2153,6 +2195,30 @@ esp_err_t beet_iface_submit_command(
         response->valve_open_hold_ms = s_state.config.valve_open_hold_ms;
         return ESP_OK;
 
+    case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_watering_interval = true;
+        response->watering_interval_s = s_state.config.watering_interval_s;
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL:
+        if (!beet_is_valid_watering_interval_s(request->watering_interval_s)) {
+            response->reason = BEET_IFACE_REASON_INVALID_DURATION;
+            return ESP_OK;
+        }
+        beet_mark_activity(now_us);
+        s_state.config.watering_interval_s = request->watering_interval_s;
+        s_state.next_check_due_us = now_us + ((int64_t)s_state.config.watering_interval_s * 1000000LL);
+        beet_update_next_check_fields();
+        ESP_RETURN_ON_ERROR(beet_storage_save_config(&s_state.config), TAG, "watering interval save failed");
+        beet_flush_dirty_snapshots(true);
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_watering_interval = true;
+        response->watering_interval_s = s_state.config.watering_interval_s;
+        return ESP_OK;
+
     case BEET_IFACE_COMMAND_STORE_VALVE_CONFIG:
         if (!beet_validate_valve_config_request(request)) {
             response->reason = BEET_IFACE_REASON_INVALID_VALVE_CONFIG;
@@ -2631,7 +2697,8 @@ esp_err_t beet_controller_init(void)
         beet_storage_load_or_init(&s_state.config, s_state.calibrations, s_state.snapshots, &s_state.power_state),
         TAG,
         "storage load failed");
-    if (!beet_is_valid_valve_pulse_range(s_state.config.valve_servo_min_pulse_us, s_state.config.valve_servo_max_pulse_us) ||
+    if (!beet_is_valid_watering_interval_s(s_state.config.watering_interval_s) ||
+        !beet_is_valid_valve_pulse_range(s_state.config.valve_servo_min_pulse_us, s_state.config.valve_servo_max_pulse_us) ||
         s_state.config.valve_open_pulse_us < s_state.config.valve_servo_min_pulse_us ||
         s_state.config.valve_open_pulse_us > s_state.config.valve_servo_max_pulse_us ||
         s_state.config.valve_shut_pulse_us < s_state.config.valve_servo_min_pulse_us ||
@@ -2639,6 +2706,7 @@ esp_err_t beet_controller_init(void)
         !beet_is_valid_valve_move_duration_ms(s_state.config.valve_move_duration_ms) ||
         !beet_is_valid_valve_settle_delay_ms(s_state.config.valve_settle_delay_ms) ||
         !beet_is_valid_valve_open_hold_ms(s_state.config.valve_open_hold_ms)) {
+        s_state.config.watering_interval_s = BEET_SCHEDULER_INTERVAL_S;
         s_state.config.valve_enabled = false;
         s_state.config.valve_servo_min_pulse_us = BEET_VALVE_SERVO_MIN_PULSE_US;
         s_state.config.valve_servo_max_pulse_us = BEET_VALVE_SERVO_MAX_PULSE_US;
@@ -2663,6 +2731,7 @@ esp_err_t beet_controller_init(void)
     ESP_RETURN_ON_ERROR(beet_board_init(), TAG, "board init failed");
 
     beet_board_all_relays_off();
+    ESP_RETURN_ON_ERROR(beet_valve_close_during_boot(), TAG, "boot valve close failed");
     beet_restore_snapshots();
     beet_refresh_battery();
     beet_refresh_sensors();

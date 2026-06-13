@@ -23,6 +23,8 @@ internal fun commandMessageForResult(result: BeetCommandResult, strings: BeetStr
             }
         result.command == "open_valve" || result.command == "close_valve" ->
             base
+        result.command == "store_watering_interval" && result.status == "accepted" ->
+            strings.get(R.string.command_message_watering_interval_saved)
         result.pairIndex != null ->
             strings.get(R.string.command_message_pair_prefix, result.pairIndex, base)
         else -> base

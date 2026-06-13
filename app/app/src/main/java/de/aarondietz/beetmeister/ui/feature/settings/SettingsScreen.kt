@@ -38,13 +38,16 @@ import de.aarondietz.beetmeister.ui.core.component.BeetPullToRefreshBox
 import de.aarondietz.beetmeister.ui.core.component.SettingInfoDialog
 import de.aarondietz.beetmeister.ui.core.component.ValueGridRow
 import de.aarondietz.beetmeister.ui.core.formatting.connectionPhaseLabel
+import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
 import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
 
 @Composable
 internal fun SettingsScreen(
     state: BeetRepositoryState,
     onRefreshValveConfig: () -> Unit,
+    onRefreshWateringInterval: () -> Unit,
     onSaveValveConfig: (BeetValveConfig) -> Unit,
+    onSaveWateringInterval: (Int) -> Unit,
     onOpenValveCalibration: () -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
@@ -59,11 +62,14 @@ internal fun SettingsScreen(
     var moveDurationText by remember { mutableStateOf("") }
     var settleDelayText by remember { mutableStateOf("") }
     var openHoldText by remember { mutableStateOf("") }
+    var intervalHoursText by remember { mutableStateOf("") }
+    var intervalMinutesText by remember { mutableStateOf("") }
     var activeInfo by remember { mutableStateOf<ValveSettingInfo?>(null) }
 
     LaunchedEffect(state.connection.phase) {
         if (state.connection.phase == BeetConnectionPhase.Connected) {
             onRefreshValveConfig()
+            onRefreshWateringInterval()
         }
     }
 
@@ -74,6 +80,12 @@ internal fun SettingsScreen(
             settleDelayText = valveConfig.settleDelayMillis.toString()
             openHoldText = valveConfig.openHoldMillis.toString()
         }
+    }
+
+    LaunchedEffect(state.wateringInterval) {
+        val interval = state.wateringInterval ?: return@LaunchedEffect
+        intervalHoursText = (interval.seconds / 3600).toString()
+        intervalMinutesText = ((interval.seconds % 3600) / 60).toString()
     }
 
     val editedValveConfig = parseValveConfig(
@@ -93,6 +105,14 @@ internal fun SettingsScreen(
     val moveDurationError = moveDurationValidationMessage(moveDurationText, strings)
     val settleDelayError = settleDelayValidationMessage(settleDelayText, strings)
     val openHoldError = openHoldValidationMessage(openHoldText, strings)
+    val wateringIntervalSeconds = parseWateringIntervalSeconds(intervalHoursText, intervalMinutesText)
+    val wateringIntervalDirty = state.wateringInterval?.let {
+        intervalHoursText != (it.seconds / 3600).toString() ||
+            intervalMinutesText != ((it.seconds % 3600) / 60).toString()
+    } == true
+    val wateringIntervalChanged = state.wateringInterval != null && wateringIntervalDirty
+    val wateringIntervalError = wateringIntervalValidationMessage(intervalHoursText, intervalMinutesText, strings)
+    val showWateringIntervalError = state.wateringInterval != null && wateringIntervalError != null
     val valveMotionActive = deviceState?.valveState == "OPENING" || deviceState?.valveState == "CLOSING"
     val valveManualControlEnabled =
         state.connection.phase == BeetConnectionPhase.Connected &&
@@ -110,8 +130,11 @@ internal fun SettingsScreen(
     }
 
     BeetPullToRefreshBox(
-        isRefreshing = state.valveConfigRefreshing,
-        onRefresh = onRefreshValveConfig,
+        isRefreshing = state.valveConfigRefreshing || state.wateringIntervalRefreshing,
+        onRefresh = {
+            onRefreshValveConfig()
+            onRefreshWateringInterval()
+        },
         enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
     ) {
@@ -144,6 +167,52 @@ internal fun SettingsScreen(
                             strings.get(R.string.settings_label_address),
                             state.selectedAddress ?: strings.get(R.string.placeholder_dash),
                         )
+                    }
+                }
+            }
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEDEFF4)),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(strings.get(R.string.settings_watering_interval_title), style = MaterialTheme.typography.titleMedium)
+                        Text(strings.get(R.string.settings_watering_interval_subtitle), style = MaterialTheme.typography.bodyMedium)
+                        ValueGridRow(
+                            strings.get(R.string.settings_label_current_watering_interval),
+                            state.wateringInterval?.let { formatDuration(it.seconds, strings) } ?: strings.get(R.string.placeholder_dash),
+                            strings.get(R.string.settings_label_next_check),
+                            deviceState?.let { formatDuration(it.nextCheckInSeconds, strings) } ?: strings.get(R.string.placeholder_dash),
+                        )
+                        OutlinedTextField(
+                            value = intervalHoursText,
+                            onValueChange = { intervalHoursText = it.filter(Char::isDigit) },
+                            label = { Text(strings.get(R.string.settings_label_interval_hours)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                        OutlinedTextField(
+                            value = intervalMinutesText,
+                            onValueChange = { intervalMinutesText = it.filter(Char::isDigit) },
+                            label = { Text(strings.get(R.string.settings_label_interval_minutes)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
+                        )
+                        if (showWateringIntervalError) {
+                            Text(
+                                text = wateringIntervalError ?: "",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Button(
+                            onClick = { wateringIntervalSeconds?.let(onSaveWateringInterval) },
+                            enabled = wateringIntervalChanged,
+                        ) {
+                            Text(strings.get(R.string.settings_save_watering_interval))
+                        }
                     }
                 }
             }
@@ -317,6 +386,30 @@ private fun openHoldValidationMessage(
 ): String? {
     val parsed = value.toIntOrNull() ?: return strings.get(R.string.settings_valve_open_hold_error)
     return if (parsed in 0..10000) null else strings.get(R.string.settings_valve_open_hold_error)
+}
+
+private fun parseWateringIntervalSeconds(hoursText: String, minutesText: String): Int? {
+    val hours = hoursText.toLongOrNull() ?: return null
+    val minutes = minutesText.toLongOrNull() ?: return null
+    if (minutes !in 0..59) {
+        return null
+    }
+    val totalSeconds = (hours * 3600L) + (minutes * 60L)
+    return if (totalSeconds in 0..Int.MAX_VALUE.toLong()) totalSeconds.toInt() else null
+}
+
+private fun wateringIntervalValidationMessage(
+    hoursText: String,
+    minutesText: String,
+    strings: de.aarondietz.beetmeister.strings.BeetStringResolver,
+): String? {
+    val hours = hoursText.toLongOrNull() ?: return strings.get(R.string.settings_watering_interval_error)
+    val minutes = minutesText.toLongOrNull() ?: return strings.get(R.string.settings_watering_interval_error)
+    if (minutes !in 0..59) {
+        return strings.get(R.string.settings_watering_interval_error)
+    }
+    val totalSeconds = (hours * 3600L) + (minutes * 60L)
+    return if (totalSeconds in 300L..86400L) null else strings.get(R.string.settings_watering_interval_error)
 }
 
 private fun parseValveConfig(

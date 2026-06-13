@@ -396,6 +396,20 @@ int beet_ble_format_command_result_json(
             "}");
     }
 
+    if ((response->command == BEET_IFACE_COMMAND_GET_WATERING_INTERVAL ||
+            response->command == BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL) &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_watering_interval) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"watering_interval_s\":%lu}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            (unsigned long)response->watering_interval_s);
+    }
+
     if ((response->command == BEET_IFACE_COMMAND_GET_VALVE_CONFIG ||
             response->command == BEET_IFACE_COMMAND_STORE_VALVE_CONFIG) &&
         response->status == BEET_IFACE_STATUS_ACCEPTED &&
@@ -1007,6 +1021,58 @@ static bool beet_ble_parse_unix_data(const char **cursor, uint64_t *unix_s)
     return seen_unix;
 }
 
+static bool beet_ble_parse_watering_interval_data(const char **cursor, uint32_t *interval_s)
+{
+    bool seen_interval = false;
+    uint64_t parsed_interval = 0U;
+
+    if (!beet_ble_consume_char(cursor, '{')) {
+        return false;
+    }
+
+    while (true) {
+        char key[32];
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+
+        if (!beet_ble_parse_string(cursor, key, sizeof(key)) ||
+            !beet_ble_consume_char(cursor, ':')) {
+            return false;
+        }
+
+        if (strcmp(key, "watering_interval_s") == 0 && !seen_interval) {
+            if (!beet_ble_parse_u64(cursor, &parsed_interval) || parsed_interval > UINT32_MAX) {
+                return false;
+            }
+            *interval_s = (uint32_t)parsed_interval;
+            seen_interval = true;
+        } else if (strcmp(key, "watering_interval_s") == 0) {
+            return false;
+        } else {
+            if (!beet_ble_skip_json_value(cursor)) {
+                return false;
+            }
+        }
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == ',') {
+            ++(*cursor);
+            continue;
+        }
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+        return false;
+    }
+
+    return seen_interval;
+}
+
 static bool beet_ble_parse_empty_data(const char **cursor)
 {
     if (!beet_ble_consume_char(cursor, '{')) {
@@ -1333,6 +1399,16 @@ bool beet_ble_parse_command_json(
             } else if (strcmp(cmd, "preview_valve_position") == 0) {
                 request->command = BEET_IFACE_COMMAND_PREVIEW_VALVE_POSITION;
                 if (!beet_ble_parse_valve_preview_data(&cursor, &request->valve_preview_pulse_us)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "get_watering_interval") == 0) {
+                request->command = BEET_IFACE_COMMAND_GET_WATERING_INTERVAL;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "store_watering_interval") == 0) {
+                request->command = BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL;
+                if (!beet_ble_parse_watering_interval_data(&cursor, &request->watering_interval_s)) {
                     return false;
                 }
             } else {

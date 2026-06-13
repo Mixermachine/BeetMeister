@@ -7,6 +7,7 @@ import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
+import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
@@ -19,6 +20,7 @@ data class BeetRepositoryState(
     val controllerInfo: BeetControllerInfo? = null,
     val deviceState: BeetDeviceState? = null,
     val valveConfig: BeetValveConfig? = null,
+    val wateringInterval: BeetWateringInterval? = null,
     val pairStates: List<BeetPairState> = List(8) { index ->
         BeetPairState(
             pairIndex = index + 1,
@@ -42,6 +44,7 @@ data class BeetRepositoryState(
     val eventsLoading: Boolean = false,
     val eventSync: BeetEventSyncState = BeetEventSyncState(),
     val valveConfigRefreshing: Boolean = false,
+    val wateringIntervalRefreshing: Boolean = false,
     val connectedAtMillis: Long = 0L,
     val connectedAtControllerUptimeSeconds: Long = 0L,
     val lastCommandMessage: String? = null,

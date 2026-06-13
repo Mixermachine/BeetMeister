@@ -360,4 +360,27 @@ class BeetJsonCodecTest {
             ),
         )
     }
+
+    @Test
+    fun parsesAndBuildsWateringIntervalCommands() {
+        val payload = """
+            {
+              "cmd":"get_watering_interval",
+              "status":"accepted",
+              "reason":"none",
+              "data":{
+                "watering_interval_s":21600
+              }
+            }
+        """.trimIndent()
+
+        val result = BeetJsonCodec.parseCommandResult(payload)
+
+        assertEquals(21600, result.wateringInterval!!.seconds)
+        assertEquals("""{"cmd":"get_watering_interval","data":{}}""", BeetJsonCodec.getWateringInterval())
+        assertEquals(
+            """{"cmd":"store_watering_interval","data":{"watering_interval_s":21600}}""",
+            BeetJsonCodec.storeWateringInterval(21600),
+        )
+    }
 }

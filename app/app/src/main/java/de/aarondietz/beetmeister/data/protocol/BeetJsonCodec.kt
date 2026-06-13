@@ -18,11 +18,13 @@ import de.aarondietz.beetmeister.model.command.BeetPairCommandData
 import de.aarondietz.beetmeister.model.command.BeetSetTimeCommandData
 import de.aarondietz.beetmeister.model.command.BeetValveConfigCommandData
 import de.aarondietz.beetmeister.model.command.BeetValvePreviewCommandData
+import de.aarondietz.beetmeister.model.command.BeetWateringIntervalCommandData
 import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
+import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
@@ -57,6 +59,8 @@ object BeetJsonCodec {
         moshi.adapter(BeetCalibration::class.java)
     private val valveConfigPayloadAdapter: JsonAdapter<BeetValveConfig> =
         moshi.adapter(BeetValveConfig::class.java)
+    private val wateringIntervalPayloadAdapter: JsonAdapter<BeetWateringInterval> =
+        moshi.adapter(BeetWateringInterval::class.java)
     private val historySummaryPayloadAdapter: JsonAdapter<BeetHistorySummary> =
         moshi.adapter(BeetHistorySummary::class.java)
     private val systemHistorySummaryPayloadAdapter: JsonAdapter<BeetSystemHistorySummary> =
@@ -71,6 +75,7 @@ object BeetJsonCodec {
     private val setTimeRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetSetTimeCommandData::class.java)
     private val valveConfigRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetValveConfigCommandData::class.java)
     private val valvePreviewRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetValvePreviewCommandData::class.java)
+    private val wateringIntervalRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetWateringIntervalCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
 
     data class CommandChunkFrame(
@@ -153,6 +158,14 @@ object BeetJsonCodec {
         } else {
             null
         }
+        val wateringInterval = if (
+            (header.cmd == "get_watering_interval" || header.cmd == "store_watering_interval") &&
+            header.status == "accepted"
+        ) {
+            wateringIntervalPayloadAdapter.fromJson(dataJson) ?: error("Invalid watering interval payload.")
+        } else {
+            null
+        }
         val ack = commandAckPayloadAdapter.fromJson(dataJson)
         return BeetCommandResult(
             command = header.cmd,
@@ -166,6 +179,7 @@ object BeetJsonCodec {
             systemHistorySummary = systemHistorySummary,
             systemEvent = systemEvent,
             valveConfig = valveConfig,
+            wateringInterval = wateringInterval,
         )
     }
 
@@ -334,6 +348,22 @@ object BeetJsonCodec {
             CommandRequestEnvelopeDto(
                 cmd = "close_valve",
                 data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun getWateringInterval(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_watering_interval",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun storeWateringInterval(seconds: Int): String =
+        wateringIntervalRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "store_watering_interval",
+                data = BeetWateringIntervalCommandData(seconds = seconds),
             ),
         )
 

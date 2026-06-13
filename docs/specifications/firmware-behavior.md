@@ -19,6 +19,7 @@ On every cold boot, reset, OTA reboot, or wake from deep sleep, the controller s
 9. If awake behavior is allowed, initialize ADC, BLE, Wi-Fi, MQTT, and timers.
 10. Publish or stream current controller and pair state once communications become available.
 11. Run a scheduler cycle immediately only when the wake reason is a scheduled check timer wake. On cold boot, reset, or OTA reboot, initialize the next scheduler deadline one full watering interval in the future instead of running an immediate automatic check.
+12. If the shared main valve feature is enabled, actively drive the valve to its configured shut position during boot before normal communications and scheduler activity continue.
 
 ## Persistent state model
 
@@ -44,7 +45,8 @@ If a persisted snapshot indicates that a pair was watering before reset or power
 
 ## Scheduler behavior
 
-- The controller shall maintain one global scheduler interval of 7200 seconds.
+- The controller shall maintain one global configurable scheduler interval.
+- The default scheduler interval shall be 7200 seconds.
 - The next scheduler deadline shall be persisted before entering sleep.
 - If the controller wakes after missing one or more deadlines, it shall run exactly one catch-up check cycle and then schedule the next deadline 7200 seconds later.
 - A scheduler cycle shall inspect each enabled pair exactly once.
@@ -79,6 +81,7 @@ The lookup shall use the integer moisture percentage after clamping and any requ
 - The shared main valve is an optional hardware feature.
 - When the valve hardware is installed, the feature must be explicitly enabled in persisted controller configuration before it acts as a flow interlock.
 - When the shared main valve feature is enabled, the controller shall treat the upstream ball valve as a global flow interlock.
+- On cold boot, reset, OTA reboot, or wake into normal active behavior, the controller shall actively drive the enabled valve to its configured shut position so startup begins from a known safe hydraulic state.
 - No pump may start until the valve is logically `OPEN`.
 - Automatic watering, manual watering, automatic sanity-check, and manual moisture-response test shall all require the valve to open first.
 - Relay test shall not move the valve.
@@ -281,7 +284,7 @@ Current implementation note:
 | `schema_version` | `u16` | Configuration record format version |
 | `device_id` | `string[24]` | Stable device identity used in MQTT and BLE |
 | `pair_count` | `u8` | Fixed to 8 in v1 |
-| `watering_interval_s` | `u32` | Fixed default 7200 |
+| `watering_interval_s` | `u32` | Global automatic evaluation interval, default 7200 |
 | `idle_sleep_threshold_mv` | `u16` | Default 3300 |
 | `deep_sleep_threshold_mv` | `u16` | Default 3200 |
 | `deep_sleep_resume_mv` | `u16` | Default 3250 |

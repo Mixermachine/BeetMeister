@@ -61,6 +61,12 @@ The documented v1 scope includes:
 - Home Assistant MQTT discovery and telemetry
 - HTTP-based OTA firmware updates
 - Persistent configuration, calibration, runtime state, and watering history
+- Optional shared upstream servo ball valve
+
+> [!WARNING]
+> The shared upstream servo ball valve is optional hardware.
+> If you physically attach a valve, you must explicitly activate the valve feature in the app after provisioning or after any controller reset that clears configuration.
+> If the valve feature remains disabled, the controller will not treat the valve as a flow interlock.
 
 ## Current Status
 

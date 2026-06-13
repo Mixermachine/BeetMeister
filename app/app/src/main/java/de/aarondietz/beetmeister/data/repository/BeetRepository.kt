@@ -111,7 +111,11 @@ internal class BeetRepository(
 
     fun refreshValveConfig() = gattSessionCoordinator.refreshValveConfig()
 
+    fun refreshWateringInterval() = gattSessionCoordinator.refreshWateringInterval()
+
     fun saveValveConfig(config: BeetValveConfig) = gattSessionCoordinator.saveValveConfig(config)
+
+    fun saveWateringInterval(seconds: Int) = gattSessionCoordinator.saveWateringInterval(seconds)
 
     fun previewValvePosition(pulseMicros: Int) = gattSessionCoordinator.previewValvePosition(pulseMicros)
 
@@ -148,6 +152,7 @@ internal class BeetRepository(
                 controllerInfo = null,
                 deviceState = null,
                 valveConfig = null,
+                wateringInterval = null,
                 calibrations = emptyMap(),
                 calibrationsRefreshing = false,
                 historySummary = null,
@@ -157,6 +162,7 @@ internal class BeetRepository(
                 eventsLoading = false,
                 eventSync = BeetEventSyncState(),
                 valveConfigRefreshing = false,
+                wateringIntervalRefreshing = false,
                 connectedAtMillis = 0L,
                 connectedAtControllerUptimeSeconds = 0L,
                 pairStates = BeetRepositoryState().pairStates,

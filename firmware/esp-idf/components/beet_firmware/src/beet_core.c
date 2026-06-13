@@ -124,6 +124,11 @@ bool beet_is_valid_valve_open_hold_ms(uint16_t hold_ms)
     return hold_ms <= 10000U;
 }
 
+bool beet_is_valid_watering_interval_s(uint32_t interval_s)
+{
+    return interval_s >= BEET_MIN_WATERING_INTERVAL_S && interval_s <= BEET_MAX_WATERING_INTERVAL_S;
+}
+
 bool beet_is_valid_system_event_type(beet_system_event_type_t type)
 {
     switch (type) {

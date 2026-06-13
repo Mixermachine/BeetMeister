@@ -59,7 +59,11 @@ internal class BeetAppViewModel(
 
     fun refreshValveConfig() = repository.refreshValveConfig()
 
+    fun refreshWateringInterval() = repository.refreshWateringInterval()
+
     fun saveValveConfig(config: BeetValveConfig) = repository.saveValveConfig(config)
+
+    fun saveWateringInterval(seconds: Int) = repository.saveWateringInterval(seconds)
 
     fun previewValvePosition(pulseMicros: Int) = repository.previewValvePosition(pulseMicros)
 
