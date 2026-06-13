@@ -1,4 +1,4 @@
-// OpenSCAD 2021.01 compatible
+ // OpenSCAD 2021.01 compatible
 // Power-distributor carrier cover.
 //
 // Matching dimensions for power_distributor_carrier_base.scad.
