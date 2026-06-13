@@ -32,6 +32,11 @@ powershell -ExecutionPolicy Bypass -File .\.agents\skills\esp-idf-installation\s
 powershell -ExecutionPolicy Bypass -File .\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 -p COM4 flash monitor
 ```
 
+Important:
+- Do not start `build`, `flash`, or `monitor` workflows in parallel against the same `firmware/esp-idf/build` directory.
+- `flash` already includes the required build step.
+- Running standalone `build` and `flash` at the same time can corrupt the active CMake or Ninja regeneration step and produce a false build failure.
+
 Check the active serial port before flashing if it is not already known. `COM4` is the last confirmed BeetMeister port, not a guaranteed constant.
 
 ## Repair Workflow
