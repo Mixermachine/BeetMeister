@@ -89,7 +89,7 @@ menu "BeetMeister Configuration"
     config BEET_SENSOR_POWER_SETTLE_MS
         int "Moisture sensor settle time in milliseconds"
         range 1 1000
-        default 50
+        default 200
         help
             Delay between enabling the shared sensor supply and taking the batched moisture reads.
 
