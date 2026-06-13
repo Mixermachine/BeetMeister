@@ -31,6 +31,7 @@ import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
+import de.aarondietz.beetmeister.ui.core.component.BeetPullToRefreshBox
 import de.aarondietz.beetmeister.ui.core.component.ValueGridRow
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
 import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
@@ -101,169 +102,174 @@ internal fun ValveCalibrationScreen(
         valvePulseToPercent(it.shutPulseMicros, it.servoMinPulseMicros, it.servoMaxPulseMicros)
     }
 
-    LazyColumn(
+    BeetPullToRefreshBox(
+        isRefreshing = state.valveConfigRefreshing,
+        onRefresh = onRefreshValveConfig,
+        enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(strings.get(R.string.valve_calibration_title), style = MaterialTheme.typography.headlineSmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
-                    TextButton(onClick = onRefreshValveConfig) { Text(strings.get(R.string.valve_calibration_reload_values)) }
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(strings.get(R.string.valve_calibration_title), style = MaterialTheme.typography.headlineSmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
+                    }
                 }
             }
-        }
-        item {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFE9F1F2)),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFE9F1F2)),
                 ) {
-                    Text(strings.get(R.string.valve_calibration_subtitle), style = MaterialTheme.typography.bodyMedium)
-                    ValueGridRow(
-                        strings.get(R.string.valve_calibration_label_preview_percent),
-                        strings.get(R.string.common_percent, previewPercent.toInt()),
-                        strings.get(R.string.valve_calibration_label_preview_pulse),
-                        strings.get(R.string.common_microseconds, previewPulse),
-                    )
-                    ValueGridRow(
-                        strings.get(R.string.valve_calibration_label_open_marker),
-                        markerLabel(openPercent, editedValveConfig?.openPulseMicros, strings),
-                        strings.get(R.string.valve_calibration_label_shut_marker),
-                        markerLabel(shutPercent, editedValveConfig?.shutPulseMicros, strings),
-                    )
-                    if (valveConfig != null) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(strings.get(R.string.valve_calibration_subtitle), style = MaterialTheme.typography.bodyMedium)
                         ValueGridRow(
-                            strings.get(R.string.settings_label_valve_state),
-                            state.deviceState?.let { valveStateLabel(it.valveState, strings) } ?: strings.get(R.string.placeholder_dash),
-                            strings.get(R.string.settings_label_valve_move_duration),
-                            formatDuration((valveConfig.moveDurationMillis / 1000).coerceAtLeast(0), strings),
+                            strings.get(R.string.valve_calibration_label_preview_percent),
+                            strings.get(R.string.common_percent, previewPercent.toInt()),
+                            strings.get(R.string.valve_calibration_label_preview_pulse),
+                            strings.get(R.string.common_microseconds, previewPulse),
                         )
-                    }
-                    Slider(
-                        value = previewPercent,
-                        onValueChange = { percent ->
-                            editedValveConfig?.let {
-                                previewPulseMicros = valvePercentToPulse(percent, it.servoMinPulseMicros, it.servoMaxPulseMicros)
-                            }
-                        },
-                        valueRange = 0f..100f,
-                        enabled = previewEnabled,
-                        onValueChangeFinished = {
-                            editedValveConfig?.let {
-                                onPreviewValvePosition(
-                                    clampValvePulse(previewPulseMicros, it.servoMinPulseMicros, it.servoMaxPulseMicros),
-                                )
-                            }
-                        },
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        StepButton(label = "-5%", enabled = previewEnabled) {
-                            editedValveConfig?.let {
-                                previewPulseMicros = valvePercentToPulse(
-                                    (previewPercent - 5f).coerceAtLeast(0f),
-                                    it.servoMinPulseMicros,
-                                    it.servoMaxPulseMicros,
-                                )
-                                onPreviewValvePosition(previewPulseMicros)
-                            }
+                        ValueGridRow(
+                            strings.get(R.string.valve_calibration_label_open_marker),
+                            markerLabel(openPercent, editedValveConfig?.openPulseMicros, strings),
+                            strings.get(R.string.valve_calibration_label_shut_marker),
+                            markerLabel(shutPercent, editedValveConfig?.shutPulseMicros, strings),
+                        )
+                        if (valveConfig != null) {
+                            ValueGridRow(
+                                strings.get(R.string.settings_label_valve_state),
+                                state.deviceState?.let { valveStateLabel(it.valveState, strings) } ?: strings.get(R.string.placeholder_dash),
+                                strings.get(R.string.settings_label_valve_move_duration),
+                                formatDuration((valveConfig.moveDurationMillis / 1000).coerceAtLeast(0), strings),
+                            )
                         }
-                        StepButton(label = "-1%", enabled = previewEnabled) {
-                            editedValveConfig?.let {
-                                previewPulseMicros = valvePercentToPulse(
-                                    (previewPercent - 1f).coerceAtLeast(0f),
-                                    it.servoMinPulseMicros,
-                                    it.servoMaxPulseMicros,
-                                )
-                                onPreviewValvePosition(previewPulseMicros)
-                            }
-                        }
-                        StepButton(label = "+1%", enabled = previewEnabled) {
-                            editedValveConfig?.let {
-                                previewPulseMicros = valvePercentToPulse(
-                                    (previewPercent + 1f).coerceAtMost(100f),
-                                    it.servoMinPulseMicros,
-                                    it.servoMaxPulseMicros,
-                                )
-                                onPreviewValvePosition(previewPulseMicros)
-                            }
-                        }
-                        StepButton(label = "+5%", enabled = previewEnabled) {
-                            editedValveConfig?.let {
-                                previewPulseMicros = valvePercentToPulse(
-                                    (previewPercent + 5f).coerceAtMost(100f),
-                                    it.servoMinPulseMicros,
-                                    it.servoMaxPulseMicros,
-                                )
-                                onPreviewValvePosition(previewPulseMicros)
-                            }
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Button(
-                            onClick = { openPulseText = previewPulse.toString() },
-                            enabled = editedValveConfig != null,
+                        Slider(
+                            value = previewPercent,
+                            onValueChange = { percent ->
+                                editedValveConfig?.let {
+                                    previewPulseMicros = valvePercentToPulse(percent, it.servoMinPulseMicros, it.servoMaxPulseMicros)
+                                }
+                            },
+                            valueRange = 0f..100f,
+                            enabled = previewEnabled,
+                            onValueChangeFinished = {
+                                editedValveConfig?.let {
+                                    onPreviewValvePosition(
+                                        clampValvePulse(previewPulseMicros, it.servoMinPulseMicros, it.servoMaxPulseMicros),
+                                    )
+                                }
+                            },
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Text(strings.get(R.string.valve_calibration_set_open))
+                            StepButton(label = "-5%", enabled = previewEnabled) {
+                                editedValveConfig?.let {
+                                    previewPulseMicros = valvePercentToPulse(
+                                        (previewPercent - 5f).coerceAtLeast(0f),
+                                        it.servoMinPulseMicros,
+                                        it.servoMaxPulseMicros,
+                                    )
+                                    onPreviewValvePosition(previewPulseMicros)
+                                }
+                            }
+                            StepButton(label = "-1%", enabled = previewEnabled) {
+                                editedValveConfig?.let {
+                                    previewPulseMicros = valvePercentToPulse(
+                                        (previewPercent - 1f).coerceAtLeast(0f),
+                                        it.servoMinPulseMicros,
+                                        it.servoMaxPulseMicros,
+                                    )
+                                    onPreviewValvePosition(previewPulseMicros)
+                                }
+                            }
+                            StepButton(label = "+1%", enabled = previewEnabled) {
+                                editedValveConfig?.let {
+                                    previewPulseMicros = valvePercentToPulse(
+                                        (previewPercent + 1f).coerceAtMost(100f),
+                                        it.servoMinPulseMicros,
+                                        it.servoMaxPulseMicros,
+                                    )
+                                    onPreviewValvePosition(previewPulseMicros)
+                                }
+                            }
+                            StepButton(label = "+5%", enabled = previewEnabled) {
+                                editedValveConfig?.let {
+                                    previewPulseMicros = valvePercentToPulse(
+                                        (previewPercent + 5f).coerceAtMost(100f),
+                                        it.servoMinPulseMicros,
+                                        it.servoMaxPulseMicros,
+                                    )
+                                    onPreviewValvePosition(previewPulseMicros)
+                                }
+                            }
                         }
-                        Button(
-                            onClick = { shutPulseText = previewPulse.toString() },
-                            enabled = editedValveConfig != null,
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Text(strings.get(R.string.valve_calibration_set_shut))
+                            Button(
+                                onClick = { openPulseText = previewPulse.toString() },
+                                enabled = editedValveConfig != null,
+                            ) {
+                                Text(strings.get(R.string.valve_calibration_set_open))
+                            }
+                            Button(
+                                onClick = { shutPulseText = previewPulse.toString() },
+                                enabled = editedValveConfig != null,
+                            ) {
+                                Text(strings.get(R.string.valve_calibration_set_shut))
+                            }
                         }
                     }
                 }
             }
-        }
-        item {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF4F0E7)),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF4F0E7)),
                 ) {
-                    Text(strings.get(R.string.valve_calibration_range_title), style = MaterialTheme.typography.titleMedium)
-                    PulseField(
-                        value = minPulseText,
-                        label = strings.get(R.string.valve_calibration_label_min_pulse),
-                        onValueChange = { minPulseText = it },
-                    )
-                    PulseField(
-                        value = maxPulseText,
-                        label = strings.get(R.string.valve_calibration_label_max_pulse),
-                        onValueChange = { maxPulseText = it },
-                    )
-                    PulseField(
-                        value = openPulseText,
-                        label = strings.get(R.string.valve_calibration_label_open_pulse),
-                        onValueChange = { openPulseText = it },
-                    )
-                    PulseField(
-                        value = shutPulseText,
-                        label = strings.get(R.string.valve_calibration_label_shut_pulse),
-                        onValueChange = { shutPulseText = it },
-                    )
-                    Button(
-                        onClick = { editedValveConfig?.let(onSaveValveConfig) },
-                        enabled = calibrationChanged,
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text(strings.get(R.string.valve_calibration_save))
+                        Text(strings.get(R.string.valve_calibration_range_title), style = MaterialTheme.typography.titleMedium)
+                        PulseField(
+                            value = minPulseText,
+                            label = strings.get(R.string.valve_calibration_label_min_pulse),
+                            onValueChange = { minPulseText = it },
+                        )
+                        PulseField(
+                            value = maxPulseText,
+                            label = strings.get(R.string.valve_calibration_label_max_pulse),
+                            onValueChange = { maxPulseText = it },
+                        )
+                        PulseField(
+                            value = openPulseText,
+                            label = strings.get(R.string.valve_calibration_label_open_pulse),
+                            onValueChange = { openPulseText = it },
+                        )
+                        PulseField(
+                            value = shutPulseText,
+                            label = strings.get(R.string.valve_calibration_label_shut_pulse),
+                            onValueChange = { shutPulseText = it },
+                        )
+                        Button(
+                            onClick = { editedValveConfig?.let(onSaveValveConfig) },
+                            enabled = calibrationChanged,
+                        ) {
+                            Text(strings.get(R.string.valve_calibration_save))
+                        }
                     }
                 }
             }

@@ -70,11 +70,16 @@ internal class BeetGattSessionCoordinator(
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
                 return@launch
             }
-            withSyncPausedForCommand {
-                for (pairIndex in 1..8) {
-                    runCatching { sendCommand(BeetJsonCodec.getCalibration(pairIndex)) }
-                        .onFailure { host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex)) }
+            host.updateState { state -> state.copy(calibrationsRefreshing = true) }
+            try {
+                withSyncPausedForCommand {
+                    for (pairIndex in 1..8) {
+                        runCatching { sendCommand(BeetJsonCodec.getCalibration(pairIndex)) }
+                            .onFailure { host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex)) }
+                    }
                 }
+            } finally {
+                host.updateState { state -> state.copy(calibrationsRefreshing = false) }
             }
         }
     }
@@ -150,7 +155,12 @@ internal class BeetGattSessionCoordinator(
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
                 return@launch
             }
-            runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getValveConfig()) } }
+            host.updateState { state -> state.copy(valveConfigRefreshing = true) }
+            try {
+                runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getValveConfig()) } }
+            } finally {
+                host.updateState { state -> state.copy(valveConfigRefreshing = false) }
+            }
         }
     }
 
@@ -290,6 +300,7 @@ internal class BeetGattSessionCoordinator(
                 )
                 host.updateState {
                     it.copy(
+                        calibrationsRefreshing = false,
                         eventsLoading = false,
                         eventSync = BeetEventSyncState(
                             active = false,
@@ -297,6 +308,7 @@ internal class BeetGattSessionCoordinator(
                             total = 0,
                             phase = BeetEventSyncPhase.PausedForCommand,
                         ),
+                        valveConfigRefreshing = false,
                     )
                 }
                 return@launch
@@ -353,7 +365,7 @@ internal class BeetGattSessionCoordinator(
                             eventSync = it.eventSync.copy(
                                 active = progress.active,
                                 downloaded = progress.downloaded,
-                                total = max(it.eventSync.total, progress.total),
+                                total = progress.total,
                                 phase = progress.phase,
                             ),
                         )
@@ -367,8 +379,10 @@ internal class BeetGattSessionCoordinator(
 
             host.updateState { state ->
                 state.copy(
+                    calibrationsRefreshing = false,
                     eventsLoading = false,
-                    eventSync = state.eventSync.copy(active = false, phase = BeetEventSyncPhase.Completed),
+                    eventSync = BeetEventSyncState(),
+                    valveConfigRefreshing = false,
                 )
             }
         }
@@ -752,6 +766,14 @@ internal class BeetGattSessionCoordinator(
         resetSyncState()
         host.session.pendingCommand?.cancel()
         host.session.pendingCommand = null
+        host.updateState { state ->
+            state.copy(
+                calibrationsRefreshing = false,
+                eventsLoading = false,
+                eventSync = BeetEventSyncState(),
+                valveConfigRefreshing = false,
+            )
+        }
         if (clearSelection) {
             host.currentAddress = null
             host.updateState { it.copy(selectedAddress = null) }

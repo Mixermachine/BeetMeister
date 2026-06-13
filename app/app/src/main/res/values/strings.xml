@@ -8,6 +8,7 @@
     <string name="common_unknown">Unknown</string>
     <string name="common_unknown_with_code" localizePipeContext="Fallback label for an unknown technical code or state. Keep %1$s as the raw code value.">Unknown (%1$s)</string>
     <string name="common_back">Back</string>
+    <string name="common_close">Close</string>
     <string name="common_reload">Reload</string>
     <string name="common_refresh">Refresh</string>
     <string name="common_details">Details</string>
@@ -77,6 +78,16 @@
     <string name="settings_label_valve_move_duration">Move duration (ms)</string>
     <string name="settings_label_valve_settle_delay">Settle delay (ms)</string>
     <string name="settings_label_valve_open_hold">Open hold (ms)</string>
+    <string name="settings_info_open_description">Show setting description</string>
+    <string name="settings_valve_move_duration_error">Enter a value from 100 to 5000 ms.</string>
+    <string name="settings_valve_settle_delay_error">Enter a value from 0 to 5000 ms.</string>
+    <string name="settings_valve_open_hold_error">Enter a value from 0 to 10000 ms.</string>
+    <string name="settings_valve_move_duration_info_title">Move duration</string>
+    <string name="settings_valve_move_duration_info_body">How long the controller actively drives the servo toward the open or shut end position. Increase this if the valve does not reliably reach its stop. Keep it only as long as needed, because the servo stays powered during this time.</string>
+    <string name="settings_valve_settle_delay_info_title">Settle delay</string>
+    <string name="settings_valve_settle_delay_info_body">Extra wait time after servo motion finishes before watering is allowed to start. This gives the valve time to stop oscillating and lets water pressure settle. Increase it if flow starts too early right after opening.</string>
+    <string name="settings_valve_open_hold_info_title">Open hold</string>
+    <string name="settings_valve_open_hold_info_body">How long the controller keeps the valve open after watering stops before closing it again. A longer hold avoids repeated open and close cycles when runs happen close together. A shorter hold saves power and closes the supply sooner.</string>
     <string name="settings_save_valve">Save valve settings</string>
     <string name="valve_calibration_title">Valve calibration</string>
     <string name="valve_calibration_subtitle">Jog the servo in small steps, define the safe pulse range, and store the open and shut positions for this valve linkage.</string>

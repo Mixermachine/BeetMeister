@@ -29,8 +29,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.R
+import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
+import de.aarondietz.beetmeister.ui.core.component.BeetPullToRefreshBox
 import de.aarondietz.beetmeister.ui.feature.events.component.DurationBarChart
 import de.aarondietz.beetmeister.ui.feature.events.component.SystemEventRow
 import de.aarondietz.beetmeister.ui.feature.events.component.WateringEventRow
@@ -49,93 +51,101 @@ internal fun EventsScreen(
     val totals = wateringTotals(state.recentEvents, window, nowSeconds)
     val filteredSystemEvents = state.systemEvents.filter { filter.acceptsSystem(it) }
     val systemSections = groupSystemEvents(filteredSystemEvents, state, strings)
+    val isRefreshing = state.eventsLoading || state.eventSync.active
 
-    LazyColumn(
+    BeetPullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(strings.get(R.string.events_title), style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = onRefresh) { Text(strings.get(R.string.common_refresh)) }
-            }
-        }
-        item {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF5EBDD)),
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    SectionHeading(
-                        title = strings.get(R.string.events_watering_summary_title),
-                        subtitle = strings.get(R.string.events_watering_summary_subtitle),
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(strings.get(R.string.events_watering_time_by_pair), style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        WateringWindow.entries.forEach { option ->
-                            FilterChip(
-                                selected = window == option,
-                                onClick = { window = option },
-                                label = { Text(strings.get(option.labelRes)) },
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                    DurationBarChart(totals)
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        strings.get(R.string.events_synced_count, state.eventSync.downloaded, state.eventSync.total),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Button(onClick = onLoadDetails) { Text(strings.get(R.string.events_open_watering_history)) }
-                }
-            }
-        }
-        item {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEAF2F8)),
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    SectionHeading(
-                        title = strings.get(R.string.events_system_activity_title),
-                        subtitle = strings.get(R.string.events_system_activity_subtitle),
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        systemEventFilters().forEach { option ->
-                            FilterChip(
-                                selected = filter == option,
-                                onClick = { filter = option },
-                                label = { Text(strings.get(option.labelRes)) },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        if (systemSections.isEmpty()) {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             item {
-                EmptySectionCard(
-                    title = strings.get(R.string.events_system_empty_title),
-                    body = strings.get(R.string.events_system_empty_body),
-                    tone = Color(0xFFF3F7FA),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(strings.get(R.string.events_title), style = MaterialTheme.typography.headlineSmall)
+                }
             }
-        } else {
-            items(systemSections, key = { section -> section.key }) { section ->
-                SystemEventSectionCard(section = section)
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF5EBDD)),
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        SectionHeading(
+                            title = strings.get(R.string.events_watering_summary_title),
+                            subtitle = strings.get(R.string.events_watering_summary_subtitle),
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(strings.get(R.string.events_watering_time_by_pair), style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            WateringWindow.entries.forEach { option ->
+                                FilterChip(
+                                    selected = window == option,
+                                    onClick = { window = option },
+                                    label = { Text(strings.get(option.labelRes)) },
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
+                        DurationBarChart(totals)
+                        Spacer(modifier = Modifier.height(14.dp))
+                        if (state.eventSync.active) {
+                            Text(
+                                strings.get(R.string.events_synced_count, state.eventSync.downloaded, state.eventSync.total),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(modifier = Modifier.height(14.dp))
+                        }
+                        Button(onClick = onLoadDetails) { Text(strings.get(R.string.events_open_watering_history)) }
+                    }
+                }
+            }
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEAF2F8)),
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        SectionHeading(
+                            title = strings.get(R.string.events_system_activity_title),
+                            subtitle = strings.get(R.string.events_system_activity_subtitle),
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            systemEventFilters().forEach { option ->
+                                FilterChip(
+                                    selected = filter == option,
+                                    onClick = { filter = option },
+                                    label = { Text(strings.get(option.labelRes)) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            if (systemSections.isEmpty()) {
+                item {
+                    EmptySectionCard(
+                        title = strings.get(R.string.events_system_empty_title),
+                        body = strings.get(R.string.events_system_empty_body),
+                        tone = Color(0xFFF3F7FA),
+                    )
+                }
+            } else {
+                items(systemSections, key = { section -> section.key }) { section ->
+                    SystemEventSectionCard(section = section)
+                }
             }
         }
     }
@@ -150,37 +160,42 @@ internal fun EventDetailScreen(
 ) {
     val strings = rememberBeetStringResolver()
     val wateringEvents = state.recentEvents.sortedByDescending { it.sequenceNumber }
-    LazyColumn(
+    BeetPullToRefreshBox(
+        isRefreshing = state.eventsLoading || state.eventSync.active,
+        onRefresh = onReload,
+        enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
-                TextButton(onClick = onReload) { Text(strings.get(R.string.common_reload)) }
+                    TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
+                }
             }
-        }
-        item {
-            SectionHeading(
-                title = strings.get(R.string.events_watering_history_title),
-                subtitle = strings.get(R.string.events_watering_history_subtitle, wateringEvents.size),
-            )
-        }
-        if (wateringEvents.isEmpty()) {
             item {
-                EmptySectionCard(
-                    title = strings.get(R.string.events_watering_empty_title),
-                    body = strings.get(R.string.events_watering_empty_body),
-                    tone = Color(0xFFF8F3EA),
+                SectionHeading(
+                    title = strings.get(R.string.events_watering_history_title),
+                    subtitle = strings.get(R.string.events_watering_history_subtitle, wateringEvents.size),
                 )
             }
-        } else {
-            items(wateringEvents, key = { "wat${it.sequenceNumber}" }) { event ->
-                WateringEventRow(event = event, state = state)
+            if (wateringEvents.isEmpty()) {
+                item {
+                    EmptySectionCard(
+                        title = strings.get(R.string.events_watering_empty_title),
+                        body = strings.get(R.string.events_watering_empty_body),
+                        tone = Color(0xFFF8F3EA),
+                    )
+                }
+            } else {
+                items(wateringEvents, key = { "wat${it.sequenceNumber}" }) { event ->
+                    WateringEventRow(event = event, state = state)
+                }
             }
         }
     }

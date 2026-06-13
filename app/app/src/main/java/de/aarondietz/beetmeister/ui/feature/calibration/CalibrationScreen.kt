@@ -17,7 +17,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -34,6 +33,7 @@ import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.strings.BeetStringResolver
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
+import de.aarondietz.beetmeister.ui.core.component.BeetPullToRefreshBox
 import de.aarondietz.beetmeister.ui.core.formatting.calibrationSourceLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatUnixSeconds
 
@@ -50,31 +50,36 @@ internal fun CalibrationScreen(
             onRefresh()
         }
     }
-    LazyColumn(
+    BeetPullToRefreshBox(
+        isRefreshing = state.calibrationsRefreshing,
+        onRefresh = onRefresh,
+        enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(strings.get(R.string.calibration_title), style = MaterialTheme.typography.headlineSmall)
-                TextButton(onClick = onRefresh) { Text(strings.get(R.string.common_reload)) }
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(strings.get(R.string.calibration_title), style = MaterialTheme.typography.headlineSmall)
+                }
             }
-        }
-        items(state.pairStates, key = { pair -> pair.pairIndex }) { pair ->
-            val calibration = state.calibrations[pair.pairIndex]
-            CalibrationCard(
-                pairState = pair,
-                dryValue = calibration?.dryMillivolts,
-                wetValue = calibration?.wetMillivolts,
-                source = calibration?.source,
-                calibratedAtUnixSeconds = calibration?.calibratedAtUnixSeconds ?: 0L,
-                onSave = { dry, wet -> onSave(pair.pairIndex, dry, wet) },
-                strings = strings,
-            )
+            items(state.pairStates, key = { pair -> pair.pairIndex }) { pair ->
+                val calibration = state.calibrations[pair.pairIndex]
+                CalibrationCard(
+                    pairState = pair,
+                    dryValue = calibration?.dryMillivolts,
+                    wetValue = calibration?.wetMillivolts,
+                    source = calibration?.source,
+                    calibratedAtUnixSeconds = calibration?.calibratedAtUnixSeconds ?: 0L,
+                    onSave = { dry, wet -> onSave(pair.pairIndex, dry, wet) },
+                    strings = strings,
+                )
+            }
         }
     }
 }
