@@ -32,11 +32,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import de.aarondietz.beetmeister.data.repository.BeetRepository
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.core.app.AppMainContentRouter
 import de.aarondietz.beetmeister.ui.core.app.TopLevelScreen
 import de.aarondietz.beetmeister.ui.core.app.findActivity
 import de.aarondietz.beetmeister.ui.core.component.Header
+import de.aarondietz.beetmeister.ui.core.component.UnsavedChangesDialog
 import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGate
 import kotlinx.coroutines.delay
 
@@ -53,8 +55,12 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
     var pairDetailReturnScreen by rememberSaveable { mutableStateOf(TopLevelScreen.Overview) }
     var showEventTable by rememberSaveable { mutableStateOf(false) }
     var showValveCalibration by rememberSaveable { mutableStateOf(false) }
+    var showValveCalibrationUnsavedDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingTopLevelScreen by rememberSaveable { mutableStateOf<TopLevelScreen?>(null) }
     var connectionGateVisible by rememberSaveable { mutableStateOf(true) }
     var permissionRequestAttempted by rememberSaveable { mutableStateOf(false) }
+    var valveCalibrationHasUnsavedChanges by remember { mutableStateOf(false) }
+    var valveCalibrationSavableConfig by remember { mutableStateOf<BeetValveConfig?>(null) }
 
     val permissionController = rememberPermissionController(
         state = state,
@@ -107,8 +113,38 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         showEventTable = false
     }
 
-    BackHandler(enabled = showValveCalibration) {
+    fun finishLeavingValveCalibration() {
+        val destination = pendingTopLevelScreen
+        showValveCalibrationUnsavedDialog = false
+        pendingTopLevelScreen = null
         showValveCalibration = false
+        if (destination != null) {
+            topLevelScreen = destination
+            selectedPair = 0
+            showEventTable = false
+        }
+    }
+
+    fun requestLeaveValveCalibration(destination: TopLevelScreen? = null) {
+        if (!showValveCalibration) {
+            if (destination != null) {
+                topLevelScreen = destination
+                selectedPair = 0
+                showEventTable = false
+            }
+            return
+        }
+        if (!valveCalibrationHasUnsavedChanges) {
+            pendingTopLevelScreen = destination
+            finishLeavingValveCalibration()
+            return
+        }
+        pendingTopLevelScreen = destination
+        showValveCalibrationUnsavedDialog = true
+    }
+
+    BackHandler(enabled = showValveCalibration) {
+        requestLeaveValveCalibration()
     }
 
     if (connectionGateVisible) {
@@ -124,6 +160,26 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         return
     }
 
+    if (showValveCalibrationUnsavedDialog) {
+        UnsavedChangesDialog(
+            title = stringResource(de.aarondietz.beetmeister.R.string.valve_calibration_unsaved_title),
+            body = stringResource(de.aarondietz.beetmeister.R.string.valve_calibration_unsaved_body),
+            continueEditingLabel = stringResource(de.aarondietz.beetmeister.R.string.valve_calibration_continue_editing),
+            discardLabel = stringResource(de.aarondietz.beetmeister.R.string.valve_calibration_discard),
+            saveAndLeaveLabel = stringResource(de.aarondietz.beetmeister.R.string.valve_calibration_save_and_leave),
+            saveEnabled = valveCalibrationSavableConfig != null,
+            onContinueEditing = {
+                showValveCalibrationUnsavedDialog = false
+                pendingTopLevelScreen = null
+            },
+            onDiscard = { finishLeavingValveCalibration() },
+            onSaveAndLeave = {
+                valveCalibrationSavableConfig?.let(viewModel::saveValveConfig)
+                finishLeavingValveCalibration()
+            },
+        )
+    }
+
     NavigationSuiteScaffold(
         modifier = modifier.fillMaxSize(),
         navigationSuiteItems = {
@@ -133,10 +189,14 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     label = { Text(stringResource(destination.labelRes)) },
                     selected = topLevelScreen == destination,
                     onClick = {
-                        topLevelScreen = destination
-                        selectedPair = 0
-                        showEventTable = false
-                        showValveCalibration = false
+                        if (showValveCalibration) {
+                            requestLeaveValveCalibration(destination)
+                        } else {
+                            topLevelScreen = destination
+                            selectedPair = 0
+                            showEventTable = false
+                            showValveCalibration = false
+                        }
                     },
                 )
             }
@@ -171,7 +231,13 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                         selectedPair = 0
                     },
                     onShowEventTableChange = { showEventTable = it },
-                    onShowValveCalibrationChange = { showValveCalibration = it },
+                    onShowValveCalibrationChange = {
+                        if (showValveCalibration && !it) {
+                            requestLeaveValveCalibration()
+                        } else {
+                            showValveCalibration = it
+                        }
+                    },
                     onToggleEnabled = viewModel::togglePairEnabled,
                     onManualStart = viewModel::manualStart,
                     onManualStop = viewModel::manualStop,
@@ -186,6 +252,10 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     onSaveValveConfig = viewModel::saveValveConfig,
                     onSaveWateringInterval = viewModel::saveWateringInterval,
                     onPreviewValvePosition = viewModel::previewValvePosition,
+                    onValveCalibrationUnsavedStateChange = { hasUnsaved, savableConfig ->
+                        valveCalibrationHasUnsavedChanges = hasUnsaved
+                        valveCalibrationSavableConfig = savableConfig
+                    },
                     onOpenValve = viewModel::openValve,
                     onCloseValve = viewModel::closeValve,
                     onDisconnect = viewModel::disconnect,

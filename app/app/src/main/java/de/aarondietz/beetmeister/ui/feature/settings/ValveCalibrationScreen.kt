@@ -43,6 +43,7 @@ internal fun ValveCalibrationScreen(
     onRefreshValveConfig: () -> Unit,
     onPreviewValvePosition: (Int) -> Unit,
     onSaveValveConfig: (BeetValveConfig) -> Unit,
+    onUnsavedStateChange: (Boolean, BeetValveConfig?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
@@ -88,6 +89,13 @@ internal fun ValveCalibrationScreen(
         valvePulseToPercent(previewPulse, it.servoMinPulseMicros, it.servoMaxPulseMicros)
     } ?: 0f
     val calibrationChanged = editedValveConfig != null && editedValveConfig != valveConfig
+    val calibrationTextChanged = valveConfig != null && (
+        minPulseText != valveConfig.servoMinPulseMicros.toString() ||
+            maxPulseText != valveConfig.servoMaxPulseMicros.toString() ||
+            openPulseText != valveConfig.openPulseMicros.toString() ||
+            shutPulseText != valveConfig.shutPulseMicros.toString()
+        )
+    val hasUnsavedChanges = calibrationTextChanged
     val previewEnabled =
         state.connection.phase == BeetConnectionPhase.Connected &&
             editedValveConfig != null &&
@@ -100,6 +108,10 @@ internal fun ValveCalibrationScreen(
     }
     val shutPercent = editedValveConfig?.let {
         valvePulseToPercent(it.shutPulseMicros, it.servoMinPulseMicros, it.servoMaxPulseMicros)
+    }
+
+    LaunchedEffect(hasUnsavedChanges, editedValveConfig) {
+        onUnsavedStateChange(hasUnsavedChanges, if (hasUnsavedChanges) editedValveConfig else null)
     }
 
     BeetPullToRefreshBox(

@@ -113,6 +113,11 @@
     <string name="valve_calibration_label_open_pulse">Open position (us)</string>
     <string name="valve_calibration_label_shut_pulse">Shut position (us)</string>
     <string name="valve_calibration_save">Save calibration</string>
+    <string name="valve_calibration_unsaved_title">Unsaved valve calibration values</string>
+    <string name="valve_calibration_unsaved_body">These valve calibration changes have not been saved yet. Leaving now will discard them unless you save first.</string>
+    <string name="valve_calibration_continue_editing">Continue editing</string>
+    <string name="valve_calibration_discard">Discard</string>
+    <string name="valve_calibration_save_and_leave">Save and leave</string>
 
     <string name="overview_title_system_values">Current system values</string>
     <string name="overview_label_battery">Battery</string>

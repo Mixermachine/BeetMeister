@@ -38,6 +38,7 @@ internal fun AppMainContentRouter(
     onSaveValveConfig: (BeetValveConfig) -> Unit,
     onSaveWateringInterval: (Int) -> Unit,
     onPreviewValvePosition: (Int) -> Unit,
+    onValveCalibrationUnsavedStateChange: (Boolean, BeetValveConfig?) -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
     onDisconnect: () -> Unit,
@@ -68,6 +69,7 @@ internal fun AppMainContentRouter(
             onRefreshValveConfig = onRefreshValveConfig,
             onPreviewValvePosition = onPreviewValvePosition,
             onSaveValveConfig = onSaveValveConfig,
+            onUnsavedStateChange = onValveCalibrationUnsavedStateChange,
             modifier = modifier.fillMaxSize(),
         )
 
