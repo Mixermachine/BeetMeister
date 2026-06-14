@@ -167,6 +167,10 @@ internal fun SettingsScreen(
                             strings.get(R.string.settings_label_address),
                             state.selectedAddress ?: strings.get(R.string.placeholder_dash),
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(onClick = onDisconnect) {
+                            Text(strings.get(R.string.common_disconnect))
+                        }
                     }
                 }
             }
@@ -307,9 +311,6 @@ internal fun SettingsScreen(
                         }
                     }
                 }
-            }
-            item {
-                Button(onClick = onDisconnect) { Text(strings.get(R.string.common_disconnect)) }
             }
         }
     }
