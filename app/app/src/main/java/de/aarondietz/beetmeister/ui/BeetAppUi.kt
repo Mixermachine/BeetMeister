@@ -5,43 +5,44 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.core.app.ActivityCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import de.aarondietz.beetmeister.data.repository.BeetRepository
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.ui.core.app.AppMainContentRouter
+import de.aarondietz.beetmeister.ui.core.app.AppRoute
+import de.aarondietz.beetmeister.ui.core.app.AppRouteStackSaver
 import de.aarondietz.beetmeister.ui.core.app.TopLevelScreen
 import de.aarondietz.beetmeister.ui.core.app.findActivity
+import de.aarondietz.beetmeister.ui.core.component.BeetPageScaffold
 import de.aarondietz.beetmeister.ui.core.component.Header
 import de.aarondietz.beetmeister.ui.core.component.UnsavedChangesDialog
 import de.aarondietz.beetmeister.ui.feature.calibration.CalibrationSaveDraft
 import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGate
 import de.aarondietz.beetmeister.ui.feature.settings.SettingsSaveDraft
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 private const val UI_TAG = "BeetAppUi"
@@ -53,27 +54,19 @@ private enum class UnsavedDialogSource {
     PairCalibration,
 }
 
-private enum class PendingActionKind {
-    None,
-    TopLevel,
-    OpenValveCalibration,
-    CloseValveCalibration,
-}
-
 @Composable
 internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var topLevelScreen by rememberSaveable { mutableStateOf(TopLevelScreen.Overview) }
-    var selectedPair by rememberSaveable { mutableIntStateOf(0) }
-    var pairDetailReturnScreen by rememberSaveable { mutableStateOf(TopLevelScreen.Overview) }
-    var showEventTable by rememberSaveable { mutableStateOf(false) }
-    var showValveCalibration by rememberSaveable { mutableStateOf(false) }
-    var showValveCalibrationUnsavedDialog by rememberSaveable { mutableStateOf(false) }
+    var routeStack by rememberSaveable(stateSaver = AppRouteStackSaver) {
+        mutableStateOf(listOf<AppRoute>(AppRoute.TopLevel(TopLevelScreen.Overview)))
+    }
+    var pendingRouteStack by rememberSaveable {
+        mutableStateOf<List<AppRoute>?>(null)
+    }
+    var showUnsavedDialog by rememberSaveable { mutableStateOf(false) }
     var unsavedDialogSource by rememberSaveable { mutableStateOf<UnsavedDialogSource?>(null) }
-    var pendingActionKind by rememberSaveable { mutableStateOf(PendingActionKind.None) }
-    var pendingTopLevelScreen by rememberSaveable { mutableStateOf<TopLevelScreen?>(null) }
     var connectionGateVisible by rememberSaveable { mutableStateOf(true) }
     var permissionRequestAttempted by rememberSaveable { mutableStateOf(false) }
     var valveCalibrationHasUnsavedChanges by remember { mutableStateOf(false) }
@@ -82,6 +75,8 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
     var settingsSavableDraft by remember { mutableStateOf<SettingsSaveDraft?>(null) }
     var pairCalibrationHasUnsavedChanges by remember { mutableStateOf(false) }
     var pairCalibrationSavableDrafts by remember { mutableStateOf<List<CalibrationSaveDraft>?>(null) }
+
+    val currentRoute = routeStack.last()
 
     val permissionController = rememberPermissionController(
         state = state,
@@ -125,123 +120,93 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         }
     }
 
-    BackHandler(enabled = selectedPair != 0) {
-        topLevelScreen = pairDetailReturnScreen
-        selectedPair = 0
-    }
-
-    BackHandler(enabled = showEventTable) {
-        showEventTable = false
-    }
-
-    fun clearPendingLeaveState() {
-        showValveCalibrationUnsavedDialog = false
+    fun clearPendingNavigation() {
+        pendingRouteStack = null
+        showUnsavedDialog = false
         unsavedDialogSource = null
-        pendingActionKind = PendingActionKind.None
-        pendingTopLevelScreen = null
     }
 
-    fun applyPendingAction() {
-        val action = pendingActionKind
-        val destination = pendingTopLevelScreen
-        clearPendingLeaveState()
-        when (action) {
-            PendingActionKind.TopLevel -> {
-                if (destination != null) {
-                    topLevelScreen = destination
-                    selectedPair = 0
-                    showEventTable = false
-                    showValveCalibration = false
-                }
-            }
-            PendingActionKind.OpenValveCalibration -> {
-                showValveCalibration = true
-            }
-            PendingActionKind.CloseValveCalibration -> {
-                showValveCalibration = false
-            }
-            PendingActionKind.None -> {}
+    fun applyPendingNavigation() {
+        val target = pendingRouteStack
+        clearPendingNavigation()
+        if (target != null) {
+            routeStack = target
         }
     }
 
-    fun finishLeavingValveCalibration() {
-        showValveCalibration = false
-        applyPendingAction()
-    }
-
-    fun requestLeaveValveCalibration(destination: TopLevelScreen? = null) {
-        if (!showValveCalibration) {
-            if (destination != null) {
-                topLevelScreen = destination
-                selectedPair = 0
-                showEventTable = false
+    fun requestNavigation(targetStack: List<AppRoute>) {
+        if (targetStack == routeStack) {
+            return
+        }
+        when {
+            currentRoute == AppRoute.ValveCalibration && valveCalibrationHasUnsavedChanges -> {
+                pendingRouteStack = targetStack
+                unsavedDialogSource = UnsavedDialogSource.ValveCalibration
+                showUnsavedDialog = true
             }
-            return
-        }
-        if (!valveCalibrationHasUnsavedChanges) {
-            pendingActionKind = if (destination != null) PendingActionKind.TopLevel else PendingActionKind.CloseValveCalibration
-            pendingTopLevelScreen = destination
-            finishLeavingValveCalibration()
-            return
-        }
-        unsavedDialogSource = UnsavedDialogSource.ValveCalibration
-        pendingActionKind = if (destination != null) PendingActionKind.TopLevel else PendingActionKind.CloseValveCalibration
-        pendingTopLevelScreen = destination
-        showValveCalibrationUnsavedDialog = true
-    }
 
-    fun requestLeaveSettings(destination: TopLevelScreen? = null, openValveCalibration: Boolean = false) {
-        if (topLevelScreen != TopLevelScreen.Settings || showValveCalibration) {
-            if (openValveCalibration) {
-                showValveCalibration = true
-            } else if (destination != null) {
-                topLevelScreen = destination
-                selectedPair = 0
-                showEventTable = false
+            currentRoute is AppRoute.TopLevel &&
+                currentRoute.screen == TopLevelScreen.Settings &&
+                settingsHasUnsavedChanges -> {
+                pendingRouteStack = targetStack
+                unsavedDialogSource = UnsavedDialogSource.Settings
+                showUnsavedDialog = true
             }
-            return
-        }
-        if (!settingsHasUnsavedChanges) {
-            pendingActionKind = when {
-                openValveCalibration -> PendingActionKind.OpenValveCalibration
-                destination != null -> PendingActionKind.TopLevel
-                else -> PendingActionKind.None
+
+            currentRoute is AppRoute.TopLevel &&
+                currentRoute.screen == TopLevelScreen.Calibration &&
+                pairCalibrationHasUnsavedChanges -> {
+                pendingRouteStack = targetStack
+                unsavedDialogSource = UnsavedDialogSource.PairCalibration
+                showUnsavedDialog = true
             }
-            pendingTopLevelScreen = destination
-            applyPendingAction()
-            return
+
+            else -> routeStack = targetStack
         }
-        unsavedDialogSource = UnsavedDialogSource.Settings
-        pendingActionKind = when {
-            openValveCalibration -> PendingActionKind.OpenValveCalibration
-            destination != null -> PendingActionKind.TopLevel
-            else -> PendingActionKind.None
-        }
-        pendingTopLevelScreen = destination
-        showValveCalibrationUnsavedDialog = true
     }
 
-    fun requestLeavePairCalibration(destination: TopLevelScreen) {
-        if (topLevelScreen != TopLevelScreen.Calibration || showValveCalibration) {
-            topLevelScreen = destination
-            selectedPair = 0
-            showEventTable = false
-            return
-        }
-        if (!pairCalibrationHasUnsavedChanges) {
-            pendingActionKind = PendingActionKind.TopLevel
-            pendingTopLevelScreen = destination
-            applyPendingAction()
-            return
-        }
-        unsavedDialogSource = UnsavedDialogSource.PairCalibration
-        pendingActionKind = PendingActionKind.TopLevel
-        pendingTopLevelScreen = destination
-        showValveCalibrationUnsavedDialog = true
+    fun navigateTopLevel(screen: TopLevelScreen) {
+        requestNavigation(listOf(AppRoute.TopLevel(screen)))
     }
 
-    BackHandler(enabled = showValveCalibration) {
-        requestLeaveValveCalibration()
+    fun navigateBack() {
+        if (routeStack.size > 1) {
+            requestNavigation(routeStack.dropLast(1))
+        }
+    }
+
+    fun navigateToPairDetail(pairIndex: Int) {
+        requestNavigation(
+            listOf(
+                AppRoute.TopLevel(currentRoute.parentTopLevelScreen),
+                AppRoute.PairDetail(
+                    pairIndex = pairIndex,
+                    parentTopLevelScreen = currentRoute.parentTopLevelScreen,
+                ),
+            ),
+        )
+    }
+
+    fun navigateToWateringHistory() {
+        requestNavigation(
+            listOf(
+                AppRoute.TopLevel(TopLevelScreen.Events),
+                AppRoute.WateringHistory,
+            ),
+        )
+    }
+
+    fun navigateToValveCalibration() {
+        requestNavigation(
+            listOf(
+                AppRoute.TopLevel(TopLevelScreen.Settings),
+                AppRoute.ValveCalibration,
+            ),
+        )
+    }
+
+    BackHandler(enabled = routeStack.size > 1) {
+        navigateBack()
     }
 
     if (connectionGateVisible) {
@@ -257,7 +222,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         return
     }
 
-    if (showValveCalibrationUnsavedDialog) {
+    if (showUnsavedDialog) {
         val dialogTitle = when (unsavedDialogSource) {
             UnsavedDialogSource.Settings -> stringResource(de.aarondietz.beetmeister.R.string.settings_unsaved_title)
             UnsavedDialogSource.PairCalibration -> stringResource(de.aarondietz.beetmeister.R.string.calibration_unsaved_title)
@@ -282,133 +247,126 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
             discardLabel = stringResource(de.aarondietz.beetmeister.R.string.common_discard),
             saveAndLeaveLabel = stringResource(de.aarondietz.beetmeister.R.string.common_save_and_leave),
             saveEnabled = saveEnabled,
-            onContinueEditing = {
-                clearPendingLeaveState()
-            },
-            onDiscard = {
-                if (unsavedDialogSource == UnsavedDialogSource.ValveCalibration) {
-                    finishLeavingValveCalibration()
-                } else {
-                    applyPendingAction()
-                }
-            },
+            onContinueEditing = ::clearPendingNavigation,
+            onDiscard = ::applyPendingNavigation,
             onSaveAndLeave = {
                 when (unsavedDialogSource) {
                     UnsavedDialogSource.Settings -> {
                         settingsSavableDraft?.valveConfig?.let(viewModel::saveValveConfig)
                         settingsSavableDraft?.wateringIntervalSeconds?.let(viewModel::saveWateringInterval)
-                        applyPendingAction()
                     }
                     UnsavedDialogSource.PairCalibration -> {
                         pairCalibrationSavableDrafts?.forEach { draft ->
                             viewModel.saveCalibration(draft.pairIndex, draft.dryMillivolts, draft.wetMillivolts)
                         }
-                        applyPendingAction()
                     }
                     UnsavedDialogSource.ValveCalibration, null -> {
                         valveCalibrationSavableConfig?.let(viewModel::saveValveConfig)
-                        finishLeavingValveCalibration()
                     }
                 }
+                applyPendingNavigation()
             },
         )
     }
 
-    NavigationSuiteScaffold(
-        modifier = modifier.fillMaxSize(),
-        navigationSuiteItems = {
-            TopLevelScreen.entries.forEach { destination ->
-                item(
-                    icon = destination.icon,
-                    label = { Text(stringResource(destination.labelRes)) },
-                    selected = topLevelScreen == destination,
-                    onClick = {
-                        if (showValveCalibration) {
-                            requestLeaveValveCalibration(destination)
-                        } else if (topLevelScreen == TopLevelScreen.Settings && destination != TopLevelScreen.Settings) {
-                            requestLeaveSettings(destination = destination)
-                        } else if (topLevelScreen == TopLevelScreen.Calibration && destination != TopLevelScreen.Calibration) {
-                            requestLeavePairCalibration(destination)
-                        } else {
-                            topLevelScreen = destination
-                            selectedPair = 0
-                            showEventTable = false
-                            showValveCalibration = false
-                        }
-                    },
+    val routeTitle = when (currentRoute) {
+        is AppRoute.TopLevel -> if (currentRoute.screen == TopLevelScreen.Settings) {
+            stringResource(currentRoute.screen.labelRes)
+        } else {
+            null
+        }
+        is AppRoute.PairDetail -> stringResource(de.aarondietz.beetmeister.R.string.common_pair_number, currentRoute.pairIndex)
+        AppRoute.WateringHistory -> stringResource(de.aarondietz.beetmeister.R.string.events_watering_history_title)
+        AppRoute.ValveCalibration -> stringResource(de.aarondietz.beetmeister.R.string.valve_calibration_title)
+    }
+
+    val headerContent: (@Composable () -> Unit)? = if (currentRoute == AppRoute.TopLevel(TopLevelScreen.Overview)) {
+        { Header(state = state) }
+    } else {
+        null
+    }
+
+    val screenContent: @Composable (Modifier) -> Unit = { contentModifier ->
+        Column(modifier = contentModifier.fillMaxSize()) {
+            state.lastCommandMessage?.let { message ->
+                AssistChip(
+                    onClick = viewModel::clearMessage,
+                    label = { Text(message) },
+                    modifier = Modifier.padding(bottom = 12.dp),
                 )
             }
-        },
-    ) {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Header(state = state)
-                state.lastCommandMessage?.let { message ->
-                    AssistChip(
-                        onClick = viewModel::clearMessage,
-                        label = { Text(message) },
-                        modifier = Modifier.padding(bottom = 12.dp),
+            AppMainContentRouter(
+                state = state,
+                currentRoute = currentRoute,
+                headerContent = headerContent,
+                onOpenPairDetail = ::navigateToPairDetail,
+                onOpenWateringHistory = ::navigateToWateringHistory,
+                onOpenValveCalibration = ::navigateToValveCalibration,
+                onNavigateBack = ::navigateBack,
+                onToggleEnabled = viewModel::togglePairEnabled,
+                onManualStart = viewModel::manualStart,
+                onManualStop = viewModel::manualStop,
+                onMoistureTestStart = viewModel::moistureTestStart,
+                onClearError = viewModel::clearPairError,
+                onLoadRecentEvents = viewModel::loadRecentEvents,
+                onRefreshHistorySummary = viewModel::refreshHistorySummary,
+                onRefreshCalibrations = viewModel::refreshCalibrations,
+                onSaveCalibration = viewModel::saveCalibration,
+                onCalibrationUnsavedStateChange = { hasUnsaved, drafts ->
+                    pairCalibrationHasUnsavedChanges = hasUnsaved
+                    pairCalibrationSavableDrafts = drafts
+                },
+                onRefreshValveConfig = viewModel::refreshValveConfig,
+                onRefreshWateringInterval = viewModel::refreshWateringInterval,
+                onSaveValveConfig = viewModel::saveValveConfig,
+                onSaveWateringInterval = viewModel::saveWateringInterval,
+                onPreviewValvePosition = viewModel::previewValvePosition,
+                onValveCalibrationUnsavedStateChange = { hasUnsaved, savableConfig ->
+                    valveCalibrationHasUnsavedChanges = hasUnsaved
+                    valveCalibrationSavableConfig = savableConfig
+                },
+                onSettingsUnsavedStateChange = { hasUnsaved, draft ->
+                    settingsHasUnsavedChanges = hasUnsaved
+                    settingsSavableDraft = draft
+                },
+                onOpenValve = viewModel::openValve,
+                onCloseValve = viewModel::closeValve,
+                onDisconnect = viewModel::disconnect,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    if (currentRoute is AppRoute.TopLevel) {
+        NavigationSuiteScaffold(
+            modifier = modifier.fillMaxSize(),
+            navigationSuiteItems = {
+                TopLevelScreen.entries.forEach { destination ->
+                    item(
+                        icon = destination.icon,
+                        label = { Text(stringResource(destination.labelRes)) },
+                        selected = currentRoute.screen == destination,
+                        onClick = { navigateTopLevel(destination) },
                     )
                 }
-                AppMainContentRouter(
-                    state = state,
-                    topLevelScreen = topLevelScreen,
-                    selectedPair = selectedPair,
-                    showEventTable = showEventTable,
-                    showValveCalibration = showValveCalibration,
-                    onSelectedPairChange = { pairIndex ->
-                        pairDetailReturnScreen = topLevelScreen
-                        selectedPair = pairIndex
-                    },
-                    onPairDetailBack = {
-                        topLevelScreen = pairDetailReturnScreen
-                        selectedPair = 0
-                    },
-                    onShowEventTableChange = { showEventTable = it },
-                    onShowValveCalibrationChange = {
-                        if (!showValveCalibration && it && topLevelScreen == TopLevelScreen.Settings) {
-                            requestLeaveSettings(openValveCalibration = true)
-                        } else if (showValveCalibration && !it) {
-                            requestLeaveValveCalibration()
-                        } else {
-                            showValveCalibration = it
-                        }
-                    },
-                    onToggleEnabled = viewModel::togglePairEnabled,
-                    onManualStart = viewModel::manualStart,
-                    onManualStop = viewModel::manualStop,
-                    onMoistureTestStart = viewModel::moistureTestStart,
-                    onClearError = viewModel::clearPairError,
-                    onLoadRecentEvents = viewModel::loadRecentEvents,
-                    onRefreshHistorySummary = viewModel::refreshHistorySummary,
-                    onRefreshCalibrations = viewModel::refreshCalibrations,
-                    onSaveCalibration = viewModel::saveCalibration,
-                    onCalibrationUnsavedStateChange = { hasUnsaved, drafts ->
-                        pairCalibrationHasUnsavedChanges = hasUnsaved
-                        pairCalibrationSavableDrafts = drafts
-                    },
-                    onRefreshValveConfig = viewModel::refreshValveConfig,
-                    onRefreshWateringInterval = viewModel::refreshWateringInterval,
-                    onSaveValveConfig = viewModel::saveValveConfig,
-                    onSaveWateringInterval = viewModel::saveWateringInterval,
-                    onPreviewValvePosition = viewModel::previewValvePosition,
-                    onValveCalibrationUnsavedStateChange = { hasUnsaved, savableConfig ->
-                        valveCalibrationHasUnsavedChanges = hasUnsaved
-                        valveCalibrationSavableConfig = savableConfig
-                    },
-                    onSettingsUnsavedStateChange = { hasUnsaved, draft ->
-                        settingsHasUnsavedChanges = hasUnsaved
-                        settingsSavableDraft = draft
-                    },
-                    onOpenValve = viewModel::openValve,
-                    onCloseValve = viewModel::closeValve,
-                    onDisconnect = viewModel::disconnect,
-                )
+            },
+        ) {
+            BeetPageScaffold(
+                title = routeTitle,
+                onNavigateBack = null,
+                modifier = Modifier.fillMaxSize(),
+            ) { contentModifier, _ ->
+                screenContent(contentModifier)
             }
+        }
+    } else {
+        BeetPageScaffold(
+            title = routeTitle,
+            onNavigateBack = ::navigateBack,
+            modifier = modifier.fillMaxSize(),
+            applyBottomSafeDrawing = true,
+        ) { contentModifier, _ ->
+            screenContent(contentModifier)
         }
     }
 }

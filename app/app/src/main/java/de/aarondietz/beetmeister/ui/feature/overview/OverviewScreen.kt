@@ -49,6 +49,7 @@ import kotlinx.coroutines.delay
 @Composable
 internal fun OverviewScreen(
     state: BeetRepositoryState,
+    headerContent: (@Composable () -> Unit)?,
     onPairSelected: (Int) -> Unit,
     onClearError: (Int) -> Unit,
     onToggleEnabled: (Int) -> Unit,
@@ -59,6 +60,11 @@ internal fun OverviewScreen(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (headerContent != null) {
+            item {
+                headerContent()
+            }
+        }
         item {
             SystemValuesCard(state = state)
         }

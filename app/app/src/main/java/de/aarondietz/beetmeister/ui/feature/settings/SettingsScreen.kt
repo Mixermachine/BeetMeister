@@ -168,8 +168,6 @@ internal fun SettingsScreen(
                     colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF2EFE8)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text(strings.get(R.string.settings_title), style = MaterialTheme.typography.headlineSmall)
-                        Spacer(modifier = Modifier.height(12.dp))
                         ValueGridRow(
                             strings.get(R.string.settings_label_device_id),
                             info?.deviceId ?: strings.get(R.string.placeholder_dash),

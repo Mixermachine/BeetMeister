@@ -17,7 +17,6 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,15 +61,6 @@ internal fun EventsScreen(
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(strings.get(R.string.events_title), style = MaterialTheme.typography.headlineSmall)
-                }
-            }
             item {
                 ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
@@ -169,15 +159,6 @@ internal fun EventDetailScreen(
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                    TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
-                }
-            }
             item {
                 SectionHeading(
                     title = strings.get(R.string.events_watering_history_title),

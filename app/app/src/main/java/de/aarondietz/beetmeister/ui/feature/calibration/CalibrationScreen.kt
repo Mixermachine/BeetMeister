@@ -111,15 +111,6 @@ internal fun CalibrationScreen(
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(strings.get(R.string.calibration_title), style = MaterialTheme.typography.headlineSmall)
-                }
-            }
             items(state.pairStates, key = { pair -> pair.pairIndex }) { pair ->
                 val calibration = state.calibrations[pair.pairIndex]
                 CalibrationCard(
