@@ -37,19 +37,71 @@ import de.aarondietz.beetmeister.ui.core.component.BeetPullToRefreshBox
 import de.aarondietz.beetmeister.ui.core.formatting.calibrationSourceLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatUnixSeconds
 
+internal data class CalibrationSaveDraft(
+    val pairIndex: Int,
+    val dryMillivolts: Int,
+    val wetMillivolts: Int,
+)
+
 @Composable
 internal fun CalibrationScreen(
     state: BeetRepositoryState,
     onRefresh: () -> Unit,
     onSave: (Int, Int, Int) -> Unit,
+    onUnsavedStateChange: (Boolean, List<CalibrationSaveDraft>?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
+    var dryTexts by rememberSaveable { mutableStateOf<Map<Int, String>>(emptyMap()) }
+    var wetTexts by rememberSaveable { mutableStateOf<Map<Int, String>>(emptyMap()) }
     LaunchedEffect(state.connection.phase) {
         if (state.connection.phase == BeetConnectionPhase.Connected) {
             onRefresh()
         }
     }
+    LaunchedEffect(state.calibrations, state.pairStates) {
+        val nextDry = mutableMapOf<Int, String>()
+        val nextWet = mutableMapOf<Int, String>()
+        state.pairStates.forEach { pair ->
+            val calibration = state.calibrations[pair.pairIndex]
+            nextDry[pair.pairIndex] = calibration?.dryMillivolts?.toString().orEmpty()
+            nextWet[pair.pairIndex] = calibration?.wetMillivolts?.toString().orEmpty()
+        }
+        dryTexts = nextDry
+        wetTexts = nextWet
+    }
+
+    val dirtyDrafts = state.pairStates.mapNotNull { pair ->
+        val calibration = state.calibrations[pair.pairIndex]
+        val currentDry = dryTexts[pair.pairIndex].orEmpty()
+        val currentWet = wetTexts[pair.pairIndex].orEmpty()
+        val loadedDry = calibration?.dryMillivolts?.toString().orEmpty()
+        val loadedWet = calibration?.wetMillivolts?.toString().orEmpty()
+        if (currentDry == loadedDry && currentWet == loadedWet) {
+            null
+        } else {
+            val dry = currentDry.toIntOrNull()
+            val wet = currentWet.toIntOrNull()
+            CalibrationSaveDraft(
+                pairIndex = pair.pairIndex,
+                dryMillivolts = dry ?: 0,
+                wetMillivolts = wet ?: 0,
+            ) to (dry != null && wet != null && dry > wet && wet > 0)
+        }
+    }
+    val hasUnsavedChanges = dirtyDrafts.isNotEmpty()
+    val savableDrafts = if (!hasUnsavedChanges) {
+        null
+    } else if (dirtyDrafts.any { !it.second }) {
+        null
+    } else {
+        dirtyDrafts.map { it.first }
+    }
+
+    LaunchedEffect(hasUnsavedChanges, savableDrafts) {
+        onUnsavedStateChange(hasUnsavedChanges, savableDrafts)
+    }
+
     BeetPullToRefreshBox(
         isRefreshing = state.calibrationsRefreshing,
         onRefresh = onRefresh,
@@ -74,8 +126,12 @@ internal fun CalibrationScreen(
                     pairState = pair,
                     dryValue = calibration?.dryMillivolts,
                     wetValue = calibration?.wetMillivolts,
+                    dryText = dryTexts[pair.pairIndex].orEmpty(),
+                    wetText = wetTexts[pair.pairIndex].orEmpty(),
                     source = calibration?.source,
                     calibratedAtUnixSeconds = calibration?.calibratedAtUnixSeconds ?: 0L,
+                    onDryChange = { updated -> dryTexts = dryTexts + (pair.pairIndex to updated) },
+                    onWetChange = { updated -> wetTexts = wetTexts + (pair.pairIndex to updated) },
                     onSave = { dry, wet -> onSave(pair.pairIndex, dry, wet) },
                     strings = strings,
                 )
@@ -89,14 +145,15 @@ private fun CalibrationCard(
     pairState: BeetPairState,
     dryValue: Int?,
     wetValue: Int?,
+    dryText: String,
+    wetText: String,
     source: String?,
     calibratedAtUnixSeconds: Long,
+    onDryChange: (String) -> Unit,
+    onWetChange: (String) -> Unit,
     onSave: (Int, Int) -> Unit,
     strings: BeetStringResolver,
 ) {
-    var dryText by rememberSaveable(pairState.pairIndex, dryValue) { mutableStateOf(dryValue?.toString().orEmpty()) }
-    var wetText by rememberSaveable(pairState.pairIndex, wetValue) { mutableStateOf(wetValue?.toString().orEmpty()) }
-
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF8F4EA)),
@@ -121,23 +178,23 @@ private fun CalibrationCard(
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedTextField(
                 value = dryText,
-                onValueChange = { input -> dryText = input.filter(Char::isDigit) },
+                onValueChange = { input -> onDryChange(input.filter(Char::isDigit)) },
                 label = { Text(strings.get(R.string.calibration_dry_reference)) },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = wetText,
-                onValueChange = { input -> wetText = input.filter(Char::isDigit) },
+                onValueChange = { input -> onWetChange(input.filter(Char::isDigit)) },
                 label = { Text(strings.get(R.string.calibration_wet_reference)) },
                 modifier = Modifier.fillMaxWidth(),
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = { dryText = pairState.sensorMillivolts.toString() }) {
+                FilledTonalButton(onClick = { onDryChange(pairState.sensorMillivolts.toString()) }) {
                     Text(strings.get(R.string.calibration_capture_dry))
                 }
-                FilledTonalButton(onClick = { wetText = pairState.sensorMillivolts.toString() }) {
+                FilledTonalButton(onClick = { onWetChange(pairState.sensorMillivolts.toString()) }) {
                     Text(strings.get(R.string.calibration_capture_wet))
                 }
             }

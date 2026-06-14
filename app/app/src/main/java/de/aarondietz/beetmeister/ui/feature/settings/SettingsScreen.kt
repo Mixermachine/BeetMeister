@@ -41,6 +41,11 @@ import de.aarondietz.beetmeister.ui.core.formatting.connectionPhaseLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
 import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
 
+internal data class SettingsSaveDraft(
+    val valveConfig: BeetValveConfig?,
+    val wateringIntervalSeconds: Int?,
+)
+
 @Composable
 internal fun SettingsScreen(
     state: BeetRepositoryState,
@@ -52,6 +57,7 @@ internal fun SettingsScreen(
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
     onDisconnect: () -> Unit,
+    onUnsavedStateChange: (Boolean, SettingsSaveDraft?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
@@ -119,14 +125,29 @@ internal fun SettingsScreen(
             valveConfig?.valveEnabled == true &&
             deviceState?.activePumps == 0 &&
             !valveMotionActive
+    val hasUnsavedChanges = valveConfigDirty || wateringIntervalDirty
+    val savableDraft = if (!hasUnsavedChanges) {
+        null
+    } else if ((valveConfigDirty && editedValveConfig == null) || (wateringIntervalDirty && wateringIntervalSeconds == null)) {
+        null
+    } else {
+        SettingsSaveDraft(
+            valveConfig = if (valveConfigDirty) editedValveConfig else null,
+            wateringIntervalSeconds = if (wateringIntervalDirty) wateringIntervalSeconds else null,
+        )
+    }
 
-    activeInfo?.let { info ->
+    activeInfo?.let { info ->  
         SettingInfoDialog(
             title = info.title(strings),
             body = info.body(strings),
             confirmLabel = strings.get(R.string.common_close),
             onDismiss = { activeInfo = null },
         )
+    }
+
+    LaunchedEffect(hasUnsavedChanges, savableDraft) {
+        onUnsavedStateChange(hasUnsavedChanges, savableDraft)
     }
 
     BeetPullToRefreshBox(

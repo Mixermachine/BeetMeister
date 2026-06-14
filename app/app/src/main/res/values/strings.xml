@@ -9,6 +9,9 @@
     <string name="common_unknown_with_code" localizePipeContext="Fallback label for an unknown technical code or state. Keep %1$s as the raw code value.">Unknown (%1$s)</string>
     <string name="common_back">Back</string>
     <string name="common_close">Close</string>
+    <string name="common_continue_editing">Continue editing</string>
+    <string name="common_discard">Discard</string>
+    <string name="common_save_and_leave">Save and leave</string>
     <string name="common_reload">Reload</string>
     <string name="common_refresh">Refresh</string>
     <string name="common_details">Details</string>
@@ -115,9 +118,10 @@
     <string name="valve_calibration_save">Save calibration</string>
     <string name="valve_calibration_unsaved_title">Unsaved valve calibration values</string>
     <string name="valve_calibration_unsaved_body">These valve calibration changes have not been saved yet. Leaving now will discard them unless you save first.</string>
-    <string name="valve_calibration_continue_editing">Continue editing</string>
-    <string name="valve_calibration_discard">Discard</string>
-    <string name="valve_calibration_save_and_leave">Save and leave</string>
+    <string name="settings_unsaved_title">Unsaved settings values</string>
+    <string name="settings_unsaved_body">These settings changes have not been saved yet. Leaving now will discard them unless you save first.</string>
+    <string name="calibration_unsaved_title">Unsaved calibration values</string>
+    <string name="calibration_unsaved_body">These calibration changes have not been saved yet. Leaving now will discard them unless you save first.</string>
 
     <string name="overview_title_system_values">Current system values</string>
     <string name="overview_label_battery">Battery</string>
