@@ -19,7 +19,7 @@ $fn = 72;
 // Main layout
 // -----------------------------
 outlet_count        = 8;
-outlet_spacing      = 15.0;
+outlet_spacing      = 26.0;
 outlet_x_margin_left  = 12.0;  // keep inlet/first-outlet side unchanged
 outlet_x_margin_right = 12.0;  // v3: trimmed closed right end, still enough wall
 body_length         = outlet_x_margin_left
@@ -33,13 +33,17 @@ end_wall_thickness  = 8.0;    // closed wall at far end of gallery
 
 // Outlet bosses around M5 fittings
 outlet_boss_d       = 11.0;
-outlet_boss_h       = 6.0;
+outlet_boss_h       = 5.0;
+// Extra downward overlap into the round manifold body.
+// The old boss started only 1.0 mm below body_top_z; at the boss outer edge
+// that left a small unsupported-looking ledge because the main body is round.
+outlet_boss_body_overlap = 2.4;
 outlet_seat_d       = 7.5;
 outlet_seat_depth   = 1.0;
 
 // M5 threaded socket geometry
 m5_major_d          = 5.05;   // slight clearance over nominal 5.0 mm
-m5_tap_drill_d      = 4.90;   // minor/core hole for M5 thread
+m5_tap_drill_d      = 4.85;   // minor/core hole for M5 thread
 m5_pitch            = 0.80;
 m5_thread_depth     = 5.5;    // threaded depth before meeting the water gallery
 m5_socket_depth     = 12.0;   // total vertical drilling depth into gallery
@@ -48,7 +52,7 @@ thread_slices_per_turn = 18;
 // 13 mm garden hose barb inlet
 hose_inlet_len      = 38.0;
 hose_barb_base_d    = 13.2;
-hose_barb_peak_d    = 14.8;
+hose_barb_peak_d    = 14.7;
 hose_barb_root_d    = 13.0;
 hose_barb_count     = 4;
 hose_barb_pitch     = 7.0;
@@ -121,8 +125,10 @@ module hose_barb_outer_right() {
 
 module outlet_boss(x) {
     // A small vertical boss is enough material for the brass M5 fitting.
-    translate([x, water_axis_y, body_top_z - 1.0])
-        cylinder(h = outlet_boss_h + 1.0, d = outlet_boss_d);
+    // The boss extends farther down into the round manifold body so the
+    // outer boss wall does not appear to float where it meets the tube.
+    translate([x, water_axis_y, body_top_z - outlet_boss_body_overlap])
+        cylinder(h = outlet_boss_h + outlet_boss_body_overlap, d = outlet_boss_d);
 }
 
 module outlet_seat_cut(x) {
