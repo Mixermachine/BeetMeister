@@ -86,9 +86,18 @@ function Assert-AndroidPreflightReady {
         throw "Android device is still on the lockscreen/notification shade. Unlock the phone and leave BeetMeister visible before running Stage 8."
     }
 
+    if ($windowDump -match "mShowingLockscreen=true" -or $windowDump -match "isStatusBarKeyguard=true") {
+        throw "Android device is still locked. Unlock the phone and leave BeetMeister visible before running Stage 8."
+    }
+
     if ($windowDump -notmatch [regex]::Escape($appPackage)) {
         Write-Warning "BeetMeister is not the current focused app. Continuing because instrumentation can still launch its own activity."
     }
+}
+
+function Grant-BlePermissions {
+    Invoke-Adb -AdbArgs @("shell", "pm", "grant", $appPackage, "android.permission.BLUETOOTH_SCAN")
+    Invoke-Adb -AdbArgs @("shell", "pm", "grant", $appPackage, "android.permission.BLUETOOTH_CONNECT")
 }
 
 $devices = Get-ConnectedDevices
@@ -144,6 +153,7 @@ if (-not $SkipInstall) {
     Invoke-Adb -AdbArgs @("install", "-r", $appApk)
     Invoke-Adb -AdbArgs @("install", "-r", $testApk)
 }
+Grant-BlePermissions
 
 Invoke-Adb -AdbArgs @("logcat", "-c")
 $logcatArgs = @()

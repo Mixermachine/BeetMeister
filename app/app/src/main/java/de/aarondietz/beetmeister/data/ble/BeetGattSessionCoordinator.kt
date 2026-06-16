@@ -38,6 +38,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -349,8 +350,18 @@ internal class BeetGattSessionCoordinator(
                 "imageKind=${selectedSummary.metadata.imageKind} size=${selectedSummary.imageSize}",
         )
         maintenanceUploadJob?.cancel()
+        val scopeJob = host.scope.coroutineContext.job
+        Log.d(TAG, "startMaintenanceUpdate scopeActive=${scopeJob.isActive} scopeCancelled=${scopeJob.isCancelled}")
         maintenanceUploadJob = host.scope.launch {
             runMaintenanceUpdate(selectedPackage, selectedSummary)
+        }
+        Log.d(
+            TAG,
+            "startMaintenanceUpdate launched jobActive=${maintenanceUploadJob?.isActive} " +
+                "jobCancelled=${maintenanceUploadJob?.isCancelled}",
+        )
+        maintenanceUploadJob?.invokeOnCompletion { error ->
+            Log.d(TAG, "maintenanceUploadJob completed cancelled=${maintenanceUploadJob?.isCancelled}", error)
         }
     }
 
