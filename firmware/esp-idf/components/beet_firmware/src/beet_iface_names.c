@@ -15,8 +15,6 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "reset_block";
     case BEET_IFACE_COMMAND_STORE_CALIBRATION:
         return "store_calibration";
-    case BEET_IFACE_COMMAND_START_OTA:
-        return "start_ota";
     case BEET_IFACE_COMMAND_CLEAR_BLE_BONDS:
         return "clear_ble_bonds";
     case BEET_IFACE_COMMAND_GET_CALIBRATION:

@@ -900,7 +900,8 @@ static bool beet_watering_allowed(void)
 {
     return s_state.battery_mv >= s_state.config.watering_abort_threshold_mv &&
         s_state.battery_state != BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
-        s_state.battery_state != BEET_BATTERY_STATE_OTA_IN_PROGRESS;
+        s_state.battery_state != BEET_BATTERY_STATE_OTA_IN_PROGRESS &&
+        !beet_ble_maintenance_runtime_blocking();
 }
 
 static void beet_refresh_battery(void)
@@ -955,7 +956,7 @@ static void beet_refresh_battery(void)
 
     s_state.battery_state = beet_classify_battery_state(
         s_state.battery_mv,
-        false,
+        beet_ble_maintenance_runtime_blocking(),
         s_state.active_pumps > 0U,
         beet_elapsed_s(s_state.last_activity_us, beet_now_us()));
 
@@ -1904,6 +1905,25 @@ uint64_t beet_iface_get_latest_system_event_seq_no(void)
     return s_state.system_event_ring.has_valid_records ? s_state.system_event_ring.highest_valid_seq_no : 0U;
 }
 
+static bool beet_iface_command_is_mutating(beet_iface_command_t command)
+{
+    switch (command) {
+    case BEET_IFACE_COMMAND_GET_CALIBRATION:
+    case BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_EVENT:
+    case BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_SYSTEM_EVENT:
+    case BEET_IFACE_COMMAND_GET_WATERING_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_WATERING_EVENT:
+    case BEET_IFACE_COMMAND_GET_VALVE_CONFIG:
+    case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
+        return false;
+
+    default:
+        return true;
+    }
+}
+
 esp_err_t beet_iface_get_event(uint64_t seq_no, beet_iface_event_t *event)
 {
     ESP_RETURN_ON_FALSE(event != NULL, ESP_ERR_INVALID_ARG, TAG, "event is null");
@@ -1930,6 +1950,12 @@ esp_err_t beet_iface_submit_command(
     response->pair_index = request->pair_index;
     response->status = BEET_IFACE_STATUS_REJECTED;
     response->reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
+
+    if (beet_ble_maintenance_runtime_blocking() &&
+        beet_iface_command_is_mutating(request->command)) {
+        response->reason = BEET_IFACE_REASON_OTA_IN_PROGRESS;
+        return ESP_OK;
+    }
 
     switch (request->command) {
     case BEET_IFACE_COMMAND_MANUAL_START: {
@@ -2409,10 +2435,6 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_NONE;
         return ESP_OK;
 
-    case BEET_IFACE_COMMAND_START_OTA:
-        response->reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
-        return ESP_OK;
-
     default:
         response->reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
         return ESP_OK;
@@ -2676,6 +2698,7 @@ static bool beet_controller_scheduler_due(int64_t now_us, uint32_t elapsed_s)
 {
     return elapsed_s > 0U &&
         now_us >= s_state.next_check_due_us &&
+        !beet_ble_maintenance_runtime_blocking() &&
         s_state.battery_state != BEET_BATTERY_STATE_DEEP_LOW_BATTERY &&
         s_state.battery_state != BEET_BATTERY_STATE_OTA_IN_PROGRESS;
 }

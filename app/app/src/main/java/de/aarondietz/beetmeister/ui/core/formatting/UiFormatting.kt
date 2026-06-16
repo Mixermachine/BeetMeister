@@ -70,11 +70,21 @@ internal fun connectionPhaseLabel(phase: BeetConnectionPhase, strings: BeetStrin
         BeetConnectionPhase.Connecting -> R.string.connection_phase_connecting
         BeetConnectionPhase.DiscoveringServices -> R.string.connection_phase_discovering_services
         BeetConnectionPhase.Syncing -> R.string.connection_phase_syncing
+        BeetConnectionPhase.MaintenanceRequired -> R.string.connection_phase_maintenance_required
         BeetConnectionPhase.Connected -> R.string.connection_phase_connected
         BeetConnectionPhase.Disconnected -> R.string.connection_phase_disconnected
         BeetConnectionPhase.Error -> R.string.connection_phase_error
     },
 )
+
+internal fun maintenanceImageKindLabel(kind: String, strings: BeetStringResolver): String {
+    val resId = when (kind) {
+        "bundled" -> R.string.image_kind_bundled
+        "custom" -> R.string.image_kind_custom
+        else -> return strings.get(R.string.common_unknown_with_code, kind)
+    }
+    return strings.get(resId)
+}
 
 internal fun batteryStateLabel(state: String, strings: BeetStringResolver): String {
     val resId = when (state) {

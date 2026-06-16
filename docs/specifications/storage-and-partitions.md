@@ -89,7 +89,7 @@ The `reserved` partition shall not be used in v1.
 | `mqtt_username` | UTF-8 string | 32 |
 | `mqtt_password` | UTF-8 string | 64 |
 | `mqtt_base_topic` | UTF-8 string | 48 |
-| `ota_base_url` | UTF-8 string | 96 |
+| `ota_base_url` | UTF-8 string | 96, legacy reserved only |
 | `flags` | `u16` bitfield | 2 |
 
 ## Pair calibration record

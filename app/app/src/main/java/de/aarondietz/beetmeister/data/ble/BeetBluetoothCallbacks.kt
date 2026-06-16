@@ -57,6 +57,7 @@ internal fun beetGattCallback(
     onMtuChanged: (BluetoothGatt, Int, Int) -> Unit,
     onServicesDiscovered: (BluetoothGatt, Int) -> Unit,
     onDescriptorWrite: (BluetoothGatt, BluetoothGattDescriptor, Int) -> Unit,
+    onCharacteristicWrite: (BluetoothGatt, BluetoothGattCharacteristic, Int) -> Unit,
     onCharacteristicRead: (BluetoothGatt, BluetoothGattCharacteristic, Int) -> Unit,
     onCharacteristicChanged: (BluetoothGatt, BluetoothGattCharacteristic) -> Unit,
 ): BluetoothGattCallback = object : BluetoothGattCallback() {
@@ -74,6 +75,14 @@ internal fun beetGattCallback(
 
     override fun onDescriptorWrite(gatt: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
         onDescriptorWrite(gatt, descriptor, status)
+    }
+
+    override fun onCharacteristicWrite(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        status: Int,
+    ) {
+        onCharacteristicWrite(gatt, characteristic, status)
     }
 
     override fun onCharacteristicRead(

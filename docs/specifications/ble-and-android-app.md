@@ -240,14 +240,11 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
-### Trigger OTA
+### Firmware update routing
 
-```json
-{
-  "cmd": "start_ota",
-  "url": "http://192.168.1.10/fw/beetmeister.bin"
-}
-```
+- The runtime BLE command channel does not expose a `start_ota` command.
+- Firmware update is handled through the separate BLE maintenance service.
+- When the runtime protocol is unsupported, the Android app shall route the user into the maintenance update flow instead of treating the controller as generically broken.
 
 ### Set time
 

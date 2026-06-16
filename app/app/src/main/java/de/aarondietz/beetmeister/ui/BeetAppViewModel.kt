@@ -1,6 +1,8 @@
 package de.aarondietz.beetmeister.ui
 
+import android.util.Log
 import de.aarondietz.beetmeister.data.repository.BeetRepository
+import android.net.Uri
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import kotlinx.coroutines.flow.StateFlow
@@ -71,8 +73,23 @@ internal class BeetAppViewModel(
 
     fun closeValve() = repository.closeValve()
 
+    fun prepareBundledFirmware() = repository.prepareBundledFirmware()
+
+    fun prepareCustomFirmware(uri: Uri) = repository.prepareCustomFirmware(uri)
+
+    fun startMaintenanceUpdate() {
+        Log.d(TAG, "startMaintenanceUpdate()")
+        repository.startMaintenanceUpdate()
+    }
+
+    fun abortMaintenanceUpdate() = repository.abortMaintenanceUpdate()
+
     override fun onCleared() {
         repository.close()
         super.onCleared()
+    }
+
+    companion object {
+        private const val TAG = "BeetAppViewModel"
     }
 }

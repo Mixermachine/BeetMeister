@@ -142,6 +142,12 @@ typedef enum {
     BEET_SYSTEM_EVENT_OTA_STARTED = 32,
     BEET_SYSTEM_EVENT_OTA_FAILED = 33,
     BEET_SYSTEM_EVENT_OTA_READY = 34,
+    BEET_SYSTEM_EVENT_UPDATE_STARTED = 40,
+    BEET_SYSTEM_EVENT_UPDATE_RECONNECT = 41,
+    BEET_SYSTEM_EVENT_UPDATE_INVALIDATED = 42,
+    BEET_SYSTEM_EVENT_UPDATE_INTERRUPTED = 43,
+    BEET_SYSTEM_EVENT_UPDATE_FAILED = 44,
+    BEET_SYSTEM_EVENT_UPDATE_COMPLETED = 45,
 } beet_system_event_type_t;
 
 typedef struct {
@@ -159,7 +165,7 @@ typedef struct {
     char mqtt_username[BEET_MQTT_USER_MAX_LEN + 1U];
     char mqtt_password[BEET_MQTT_PASSWORD_MAX_LEN + 1U];
     char mqtt_base_topic[BEET_MQTT_BASE_TOPIC_MAX_LEN + 1U];
-    char ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
+    char legacy_ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
     bool valve_enabled;
     uint16_t valve_servo_min_pulse_us;
     uint16_t valve_servo_max_pulse_us;

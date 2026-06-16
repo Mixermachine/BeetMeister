@@ -9,7 +9,10 @@
 #include "esp_app_desc.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_ota_ops.h"
+#include "esp_partition.h"
 #include "esp_random.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -29,10 +32,11 @@
 #include "beet_ble_codec.h"
 #include "beet_ble_guard.h"
 #include "beet_iface.h"
+#include "beet_maintenance.h"
+#include "beet_maintenance_tlv.h"
 
 static const char *TAG = "beet_ble";
 
-#define BEET_BLE_PROTOCOL_VERSION 9U
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
 #define BEET_BLE_JSON_MAX_LEN 320U
 #define BEET_BLE_RESULT_STAGE_MAX_LEN 1024U
@@ -44,6 +48,7 @@ static const char *TAG = "beet_ble";
 #define BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US (30LL * 1000000LL)
 #define BEET_BLE_PAIRING_CODE_MAX 1000000U
 #define BEET_BLE_BOND_SCAN_CAPACITY 16U
+#define BEET_BLE_MAINTENANCE_SESSION_RESUME_TIMEOUT_US (15LL * 60LL * 1000000LL)
 
 typedef enum {
     BEET_BLE_RESULT_TX_IDLE = 0,
@@ -68,6 +73,20 @@ typedef struct {
 } beet_ble_result_tx_state_t;
 
 typedef struct {
+    bool active;
+    bool disconnected_waiting_resume;
+    bool reconnect_event_pending;
+    bool ota_handle_active;
+    bool reboot_pending;
+    beet_maintenance_status_t status;
+    int64_t resume_expires_at_us;
+    int64_t reboot_due_at_us;
+    const esp_partition_t *target_partition;
+    esp_ota_handle_t ota_handle;
+    beet_maintenance_begin_update_request_t begin_request;
+} beet_ble_maintenance_session_state_t;
+
+typedef struct {
     bool initialized;
     bool host_synced;
     bool enabled;
@@ -76,6 +95,7 @@ typedef struct {
     bool bonded;
     bool state_stream_subscribed;
     bool command_result_subscribed;
+    bool maintenance_status_subscribed;
     bool initial_sync_pending;
     uint8_t own_addr_type;
     uint16_t conn_handle;
@@ -97,6 +117,10 @@ typedef struct {
     beet_ble_rate_guard_t command_rate_guard;
     beet_ble_rate_guard_t sync_read_rate_guard;
     beet_ble_system_event_callback_t system_event_callback;
+    beet_ble_maintenance_session_state_t maintenance_session;
+    bool maintenance_terminal_status_valid;
+    beet_maintenance_status_t maintenance_terminal_status;
+    uint32_t next_maintenance_session_id;
 } beet_ble_state_t;
 
 static beet_ble_state_t s_ble;
@@ -106,6 +130,10 @@ static uint16_t s_controller_info_handle;
 static uint16_t s_state_stream_handle;
 static uint16_t s_control_point_handle;
 static uint16_t s_command_result_handle;
+static uint16_t s_maintenance_info_handle;
+static uint16_t s_maintenance_control_handle;
+static uint16_t s_maintenance_status_handle;
+static uint16_t s_maintenance_data_handle;
 
 static const ble_uuid128_t BEET_BLE_SERVICE_UUID =
     BLE_UUID128_INIT(0xb0, 0xc4, 0x94, 0x7d, 0x2a, 0x3f, 0x57, 0x9d,
@@ -122,8 +150,28 @@ static const ble_uuid128_t BEET_BLE_CONTROL_POINT_UUID =
 static const ble_uuid128_t BEET_BLE_COMMAND_RESULT_UUID =
     BLE_UUID128_INIT(0xb0, 0xc4, 0x94, 0x7d, 0x2a, 0x3f, 0x57, 0x9d,
                      0x6b, 0x4a, 0x7a, 0x6d, 0x05, 0x00, 0x2a, 0x8f);
+static const ble_uuid128_t BEET_BLE_MAINTENANCE_SERVICE_UUID =
+    BLE_UUID128_INIT(0xb0, 0xc4, 0x94, 0x7d, 0x2a, 0x3f, 0x57, 0x9d,
+                     0x6b, 0x4a, 0x7a, 0x6d, 0x06, 0x00, 0x2a, 0x8f);
+static const ble_uuid128_t BEET_BLE_MAINTENANCE_INFO_UUID =
+    BLE_UUID128_INIT(0xb0, 0xc4, 0x94, 0x7d, 0x2a, 0x3f, 0x57, 0x9d,
+                     0x6b, 0x4a, 0x7a, 0x6d, 0x07, 0x00, 0x2a, 0x8f);
+static const ble_uuid128_t BEET_BLE_MAINTENANCE_CONTROL_UUID =
+    BLE_UUID128_INIT(0xb0, 0xc4, 0x94, 0x7d, 0x2a, 0x3f, 0x57, 0x9d,
+                     0x6b, 0x4a, 0x7a, 0x6d, 0x08, 0x00, 0x2a, 0x8f);
+static const ble_uuid128_t BEET_BLE_MAINTENANCE_STATUS_UUID =
+    BLE_UUID128_INIT(0xb0, 0xc4, 0x94, 0x7d, 0x2a, 0x3f, 0x57, 0x9d,
+                     0x6b, 0x4a, 0x7a, 0x6d, 0x09, 0x00, 0x2a, 0x8f);
+static const ble_uuid128_t BEET_BLE_MAINTENANCE_DATA_UUID =
+    BLE_UUID128_INIT(0xb0, 0xc4, 0x94, 0x7d, 0x2a, 0x3f, 0x57, 0x9d,
+                     0x6b, 0x4a, 0x7a, 0x6d, 0x0a, 0x00, 0x2a, 0x8f);
 
 static int beet_ble_gatt_access(
+    uint16_t conn_handle,
+    uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt,
+    void *arg);
+static int beet_ble_maintenance_gatt_access(
     uint16_t conn_handle,
     uint16_t attr_handle,
     struct ble_gatt_access_ctxt *ctxt,
@@ -157,6 +205,40 @@ static bool beet_ble_advance_result_chunk(void);
 static bool beet_ble_stage_pending_result(void);
 static void beet_ble_on_result_indication_complete(int status);
 static void beet_ble_send_pending_result(void);
+static esp_err_t beet_ble_send_maintenance_status_indication(void);
+static void beet_ble_fill_maintenance_status(beet_maintenance_status_t *status);
+static void beet_ble_note_maintenance_reconnect_if_pending(void);
+static void beet_ble_clear_maintenance_session(void);
+static void beet_ble_set_maintenance_terminal_status(
+    beet_maintenance_state_t state,
+    beet_maintenance_failure_reason_t reason,
+    bool has_failure_reason,
+    bool preserve_session_id,
+    uint32_t session_id);
+static void beet_ble_emit_maintenance_event(
+    beet_system_event_type_t type,
+    uint16_t reason,
+    uint32_t detail);
+static bool beet_ble_is_runtime_mutating_command(beet_iface_command_t command);
+static bool beet_ble_is_update_eligible(
+    const beet_maintenance_begin_update_request_t *request,
+    beet_maintenance_failure_reason_t *failure_reason);
+static bool beet_ble_metadata_sets_match(
+    const beet_maintenance_image_metadata_t *metadata,
+    const beet_maintenance_begin_update_request_t *request);
+static esp_err_t beet_ble_read_partition_metadata(
+    const esp_partition_t *partition,
+    size_t image_size,
+    beet_maintenance_image_metadata_t *metadata_out);
+static bool beet_ble_parse_chunk_header(
+    const uint8_t *data,
+    size_t len,
+    uint32_t *session_id_out,
+    uint32_t *offset_out,
+    const uint8_t **payload_out,
+    size_t *payload_len_out);
+static void beet_ble_format_sha256_hex(const uint8_t digest[32], char out[BEET_MAINTENANCE_SHA256_HEX_LEN + 1U]);
+static void beet_ble_service_maintenance_session(void);
 static void beet_ble_set_immediate_rejection(
     const beet_iface_command_request_t *request,
     beet_iface_reason_t reason);
@@ -195,6 +277,37 @@ static const struct ble_gatt_svc_def beet_ble_svcs[] = {
                 .access_cb = beet_ble_gatt_access,
                 .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_READ_AUTHEN,
                 .val_handle = &s_command_result_handle,
+            },
+            { 0 },
+        },
+    },
+    {
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = &BEET_BLE_MAINTENANCE_SERVICE_UUID.u,
+        .characteristics = (struct ble_gatt_chr_def[]) {
+            {
+                .uuid = &BEET_BLE_MAINTENANCE_INFO_UUID.u,
+                .access_cb = beet_ble_maintenance_gatt_access,
+                .flags = BLE_GATT_CHR_F_READ,
+                .val_handle = &s_maintenance_info_handle,
+            },
+            {
+                .uuid = &BEET_BLE_MAINTENANCE_CONTROL_UUID.u,
+                .access_cb = beet_ble_maintenance_gatt_access,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_AUTHEN,
+                .val_handle = &s_maintenance_control_handle,
+            },
+            {
+                .uuid = &BEET_BLE_MAINTENANCE_STATUS_UUID.u,
+                .access_cb = beet_ble_maintenance_gatt_access,
+                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_READ_AUTHEN,
+                .val_handle = &s_maintenance_status_handle,
+            },
+            {
+                .uuid = &BEET_BLE_MAINTENANCE_DATA_UUID.u,
+                .access_cb = beet_ble_maintenance_gatt_access,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_AUTHEN,
+                .val_handle = &s_maintenance_data_handle,
             },
             { 0 },
         },
@@ -284,8 +397,48 @@ static int beet_ble_format_controller_info(char *buf, size_t len)
         len,
         s_ble.device_name,
         app->version,
-        BEET_BLE_PROTOCOL_VERSION,
+        BEET_RUNTIME_PROTOCOL_VERSION,
         BEET_PAIR_COUNT);
+}
+
+static int beet_ble_format_maintenance_info(char *buf, size_t len)
+{
+    beet_maintenance_info_t info;
+    esp_err_t err;
+
+    err = beet_maintenance_get_info(&info);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "maintenance info unavailable err=0x%x", (unsigned)err);
+        return -1;
+    }
+
+    return beet_ble_format_maintenance_info_json(buf, len, &info);
+}
+
+static void beet_ble_fill_maintenance_status(beet_maintenance_status_t *status)
+{
+    if (status == NULL) {
+        return;
+    }
+
+    if (s_ble.maintenance_session.active) {
+        *status = s_ble.maintenance_session.status;
+        return;
+    }
+    if (s_ble.maintenance_terminal_status_valid) {
+        *status = s_ble.maintenance_terminal_status;
+        return;
+    }
+
+    beet_maintenance_fill_idle_status(status);
+}
+
+static int beet_ble_format_maintenance_status(char *buf, size_t len)
+{
+    beet_maintenance_status_t status;
+
+    beet_ble_fill_maintenance_status(&status);
+    return beet_ble_format_maintenance_status_json(buf, len, &status);
 }
 
 static int beet_ble_format_device_frame(
@@ -330,6 +483,24 @@ static int beet_ble_read_controller_info(struct ble_gatt_access_ctxt *ctxt)
     return 0;
 }
 
+static int beet_ble_read_maintenance_info(struct ble_gatt_access_ctxt *ctxt)
+{
+    char json[BEET_BLE_JSON_MAX_LEN];
+    int written;
+
+    written = beet_ble_format_maintenance_info(json, sizeof(json));
+    if (written < 0 || (size_t)written >= sizeof(json)) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    if (os_mbuf_append(ctxt->om, json, (uint16_t)written) != 0) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    beet_ble_mark_activity();
+    return 0;
+}
+
 static int beet_ble_write_control_point(struct ble_gatt_access_ctxt *ctxt)
 {
     char json[BEET_BLE_JSON_MAX_LEN];
@@ -347,6 +518,13 @@ static int beet_ble_write_control_point(struct ble_gatt_access_ctxt *ctxt)
 
     if (!beet_ble_parse_command_json(json, &request)) {
         return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    if (beet_ble_maintenance_runtime_blocking() &&
+        beet_ble_is_runtime_mutating_command(request.command)) {
+        beet_ble_set_immediate_rejection(&request, BEET_IFACE_REASON_OTA_IN_PROGRESS);
+        beet_ble_mark_activity();
+        return 0;
     }
 
     {
@@ -380,6 +558,323 @@ static int beet_ble_write_control_point(struct ble_gatt_access_ctxt *ctxt)
     return 0;
 }
 
+static int beet_ble_write_maintenance_control(
+    uint16_t conn_handle,
+    struct ble_gatt_access_ctxt *ctxt)
+{
+    char json[BEET_BLE_JSON_MAX_LEN];
+    uint16_t copied = 0U;
+    beet_maintenance_request_t request;
+
+    if (beet_ble_require_bonded(conn_handle) != 0) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+    if (OS_MBUF_PKTLEN(ctxt->om) >= sizeof(json)) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    if (ble_hs_mbuf_to_flat(ctxt->om, json, sizeof(json) - 1U, &copied) != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    json[copied] = '\0';
+
+    if (!beet_ble_parse_maintenance_request_json(json, &request)) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (!s_ble.maintenance_status_subscribed) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    switch (request.command) {
+    case BEET_MAINTENANCE_COMMAND_QUERY_STATUS:
+        beet_ble_note_maintenance_reconnect_if_pending();
+        if (beet_ble_send_maintenance_status_indication() != ESP_OK) {
+            return BLE_ATT_ERR_UNLIKELY;
+        }
+        beet_ble_mark_activity();
+        return 0;
+
+    case BEET_MAINTENANCE_COMMAND_BEGIN_UPDATE: {
+        beet_maintenance_failure_reason_t failure_reason = BEET_MAINTENANCE_FAILURE_NONE;
+        bool had_active_session = s_ble.maintenance_session.active;
+        uint32_t previous_session_id = had_active_session ? s_ble.maintenance_session.status.session_id : 0U;
+        const esp_partition_t *target_partition = NULL;
+        esp_ota_handle_t ota_handle = 0U;
+
+        if (!beet_ble_is_update_eligible(&request.begin_update, &failure_reason)) {
+            beet_ble_set_maintenance_terminal_status(
+                BEET_MAINTENANCE_STATE_FAILED,
+                failure_reason,
+                true,
+                false,
+                0U);
+            (void)beet_ble_send_maintenance_status_indication();
+            return 0;
+        }
+
+        if (had_active_session) {
+            beet_ble_emit_maintenance_event(
+                BEET_SYSTEM_EVENT_UPDATE_INVALIDATED,
+                0U,
+                previous_session_id);
+        }
+
+        beet_ble_clear_maintenance_session();
+        target_partition = esp_ota_get_next_update_partition(NULL);
+        if (target_partition == NULL ||
+            esp_ota_begin(target_partition, request.begin_update.image_size, &ota_handle) != ESP_OK) {
+            beet_ble_set_maintenance_terminal_status(
+                BEET_MAINTENANCE_STATE_FAILED,
+                BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                true,
+                false,
+                0U);
+            (void)beet_ble_send_maintenance_status_indication();
+            return 0;
+        }
+        s_ble.maintenance_terminal_status_valid = false;
+        s_ble.maintenance_session.active = true;
+        s_ble.maintenance_session.ota_handle_active = true;
+        s_ble.maintenance_session.ota_handle = ota_handle;
+        s_ble.maintenance_session.target_partition = target_partition;
+        s_ble.maintenance_session.status.state = BEET_MAINTENANCE_STATE_AWAITING_DATA;
+        s_ble.maintenance_session.status.has_session_id = true;
+        s_ble.maintenance_session.status.session_id = ++s_ble.next_maintenance_session_id;
+        s_ble.maintenance_session.status.next_offset = 0U;
+        s_ble.maintenance_session.status.bytes_received = 0U;
+        s_ble.maintenance_session.status.total_bytes = request.begin_update.image_size;
+        s_ble.maintenance_session.begin_request = request.begin_update;
+        beet_ble_emit_maintenance_event(
+            BEET_SYSTEM_EVENT_UPDATE_STARTED,
+            0U,
+            s_ble.maintenance_session.status.session_id);
+        (void)beet_ble_send_maintenance_status_indication();
+        beet_ble_mark_activity();
+        return 0;
+    }
+
+    case BEET_MAINTENANCE_COMMAND_ABORT_UPDATE:
+        beet_ble_note_maintenance_reconnect_if_pending();
+        if (!s_ble.maintenance_session.active) {
+            beet_ble_set_maintenance_terminal_status(
+                BEET_MAINTENANCE_STATE_FAILED,
+                BEET_MAINTENANCE_FAILURE_UPDATE_SESSION_NOT_FOUND,
+                true,
+                false,
+                0U);
+            (void)beet_ble_send_maintenance_status_indication();
+            return 0;
+        }
+        beet_ble_emit_maintenance_event(
+            BEET_SYSTEM_EVENT_UPDATE_INTERRUPTED,
+            0U,
+            s_ble.maintenance_session.status.session_id);
+        s_ble.maintenance_terminal_status_valid = false;
+        beet_ble_clear_maintenance_session();
+        (void)beet_ble_send_maintenance_status_indication();
+        beet_ble_mark_activity();
+        return 0;
+
+    case BEET_MAINTENANCE_COMMAND_FINISH_UPDATE:
+        beet_ble_note_maintenance_reconnect_if_pending();
+        if (!s_ble.maintenance_session.active) {
+            beet_ble_set_maintenance_terminal_status(
+                BEET_MAINTENANCE_STATE_FAILED,
+                BEET_MAINTENANCE_FAILURE_UPDATE_SESSION_NOT_FOUND,
+                true,
+                false,
+                0U);
+            (void)beet_ble_send_maintenance_status_indication();
+            return 0;
+        }
+        if (s_ble.maintenance_session.status.bytes_received !=
+            s_ble.maintenance_session.status.total_bytes) {
+            uint32_t session_id = s_ble.maintenance_session.status.session_id;
+            beet_ble_set_maintenance_terminal_status(
+                BEET_MAINTENANCE_STATE_FAILED,
+                BEET_MAINTENANCE_FAILURE_IMAGE_UPLOAD_INCOMPLETE,
+                true,
+                true,
+                session_id);
+            beet_ble_clear_maintenance_session();
+            beet_ble_emit_maintenance_event(
+                BEET_SYSTEM_EVENT_UPDATE_FAILED,
+                (uint16_t)BEET_MAINTENANCE_FAILURE_IMAGE_UPLOAD_INCOMPLETE,
+                session_id);
+            (void)beet_ble_send_maintenance_status_indication();
+            beet_ble_mark_activity();
+            return 0;
+        }
+        {
+            uint32_t session_id = s_ble.maintenance_session.status.session_id;
+            uint8_t digest[32];
+            char digest_hex[BEET_MAINTENANCE_SHA256_HEX_LEN + 1U];
+            beet_maintenance_image_metadata_t metadata;
+            esp_err_t err;
+
+            if (esp_partition_get_sha256(s_ble.maintenance_session.target_partition, digest) != ESP_OK) {
+                beet_ble_set_maintenance_terminal_status(
+                    BEET_MAINTENANCE_STATE_FAILED,
+                    BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                    true,
+                    true,
+                    session_id);
+                s_ble.maintenance_session.ota_handle_active = false;
+                beet_ble_clear_maintenance_session();
+                beet_ble_emit_maintenance_event(
+                    BEET_SYSTEM_EVENT_UPDATE_FAILED,
+                    (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                    session_id);
+                (void)beet_ble_send_maintenance_status_indication();
+                return 0;
+            }
+
+            beet_ble_format_sha256_hex(digest, digest_hex);
+            if (strcmp(digest_hex, s_ble.maintenance_session.begin_request.image_sha256) != 0) {
+                beet_ble_set_maintenance_terminal_status(
+                    BEET_MAINTENANCE_STATE_FAILED,
+                    BEET_MAINTENANCE_FAILURE_IMAGE_SHA256_MISMATCH,
+                    true,
+                    true,
+                    session_id);
+                s_ble.maintenance_session.ota_handle_active = false;
+                beet_ble_clear_maintenance_session();
+                beet_ble_emit_maintenance_event(
+                    BEET_SYSTEM_EVENT_UPDATE_FAILED,
+                    (uint16_t)BEET_MAINTENANCE_FAILURE_IMAGE_SHA256_MISMATCH,
+                    session_id);
+                (void)beet_ble_send_maintenance_status_indication();
+                return 0;
+            }
+
+            err = beet_ble_read_partition_metadata(
+                s_ble.maintenance_session.target_partition,
+                s_ble.maintenance_session.status.total_bytes,
+                &metadata);
+            if (err != ESP_OK ||
+                !beet_ble_metadata_sets_match(&metadata, &s_ble.maintenance_session.begin_request)) {
+                beet_ble_set_maintenance_terminal_status(
+                    BEET_MAINTENANCE_STATE_FAILED,
+                    (err == ESP_OK) ?
+                        BEET_MAINTENANCE_FAILURE_UPDATE_INVALID_METADATA :
+                        BEET_MAINTENANCE_FAILURE_IMAGE_METADATA_MISSING,
+                    true,
+                    true,
+                    session_id);
+                s_ble.maintenance_session.ota_handle_active = false;
+                beet_ble_clear_maintenance_session();
+                beet_ble_emit_maintenance_event(
+                    BEET_SYSTEM_EVENT_UPDATE_FAILED,
+                    (uint16_t)((err == ESP_OK) ?
+                        BEET_MAINTENANCE_FAILURE_UPDATE_INVALID_METADATA :
+                        BEET_MAINTENANCE_FAILURE_IMAGE_METADATA_MISSING),
+                    session_id);
+                (void)beet_ble_send_maintenance_status_indication();
+                return 0;
+            }
+
+            err = esp_ota_end(s_ble.maintenance_session.ota_handle);
+            s_ble.maintenance_session.ota_handle_active = false;
+            if (err != ESP_OK ||
+                esp_ota_set_boot_partition(s_ble.maintenance_session.target_partition) != ESP_OK) {
+                beet_ble_set_maintenance_terminal_status(
+                    BEET_MAINTENANCE_STATE_FAILED,
+                    BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                    true,
+                    true,
+                    session_id);
+                beet_ble_clear_maintenance_session();
+                beet_ble_emit_maintenance_event(
+                    BEET_SYSTEM_EVENT_UPDATE_FAILED,
+                    (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                    session_id);
+                (void)beet_ble_send_maintenance_status_indication();
+                return 0;
+            }
+
+            s_ble.maintenance_session.status.state = BEET_MAINTENANCE_STATE_REBOOTING;
+            s_ble.maintenance_session.reboot_pending = true;
+            s_ble.maintenance_session.reboot_due_at_us = esp_timer_get_time() + 250000LL;
+            beet_ble_emit_maintenance_event(
+                BEET_SYSTEM_EVENT_UPDATE_COMPLETED,
+                0U,
+                session_id);
+            (void)beet_ble_send_maintenance_status_indication();
+            beet_ble_mark_activity();
+            return 0;
+        }
+
+    default:
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+static int beet_ble_write_maintenance_data(
+    uint16_t conn_handle,
+    struct ble_gatt_access_ctxt *ctxt)
+{
+    uint8_t chunk_buf[BEET_BLE_JSON_MAX_LEN];
+    uint16_t copied = 0U;
+    uint32_t session_id = 0U;
+    uint32_t offset = 0U;
+    const uint8_t *payload = NULL;
+    size_t payload_len = 0U;
+
+    if (beet_ble_require_bonded(conn_handle) != 0) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+    if (!s_ble.maintenance_session.active || !s_ble.maintenance_session.ota_handle_active) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (s_ble.maintenance_session.reboot_pending) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (OS_MBUF_PKTLEN(ctxt->om) > sizeof(chunk_buf)) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    if (ble_hs_mbuf_to_flat(ctxt->om, chunk_buf, sizeof(chunk_buf), &copied) != 0) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (!beet_ble_parse_chunk_header(
+            chunk_buf,
+            copied,
+            &session_id,
+            &offset,
+            &payload,
+            &payload_len)) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    beet_ble_note_maintenance_reconnect_if_pending();
+    if (session_id != s_ble.maintenance_session.status.session_id ||
+        offset != s_ble.maintenance_session.status.next_offset ||
+        s_ble.maintenance_session.status.bytes_received + payload_len >
+            s_ble.maintenance_session.status.total_bytes) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (esp_ota_write(s_ble.maintenance_session.ota_handle, payload, payload_len) != ESP_OK) {
+        beet_ble_set_maintenance_terminal_status(
+            BEET_MAINTENANCE_STATE_FAILED,
+            BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+            true,
+            true,
+            s_ble.maintenance_session.status.session_id);
+        s_ble.maintenance_session.ota_handle_active = false;
+        beet_ble_clear_maintenance_session();
+        beet_ble_emit_maintenance_event(
+            BEET_SYSTEM_EVENT_UPDATE_FAILED,
+            (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+            session_id);
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    s_ble.maintenance_session.status.state = BEET_MAINTENANCE_STATE_TRANSFERRING;
+    s_ble.maintenance_session.status.bytes_received += (uint32_t)payload_len;
+    s_ble.maintenance_session.status.next_offset += (uint32_t)payload_len;
+    s_ble.maintenance_session.status.total_bytes = s_ble.maintenance_session.begin_request.image_size;
+    beet_ble_mark_activity();
+
+    return 0;
+}
+
 static int beet_ble_gatt_access(
     uint16_t conn_handle,
     uint16_t attr_handle,
@@ -408,6 +903,357 @@ static int beet_ble_gatt_access(
     default:
         return BLE_ATT_ERR_UNLIKELY;
     }
+}
+
+static int beet_ble_maintenance_gatt_access(
+    uint16_t conn_handle,
+    uint16_t attr_handle,
+    struct ble_gatt_access_ctxt *ctxt,
+    void *arg)
+{
+    (void)arg;
+
+    switch (ctxt->op) {
+    case BLE_GATT_ACCESS_OP_READ_CHR:
+        if (attr_handle == s_maintenance_info_handle) {
+            return beet_ble_read_maintenance_info(ctxt);
+        }
+        if (beet_ble_require_bonded(conn_handle) != 0) {
+            return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+        }
+        return BLE_ATT_ERR_UNLIKELY;
+
+    case BLE_GATT_ACCESS_OP_WRITE_CHR:
+        if (attr_handle == s_maintenance_control_handle) {
+            return beet_ble_write_maintenance_control(conn_handle, ctxt);
+        }
+        if (attr_handle == s_maintenance_data_handle) {
+            return beet_ble_write_maintenance_data(conn_handle, ctxt);
+        }
+        return BLE_ATT_ERR_UNLIKELY;
+
+    default:
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+}
+
+static void beet_ble_emit_maintenance_event(
+    beet_system_event_type_t type,
+    uint16_t reason,
+    uint32_t detail)
+{
+    beet_ble_emit_system_event(
+        type,
+        reason,
+        s_ble.connected ? s_ble.conn_handle : BLE_HS_CONN_HANDLE_NONE,
+        s_ble.bonded,
+        detail);
+}
+
+static void beet_ble_clear_maintenance_session(void)
+{
+    if (s_ble.maintenance_session.ota_handle_active) {
+        (void)esp_ota_abort(s_ble.maintenance_session.ota_handle);
+    }
+    memset(&s_ble.maintenance_session, 0, sizeof(s_ble.maintenance_session));
+}
+
+static void beet_ble_set_maintenance_terminal_status(
+    beet_maintenance_state_t state,
+    beet_maintenance_failure_reason_t reason,
+    bool has_failure_reason,
+    bool preserve_session_id,
+    uint32_t session_id)
+{
+    memset(&s_ble.maintenance_terminal_status, 0, sizeof(s_ble.maintenance_terminal_status));
+    s_ble.maintenance_terminal_status.state = state;
+    s_ble.maintenance_terminal_status.has_failure_reason = has_failure_reason;
+    s_ble.maintenance_terminal_status.failure_reason = reason;
+    if (preserve_session_id) {
+        s_ble.maintenance_terminal_status.has_session_id = true;
+        s_ble.maintenance_terminal_status.session_id = session_id;
+    }
+    s_ble.maintenance_terminal_status_valid = true;
+}
+
+static void beet_ble_note_maintenance_reconnect_if_pending(void)
+{
+    if (!s_ble.maintenance_session.active ||
+        !s_ble.maintenance_session.disconnected_waiting_resume) {
+        return;
+    }
+
+    s_ble.maintenance_session.disconnected_waiting_resume = false;
+    s_ble.maintenance_session.resume_expires_at_us = 0LL;
+    if (s_ble.maintenance_session.reconnect_event_pending) {
+        beet_ble_emit_maintenance_event(
+            BEET_SYSTEM_EVENT_UPDATE_RECONNECT,
+            0U,
+            s_ble.maintenance_session.status.session_id);
+        s_ble.maintenance_session.reconnect_event_pending = false;
+    }
+}
+
+static bool beet_ble_metadata_sets_match(
+    const beet_maintenance_image_metadata_t *metadata,
+    const beet_maintenance_begin_update_request_t *request)
+{
+    if (metadata == NULL || request == NULL) {
+        return false;
+    }
+    if (strcmp(metadata->firmware_version, request->firmware_version) != 0 ||
+        strcmp(metadata->build_label, request->build_label) != 0 ||
+        strcmp(metadata->product_id, request->product_id) != 0 ||
+        metadata->image_kind != request->image_kind ||
+        metadata->compatible_hardware_rev_count != request->hardware_rev_count) {
+        return false;
+    }
+    if (request->has_runtime_protocol_version &&
+        metadata->runtime_protocol_version != request->runtime_protocol_version) {
+        return false;
+    }
+
+    for (uint8_t i = 0U; i < request->hardware_rev_count; ++i) {
+        bool found = false;
+        for (uint8_t j = 0U; j < metadata->compatible_hardware_rev_count; ++j) {
+            if (strcmp(request->hardware_revs[i], metadata->compatible_hardware_revs[j]) == 0) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static esp_err_t beet_ble_read_partition_metadata(
+    const esp_partition_t *partition,
+    size_t image_size,
+    beet_maintenance_image_metadata_t *metadata_out)
+{
+    uint8_t scan_buf[512U + 16U];
+    size_t scan_offset = 0U;
+
+    if (partition == NULL || metadata_out == NULL || image_size < 12U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    while (scan_offset < image_size) {
+        size_t read_len = sizeof(scan_buf);
+        if (scan_offset + read_len > image_size) {
+            read_len = image_size - scan_offset;
+        }
+        if (esp_partition_read(partition, scan_offset, scan_buf, read_len) != ESP_OK) {
+            return ESP_FAIL;
+        }
+
+        for (size_t i = 0U; i + 12U <= read_len; ++i) {
+            uint32_t magic = ((uint32_t)scan_buf[i]) |
+                ((uint32_t)scan_buf[i + 1U] << 8) |
+                ((uint32_t)scan_buf[i + 2U] << 16) |
+                ((uint32_t)scan_buf[i + 3U] << 24);
+
+            if (magic == BEET_MAINTENANCE_METADATA_MAGIC) {
+                uint16_t total_length = (uint16_t)scan_buf[i + 6U] |
+                    ((uint16_t)scan_buf[i + 7U] << 8);
+                uint8_t block_buf[512];
+                size_t absolute_offset = scan_offset + i;
+
+                if (total_length < 12U || total_length > sizeof(block_buf) ||
+                    absolute_offset + total_length > image_size) {
+                    continue;
+                }
+                if (esp_partition_read(partition, absolute_offset, block_buf, total_length) != ESP_OK) {
+                    return ESP_FAIL;
+                }
+                if (beet_maintenance_metadata_parse(block_buf, total_length, metadata_out) == ESP_OK) {
+                    return ESP_OK;
+                }
+            }
+        }
+
+        if (read_len <= 12U) {
+            break;
+        }
+        scan_offset += read_len - 12U;
+    }
+
+    return ESP_ERR_NOT_FOUND;
+}
+
+static bool beet_ble_parse_chunk_header(
+    const uint8_t *data,
+    size_t len,
+    uint32_t *session_id_out,
+    uint32_t *offset_out,
+    const uint8_t **payload_out,
+    size_t *payload_len_out)
+{
+    if (data == NULL || session_id_out == NULL || offset_out == NULL ||
+        payload_out == NULL || payload_len_out == NULL || len <= 8U) {
+        return false;
+    }
+
+    *session_id_out = ((uint32_t)data[0]) |
+        (((uint32_t)data[1]) << 8) |
+        (((uint32_t)data[2]) << 16) |
+        (((uint32_t)data[3]) << 24);
+    *offset_out = ((uint32_t)data[4]) |
+        (((uint32_t)data[5]) << 8) |
+        (((uint32_t)data[6]) << 16) |
+        (((uint32_t)data[7]) << 24);
+    *payload_out = data + 8U;
+    *payload_len_out = len - 8U;
+    return true;
+}
+
+static void beet_ble_format_sha256_hex(const uint8_t digest[32], char out[BEET_MAINTENANCE_SHA256_HEX_LEN + 1U])
+{
+    static const char hex[] = "0123456789abcdef";
+
+    for (size_t i = 0U; i < 32U; ++i) {
+        out[i * 2U] = hex[(digest[i] >> 4U) & 0x0FU];
+        out[i * 2U + 1U] = hex[digest[i] & 0x0FU];
+    }
+    out[BEET_MAINTENANCE_SHA256_HEX_LEN] = '\0';
+}
+
+static bool beet_ble_is_runtime_mutating_command(beet_iface_command_t command)
+{
+    switch (command) {
+    case BEET_IFACE_COMMAND_GET_CALIBRATION:
+    case BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_EVENT:
+    case BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_SYSTEM_EVENT:
+    case BEET_IFACE_COMMAND_GET_WATERING_HISTORY_SUMMARY:
+    case BEET_IFACE_COMMAND_GET_WATERING_EVENT:
+    case BEET_IFACE_COMMAND_GET_VALVE_CONFIG:
+    case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
+        return false;
+
+    default:
+        return true;
+    }
+}
+
+static bool beet_ble_is_update_eligible(
+    const beet_maintenance_begin_update_request_t *request,
+    beet_maintenance_failure_reason_t *failure_reason)
+{
+    beet_iface_device_state_t device_state;
+    beet_iface_pair_state_t pair_states[BEET_PAIR_COUNT];
+    beet_maintenance_info_t maintenance_info;
+    bool hardware_match = false;
+
+    if (failure_reason == NULL || request == NULL) {
+        return false;
+    }
+
+    *failure_reason = BEET_MAINTENANCE_FAILURE_NONE;
+    if (request->image_size == 0U ||
+        request->hardware_rev_count == 0U ||
+        request->firmware_version[0] == '\0' ||
+        request->build_label[0] == '\0' ||
+        request->product_id[0] == '\0' ||
+        request->asset_id[0] == '\0' ||
+        !beet_maintenance_is_valid_sha256_hex(request->image_sha256) ||
+        request->image_kind == BEET_MAINTENANCE_IMAGE_KIND_UNKNOWN) {
+        *failure_reason = BEET_MAINTENANCE_FAILURE_UPDATE_INVALID_METADATA;
+        return false;
+    }
+
+    if (beet_maintenance_get_info(&maintenance_info) != ESP_OK) {
+        *failure_reason = BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR;
+        return false;
+    }
+    if (strcmp(request->product_id, maintenance_info.product_id) != 0) {
+        *failure_reason = BEET_MAINTENANCE_FAILURE_IMAGE_PRODUCT_MISMATCH;
+        return false;
+    }
+    for (uint8_t i = 0U; i < request->hardware_rev_count; ++i) {
+        if (strcmp(request->hardware_revs[i], maintenance_info.hardware_rev) == 0) {
+            hardware_match = true;
+            break;
+        }
+    }
+    if (!hardware_match) {
+        *failure_reason = BEET_MAINTENANCE_FAILURE_IMAGE_HARDWARE_REVISION_INCOMPATIBLE;
+        return false;
+    }
+
+    if (beet_iface_get_device_state(&device_state) != ESP_OK ||
+        beet_iface_get_all_pair_states(pair_states) != ESP_OK) {
+        *failure_reason = BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR;
+        return false;
+    }
+    if (device_state.battery_state != BEET_BATTERY_STATE_ACTIVE &&
+        !(s_ble.maintenance_session.active &&
+            device_state.battery_state == BEET_BATTERY_STATE_OTA_IN_PROGRESS)) {
+        *failure_reason = BEET_MAINTENANCE_FAILURE_UPDATE_LOW_BATTERY;
+        return false;
+    }
+    if (device_state.active_pumps > 0U) {
+        *failure_reason = BEET_MAINTENANCE_FAILURE_UPDATE_WATERING_ACTIVE;
+        return false;
+    }
+    if (device_state.valve_state != BEET_VALVE_STATE_CLOSED) {
+        *failure_reason = BEET_MAINTENANCE_FAILURE_UPDATE_RUNTIME_BUSY;
+        return false;
+    }
+    for (uint8_t pair = 0U; pair < BEET_PAIR_COUNT; ++pair) {
+        if (pair_states[pair].pair_state == BEET_PAIR_STATE_WATERING) {
+            *failure_reason = BEET_MAINTENANCE_FAILURE_UPDATE_WATERING_ACTIVE;
+            return false;
+        }
+        if (pair_states[pair].pair_state == BEET_PAIR_STATE_WAITING_FOR_SLOT ||
+            pair_states[pair].pair_state == BEET_PAIR_STATE_SANITY_CHECK ||
+            pair_states[pair].pair_state == BEET_PAIR_STATE_MOISTURE_TEST) {
+            *failure_reason = BEET_MAINTENANCE_FAILURE_UPDATE_RUNTIME_BUSY;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void beet_ble_service_maintenance_session(void)
+{
+    int64_t now_us;
+    uint32_t session_id;
+
+    if (!s_ble.maintenance_session.active) {
+        return;
+    }
+
+    now_us = esp_timer_get_time();
+    if (s_ble.maintenance_session.reboot_pending &&
+        now_us >= s_ble.maintenance_session.reboot_due_at_us) {
+        esp_restart();
+        return;
+    }
+    if (!s_ble.maintenance_session.disconnected_waiting_resume) {
+        return;
+    }
+    if (now_us < s_ble.maintenance_session.resume_expires_at_us) {
+        return;
+    }
+
+    session_id = s_ble.maintenance_session.status.session_id;
+    beet_ble_set_maintenance_terminal_status(
+        BEET_MAINTENANCE_STATE_FAILED,
+        BEET_MAINTENANCE_FAILURE_UPDATE_SESSION_EXPIRED,
+        true,
+        true,
+        session_id);
+    beet_ble_clear_maintenance_session();
+    beet_ble_emit_maintenance_event(
+        BEET_SYSTEM_EVENT_UPDATE_INTERRUPTED,
+        (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_SESSION_EXPIRED,
+        session_id);
 }
 
 static void beet_ble_fill_diag_status(beet_ble_diag_status_t *status)
@@ -951,7 +1797,7 @@ static void beet_ble_advertise(void)
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.tx_pwr_lvl_is_present = 1;
     fields.tx_pwr_lvl = BLE_HS_ADV_TX_PWR_LVL_AUTO;
-    fields.uuids128 = (ble_uuid128_t[]){ BEET_BLE_SERVICE_UUID };
+    fields.uuids128 = (ble_uuid128_t[]){ BEET_BLE_MAINTENANCE_SERVICE_UUID };
     fields.num_uuids128 = 1;
     fields.uuids128_is_complete = 1;
 
@@ -1033,6 +1879,7 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             s_ble.bonded = beet_ble_is_bonded_conn(event->connect.conn_handle);
             s_ble.state_stream_subscribed = false;
             s_ble.command_result_subscribed = false;
+            s_ble.maintenance_status_subscribed = false;
             beet_ble_clear_result_send_state();
             s_ble.initial_sync_pending = false;
             s_ble.have_last_device_state = false;
@@ -1061,11 +1908,18 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             event->disconnect.conn.sec_state.bonded,
             0U);
         beet_ble_clear_pairing_display("disconnect");
+        if (s_ble.maintenance_session.active) {
+            s_ble.maintenance_session.disconnected_waiting_resume = true;
+            s_ble.maintenance_session.reconnect_event_pending = true;
+            s_ble.maintenance_session.resume_expires_at_us =
+                esp_timer_get_time() + BEET_BLE_MAINTENANCE_SESSION_RESUME_TIMEOUT_US;
+        }
         s_ble.connected = false;
         s_ble.bonded = false;
         s_ble.conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_ble.state_stream_subscribed = false;
         s_ble.command_result_subscribed = false;
+        s_ble.maintenance_status_subscribed = false;
         beet_ble_clear_result_send_state();
         s_ble.initial_sync_pending = false;
         s_ble.have_last_device_state = false;
@@ -1099,6 +1953,10 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             }
             beet_ble_mark_activity();
             ESP_LOGI(TAG, "command result subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.command_result_subscribed);
+        } else if (event->subscribe.attr_handle == s_maintenance_status_handle) {
+            s_ble.maintenance_status_subscribed = event->subscribe.cur_indicate && beet_ble_is_bonded_conn(event->subscribe.conn_handle);
+            beet_ble_mark_activity();
+            ESP_LOGI(TAG, "maintenance status subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.maintenance_status_subscribed);
         }
         return 0;
 
@@ -1164,8 +2022,28 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         return BLE_HS_EINVAL;
 
     case BLE_GAP_EVENT_REPEAT_PAIRING:
+    {
+        struct ble_gap_conn_desc desc;
+        int rc;
+
         beet_ble_clear_pairing_display("repeat_pairing");
+        rc = ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc);
+        if (rc != 0) {
+            ESP_LOGW(
+                TAG,
+                "repeat pairing conn lookup failed handle=%u rc=%d",
+                (unsigned)event->repeat_pairing.conn_handle,
+                rc);
+            return BLE_GAP_REPEAT_PAIRING_IGNORE;
+        }
+
+        rc = ble_store_util_delete_peer(&desc.peer_id_addr);
+        if (rc != 0) {
+            ESP_LOGW(TAG, "repeat pairing delete peer failed rc=%d", rc);
+            return BLE_GAP_REPEAT_PAIRING_IGNORE;
+        }
         return BLE_GAP_REPEAT_PAIRING_RETRY;
+    }
 
     default:
         return 0;
@@ -1254,6 +2132,37 @@ static esp_err_t beet_ble_send_indicate_json(uint16_t attr_handle, const char *j
     rc = ble_gatts_indicate_custom(s_ble.conn_handle, attr_handle, om);
     if (rc != 0) {
         ESP_LOGW(TAG, "indicate failed: rc=%d", rc);
+        return ESP_FAIL;
+    }
+
+    beet_ble_mark_activity();
+    return ESP_OK;
+}
+
+static esp_err_t beet_ble_send_maintenance_status_indication(void)
+{
+    char json[BEET_BLE_JSON_MAX_LEN];
+    int written;
+    struct os_mbuf *om;
+    int rc;
+
+    if (!s_ble.connected || !s_ble.maintenance_status_subscribed) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    written = beet_ble_format_maintenance_status(json, sizeof(json));
+    if (written < 0 || (size_t)written >= sizeof(json)) {
+        return ESP_FAIL;
+    }
+
+    om = beet_ble_json_mbuf(json);
+    if (om == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    rc = ble_gatts_indicate_custom(s_ble.conn_handle, s_maintenance_status_handle, om);
+    if (rc != 0) {
+        ESP_LOGW(TAG, "maintenance indicate failed: rc=%d", rc);
         return ESP_FAIL;
     }
 
@@ -1398,9 +2307,9 @@ esp_err_t beet_ble_init(const char *device_name)
     ble_hs_cfg.sync_cb = beet_ble_on_sync;
     ble_hs_cfg.gatts_register_cb = beet_ble_register_cb;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_ONLY;
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
     ble_hs_cfg.sm_bonding = 1;
-    ble_hs_cfg.sm_mitm = 1;
+    ble_hs_cfg.sm_mitm = 0;
     ble_hs_cfg.sm_sc = 1;
     ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
@@ -1457,6 +2366,7 @@ void beet_ble_set_enabled(bool enabled)
     s_ble.enabled = enabled;
     if (!enabled) {
         beet_ble_clear_result_send_state();
+        beet_ble_clear_maintenance_session();
         beet_ble_stop_advertising();
         beet_ble_disconnect();
         beet_ble_log_diag_status("set_enabled_false");
@@ -1470,6 +2380,11 @@ void beet_ble_set_enabled(bool enabled)
 void beet_ble_set_system_event_callback(beet_ble_system_event_callback_t callback)
 {
     s_ble.system_event_callback = callback;
+}
+
+bool beet_ble_maintenance_runtime_blocking(void)
+{
+    return s_ble.maintenance_session.active;
 }
 
 esp_err_t beet_ble_clear_bonds(uint16_t *removed_count)
@@ -1506,10 +2421,12 @@ esp_err_t beet_ble_clear_bonds(uint16_t *removed_count)
     s_ble.bonded = false;
     s_ble.state_stream_subscribed = false;
     s_ble.command_result_subscribed = false;
+    s_ble.maintenance_status_subscribed = false;
     beet_ble_clear_result_send_state();
     s_ble.have_last_device_state = false;
     s_ble.have_last_pair_states = false;
     s_ble.initial_sync_pending = false;
+    beet_ble_clear_maintenance_session();
     beet_ble_clear_pairing_display("bonds_cleared");
     beet_ble_disconnect();
     return ESP_OK;
@@ -1540,6 +2457,7 @@ void beet_ble_service(void)
     }
 
     beet_ble_service_pairing_display();
+    beet_ble_service_maintenance_session();
     beet_ble_drain_commands();
     beet_ble_send_pending_result();
 
@@ -1568,12 +2486,17 @@ void beet_ble_host_test_reset(void)
     s_ble.connected = true;
     s_ble.bonded = true;
     s_ble.command_result_subscribed = true;
+    s_ble.maintenance_status_subscribed = false;
     s_ble.conn_handle = 1U;
     s_ble.command_queue = xQueueCreate(BEET_BLE_COMMAND_QUEUE_LEN, sizeof(beet_iface_command_request_t));
     s_command_result_handle = 23U;
     s_state_stream_handle = 22U;
     s_control_point_handle = 21U;
     s_controller_info_handle = 20U;
+    s_maintenance_info_handle = 24U;
+    s_maintenance_control_handle = 25U;
+    s_maintenance_status_handle = 26U;
+    s_maintenance_data_handle = 27U;
     beet_ble_reset_result_tx_state();
 }
 
@@ -1634,6 +2557,106 @@ void beet_ble_host_test_set_command_result_subscription(bool subscribed)
     memset(&event, 0, sizeof(event));
     event.type = BLE_GAP_EVENT_SUBSCRIBE;
     event.subscribe.attr_handle = s_command_result_handle;
+    event.subscribe.conn_handle = s_ble.conn_handle;
+    event.subscribe.cur_indicate = subscribed ? 1U : 0U;
+    (void)beet_ble_gap_event(&event, NULL);
+}
+
+int beet_ble_host_test_read_maintenance_info(char *buf, size_t len, bool bonded)
+{
+    struct ble_gatt_access_ctxt ctxt;
+    struct os_mbuf *om;
+    int rc;
+
+    if (buf == NULL || len == 0U) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    ble_host_test_set_conn_desc(s_ble.conn_handle, bonded);
+    om = os_msys_get_pkthdr((uint16_t)(len - 1U), 0U);
+    if (om == NULL) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    memset(&ctxt, 0, sizeof(ctxt));
+    ctxt.op = BLE_GATT_ACCESS_OP_READ_CHR;
+    ctxt.om = om;
+    rc = beet_ble_maintenance_gatt_access(s_ble.conn_handle, s_maintenance_info_handle, &ctxt, NULL);
+    if (rc == 0) {
+        size_t copy_len = om->len < (uint16_t)(len - 1U) ? om->len : (uint16_t)(len - 1U);
+        memcpy(buf, om->data, copy_len);
+        buf[copy_len] = '\0';
+    }
+
+    os_mbuf_free_chain(om);
+    return rc;
+}
+
+int beet_ble_host_test_write_maintenance_control(const char *json, bool bonded)
+{
+    struct ble_gatt_access_ctxt ctxt;
+    struct os_mbuf *om;
+    size_t json_len;
+    int rc;
+
+    if (json == NULL) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    ble_host_test_set_conn_desc(s_ble.conn_handle, bonded);
+    json_len = strlen(json);
+    om = os_msys_get_pkthdr((uint16_t)json_len, 0U);
+    if (om == NULL) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (os_mbuf_append(om, json, (uint16_t)json_len) != 0) {
+        os_mbuf_free_chain(om);
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    memset(&ctxt, 0, sizeof(ctxt));
+    ctxt.op = BLE_GATT_ACCESS_OP_WRITE_CHR;
+    ctxt.om = om;
+    rc = beet_ble_maintenance_gatt_access(s_ble.conn_handle, s_maintenance_control_handle, &ctxt, NULL);
+    os_mbuf_free_chain(om);
+    return rc;
+}
+
+int beet_ble_host_test_write_maintenance_data(const uint8_t *data, size_t len, bool bonded)
+{
+    struct ble_gatt_access_ctxt ctxt;
+    struct os_mbuf *om;
+    int rc;
+
+    if (data == NULL || len == 0U || len > UINT16_MAX) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+
+    ble_host_test_set_conn_desc(s_ble.conn_handle, bonded);
+    om = os_msys_get_pkthdr((uint16_t)len, 0U);
+    if (om == NULL) {
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+    if (os_mbuf_append(om, data, (uint16_t)len) != 0) {
+        os_mbuf_free_chain(om);
+        return BLE_ATT_ERR_INSUFFICIENT_RES;
+    }
+
+    memset(&ctxt, 0, sizeof(ctxt));
+    ctxt.op = BLE_GATT_ACCESS_OP_WRITE_CHR;
+    ctxt.om = om;
+    rc = beet_ble_maintenance_gatt_access(s_ble.conn_handle, s_maintenance_data_handle, &ctxt, NULL);
+    os_mbuf_free_chain(om);
+    return rc;
+}
+
+void beet_ble_host_test_set_maintenance_status_subscription(bool subscribed)
+{
+    struct ble_gap_event event;
+
+    memset(&event, 0, sizeof(event));
+    event.type = BLE_GAP_EVENT_SUBSCRIBE;
+    event.subscribe.attr_handle = s_maintenance_status_handle;
     event.subscribe.conn_handle = s_ble.conn_handle;
     event.subscribe.cur_indicate = subscribed ? 1U : 0U;
     (void)beet_ble_gap_event(&event, NULL);

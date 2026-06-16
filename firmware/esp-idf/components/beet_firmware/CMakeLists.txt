@@ -4,6 +4,7 @@ idf_component_register(
         "src/beet_ble.c"
         "src/beet_ble_codec.c"
         "src/beet_ble_guard.c"
+        "src/beet_maintenance.c"
         "src/beet_controller.c"
         "src/beet_core.c"
         "src/beet_event_ring.c"
@@ -11,6 +12,7 @@ idf_component_register(
         "src/beet_storage.c"
     INCLUDE_DIRS "include"
     REQUIRES
+        app_update
         esp_adc
         esp_driver_i2c
         esp_driver_ledc

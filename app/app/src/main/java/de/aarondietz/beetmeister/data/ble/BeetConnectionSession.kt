@@ -11,6 +11,10 @@ internal class BeetConnectionSession {
     var controllerInfoCharacteristic: BluetoothGattCharacteristic? = null
     var stateStreamCharacteristic: BluetoothGattCharacteristic? = null
     var commandResultCharacteristic: BluetoothGattCharacteristic? = null
+    var maintenanceInfoCharacteristic: BluetoothGattCharacteristic? = null
+    var maintenanceControlCharacteristic: BluetoothGattCharacteristic? = null
+    var maintenanceStatusCharacteristic: BluetoothGattCharacteristic? = null
+    var maintenanceDataCharacteristic: BluetoothGattCharacteristic? = null
     var pendingCommand: CompletableDeferred<BeetCommandResult>? = null
     var initialDeviceFrameReceived = false
     var initialSyncCompleted = false
@@ -25,6 +29,10 @@ internal class BeetConnectionSession {
         stateStreamCharacteristic = null
         controlPointCharacteristic = null
         commandResultCharacteristic = null
+        maintenanceInfoCharacteristic = null
+        maintenanceControlCharacteristic = null
+        maintenanceStatusCharacteristic = null
+        maintenanceDataCharacteristic = null
         descriptorQueue.clear()
         initialDeviceFrameReceived = false
         initialSyncCompleted = false

@@ -16,10 +16,12 @@ add_executable(
     ${CMAKE_CURRENT_LIST_DIR}/host_tests.c
     ${FW_ROOT}/src/beet_ble_codec.c
     ${FW_ROOT}/src/beet_ble_guard.c
+    ${FW_ROOT}/src/beet_maintenance.c
     ${FW_ROOT}/src/beet_core.c
     ${FW_ROOT}/src/beet_event_ring.c
     ${FW_ROOT}/src/beet_iface_names.c
     ${SUPPORT_DIR}/esp_rom_crc.c
+    ${SUPPORT_DIR}/ota_test_stubs.c
 )
 
 target_include_directories(
@@ -41,10 +43,12 @@ add_executable(
     ${FW_ROOT}/src/beet_ble.c
     ${FW_ROOT}/src/beet_ble_codec.c
     ${FW_ROOT}/src/beet_ble_guard.c
+    ${FW_ROOT}/src/beet_maintenance.c
     ${FW_ROOT}/src/beet_core.c
     ${FW_ROOT}/src/beet_iface_names.c
     ${SUPPORT_DIR}/esp_rom_crc.c
     ${SUPPORT_DIR}/ble_test_stubs.c
+    ${SUPPORT_DIR}/ota_test_stubs.c
 )
 
 target_include_directories(

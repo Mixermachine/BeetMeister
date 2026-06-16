@@ -98,6 +98,13 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         refreshEnvironment = viewModel::refreshEnvironment,
         startScan = viewModel::startScan,
     )
+    val customFirmwareLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.prepareCustomFirmware(uri)
+        }
+    }
 
     LaunchedEffect(state.lastCommandMessage) {
         if (state.lastCommandMessage != null) {
@@ -252,6 +259,11 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
             onRequestBluetooth = permissionController.requestBluetoothEnable,
             onScan = viewModel::startScan,
             onConnect = viewModel::connect,
+            onDisconnect = viewModel::disconnect,
+            onPrepareBundledFirmware = viewModel::prepareBundledFirmware,
+            onPickCustomFirmware = { customFirmwareLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+            onStartMaintenanceUpdate = viewModel::startMaintenanceUpdate,
+            onAbortMaintenanceUpdate = viewModel::abortMaintenanceUpdate,
             modifier = modifier,
         )
         return
@@ -406,6 +418,10 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     },
                     onOpenValve = viewModel::openValve,
                     onCloseValve = viewModel::closeValve,
+                    onPrepareBundledFirmware = viewModel::prepareBundledFirmware,
+                    onPickCustomFirmware = { customFirmwareLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+                    onStartMaintenanceUpdate = viewModel::startMaintenanceUpdate,
+                    onAbortMaintenanceUpdate = viewModel::abortMaintenanceUpdate,
                     onDisconnect = viewModel::disconnect,
                 )
             }

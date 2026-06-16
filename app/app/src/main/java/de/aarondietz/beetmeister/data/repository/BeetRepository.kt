@@ -3,6 +3,7 @@ package de.aarondietz.beetmeister.data.repository
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
+import android.net.Uri
 import android.content.SharedPreferences
 import android.util.Log
 import de.aarondietz.beetmeister.R
@@ -123,6 +124,22 @@ internal class BeetRepository(
 
     fun closeValve() = gattSessionCoordinator.closeValve()
 
+    fun prepareBundledFirmware() = gattSessionCoordinator.prepareBundledFirmware()
+
+    fun prepareCustomFirmware(uri: Uri) = gattSessionCoordinator.prepareCustomFirmware(uri)
+
+    fun startMaintenanceUpdate() {
+        val selected = state.value.maintenanceUpdate.selectedFirmware
+        Log.d(
+            TAG,
+            "startMaintenanceUpdate(selected=${selected?.metadata?.firmwareVersion}/${selected?.sourceLabel}, " +
+                "phase=${state.value.maintenanceUpdate.phase})",
+        )
+        gattSessionCoordinator.startMaintenanceUpdate()
+    }
+
+    fun abortMaintenanceUpdate() = gattSessionCoordinator.abortMaintenanceUpdate()
+
     override fun updateConnection(phase: BeetConnectionPhase, detail: String?) {
         val previous = state.value.connection
         Log.d(TAG, "updateConnection(${previous.phase} -> $phase, previousDetail=${previous.detail}, detail=$detail, selected=$currentAddress)")
@@ -150,6 +167,7 @@ internal class BeetRepository(
         _state.update {
             it.copy(
                 controllerInfo = null,
+                maintenanceInfo = null,
                 deviceState = null,
                 valveConfig = null,
                 wateringInterval = null,

@@ -50,7 +50,7 @@ Every requirement uses `shall` language and is traceable from the verification s
 - `RQ-031` The controller shall expose pair moisture, pump state, time remaining, blocked status, block reset, manual start and stop, battery voltage, and battery state to Home Assistant.
 - `RQ-032` The controller shall expose controller state and control functions to an Android app over BLE while acting as the BLE peripheral, and shall permit BLE GATT access only to bonded devices.
 - `RQ-033` The controller shall allow sensor calibration to be initiated from the Android app and shall store the resulting values persistently.
-- `RQ-034` The controller shall provide HTTP OTA update capability using an OTA-first partition layout with no factory app partition.
+- `RQ-034` The controller shall provide end-user firmware update capability through the BLE maintenance update path using an OTA-first partition layout with no factory app partition.
 
 ## Safety and robustness requirements
 

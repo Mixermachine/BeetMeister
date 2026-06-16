@@ -29,6 +29,7 @@ internal class BeetScanBondCoordinator(
     private var staleBondRecoveryJob: Job? = null
     private var bondMonitorJob: Job? = null
     private var pendingBondAddress: String? = null
+    private var pendingBondGattKickAddress: String? = null
 
     fun start() {
         Log.d(TAG, "start()")
@@ -120,7 +121,10 @@ internal class BeetScanBondCoordinator(
 
         @Suppress("MissingPermission")
         scanner.startScan(
-            listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(BeetBluetoothSupport.serviceUuid)).build()),
+            listOf(
+                ScanFilter.Builder().setServiceUuid(ParcelUuid(BeetBluetoothSupport.serviceUuid)).build(),
+                ScanFilter.Builder().setServiceUuid(ParcelUuid(BeetBluetoothSupport.maintenanceServiceUuid)).build(),
+            ),
             ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),
             callback,
         )
@@ -162,6 +166,7 @@ internal class BeetScanBondCoordinator(
 
             if (device.bondState != BluetoothDevice.BOND_BONDED) {
                 pendingBondAddress = address
+                pendingBondGattKickAddress = address
                 updateConnection(BeetConnectionPhase.Bonding, strings.get(R.string.scan_open_pairing_dialog))
                 @Suppress("MissingPermission")
                 if (!device.createBond()) {
@@ -184,6 +189,7 @@ internal class BeetScanBondCoordinator(
         staleBondRecoveryJob?.cancel()
         staleBondRecoveryJob = null
         pendingBondAddress = null
+        pendingBondGattKickAddress = null
     }
 
     private fun addScanResult(result: ScanResult) {
@@ -223,6 +229,7 @@ internal class BeetScanBondCoordinator(
             Log.w(TAG, "recoverFromStaleBond(address=$address, status=$status, bondState=$bondState)")
             if (pairingExpired) {
                 pendingBondAddress = address
+                pendingBondGattKickAddress = address
                 updateConnection(BeetConnectionPhase.Bonding, strings.get(R.string.scan_open_pairing_dialog))
                 @Suppress("MissingPermission")
                 if (!device.createBond()) {
@@ -257,11 +264,20 @@ internal class BeetScanBondCoordinator(
                 when (bondState) {
                     BluetoothDevice.BOND_BONDED -> {
                         pendingBondAddress = null
+                        pendingBondGattKickAddress = null
                         bondMonitorJob = null
                         host.requestOpenGatt(device)
                         return@launch
                     }
                     BluetoothDevice.BOND_BONDING -> {
+                        if (attempt >= 1 &&
+                            host.session.currentGatt == null &&
+                            pendingBondGattKickAddress == device.address
+                        ) {
+                            Log.d(TAG, "Opening GATT during bonding for address=${device.address}")
+                            pendingBondGattKickAddress = null
+                            host.requestOpenGatt(device)
+                        }
                         val detail = if (attempt < 2) {
                             strings.get(R.string.scan_pairing_in_progress_confirm)
                         } else {
@@ -276,6 +292,7 @@ internal class BeetScanBondCoordinator(
                     BluetoothDevice.BOND_NONE -> {
                         if (host.state.value.connection.phase == BeetConnectionPhase.Bonding) {
                             pendingBondAddress = null
+                            pendingBondGattKickAddress = null
                             bondMonitorJob = null
                             startScan(detail = strings.get(R.string.scan_bonding_cancelled))
                             return@launch
@@ -351,11 +368,13 @@ internal class BeetScanBondCoordinator(
             }
             BluetoothDevice.BOND_BONDED -> {
                 pendingBondAddress = null
+                pendingBondGattKickAddress = null
                 host.requestOpenGatt(bondedDevice)
             }
             BluetoothDevice.BOND_NONE -> {
                 if (previousBondState == BluetoothDevice.BOND_BONDING) {
                     pendingBondAddress = null
+                    pendingBondGattKickAddress = null
                     startScan(detail = strings.get(R.string.scan_bonding_cancelled))
                 }
             }

@@ -18,6 +18,31 @@ $serialPort.NewLine = "`n"
 $allLines = New-Object System.Collections.Generic.List[string]
 $pendingFragment = ""
 
+function Add-CapturedLine {
+    param(
+        [string]$Line
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Line)) {
+        return
+    }
+
+    $trimmed = $Line.Trim()
+    $allLines.Add($trimmed)
+
+    if ($OutputPath) {
+        [System.IO.File]::AppendAllText($OutputPath, $trimmed + [Environment]::NewLine)
+    }
+}
+
+if ($OutputPath) {
+    $parent = Split-Path -Parent $OutputPath
+    if ($parent) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+    [System.IO.File]::WriteAllText($OutputPath, "")
+}
+
 try {
     $serialPort.Open()
     $deadline = (Get-Date).AddSeconds($DurationSeconds)
@@ -31,10 +56,7 @@ try {
 
             for ($i = 0; $i -lt $lastIndex; $i++) {
                 $line = $lines[$i]
-                if (-not [string]::IsNullOrWhiteSpace($line)) {
-                    $trimmed = $line.Trim()
-                    $allLines.Add($trimmed)
-                }
+                Add-CapturedLine -Line $line
             }
 
             $pendingFragment = $lines[$lastIndex]
@@ -50,15 +72,7 @@ finally {
 }
 
 if (-not [string]::IsNullOrWhiteSpace($pendingFragment)) {
-    $allLines.Add($pendingFragment.Trim())
-}
-
-if ($OutputPath) {
-    $parent = Split-Path -Parent $OutputPath
-    if ($parent) {
-        New-Item -ItemType Directory -Force -Path $parent | Out-Null
-    }
-    [System.IO.File]::WriteAllLines($OutputPath, $allLines)
+    Add-CapturedLine -Line $pendingFragment
 }
 
 $displayLines = if ($BenchOnly) {

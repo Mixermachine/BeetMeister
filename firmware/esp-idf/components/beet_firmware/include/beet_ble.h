@@ -47,6 +47,7 @@ void beet_ble_set_enabled(bool enabled);
 void beet_ble_set_system_event_callback(beet_ble_system_event_callback_t callback);
 esp_err_t beet_ble_clear_bonds(uint16_t *removed_count);
 void beet_ble_publish_system_event(const beet_system_event_record_t *event, uint32_t unix_s);
+bool beet_ble_maintenance_runtime_blocking(void);
 void beet_ble_service(void);
 
 #endif

@@ -18,6 +18,8 @@ static unsigned s_indication_count = 0U;
 static unsigned s_notification_count = 0U;
 static char s_last_indication[2048];
 static char s_last_notification[2048];
+static beet_iface_device_state_t s_device_state;
+static beet_iface_pair_state_t s_pair_states[BEET_PAIR_COUNT];
 
 typedef struct queue_stub {
     uint32_t length;
@@ -360,6 +362,12 @@ int ble_store_util_bonded_peers(ble_addr_t *peers, int *peer_count, int max_peer
     return 0;
 }
 
+int ble_store_util_delete_peer(const ble_addr_t *peer_addr)
+{
+    (void)peer_addr;
+    return 0;
+}
+
 void ble_store_config_init(void)
 {
 }
@@ -376,6 +384,12 @@ void ble_host_test_reset(void)
     s_notification_count = 0U;
     s_last_indication[0] = '\0';
     s_last_notification[0] = '\0';
+    memset(&s_device_state, 0, sizeof(s_device_state));
+    memset(s_pair_states, 0, sizeof(s_pair_states));
+    for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
+        s_pair_states[pair - 1U].pair_index = pair;
+    }
+    ble_host_test_reset_ota_state();
     memset(&ble_hs_cfg, 0, sizeof(ble_hs_cfg));
 }
 
@@ -390,6 +404,13 @@ void ble_host_test_set_conn_desc(uint16_t conn_handle, bool bonded)
     s_conn_bonded = bonded;
 }
 
+void ble_host_test_advance_time_us(int64_t delta_us)
+{
+    if (delta_us > 0) {
+        s_now_us += delta_us;
+    }
+}
+
 void ble_host_test_set_indicate_result(int rc)
 {
     s_indicate_rc = rc;
@@ -398,6 +419,31 @@ void ble_host_test_set_indicate_result(int rc)
 void ble_host_test_set_notify_result(int rc)
 {
     s_notify_rc = rc;
+}
+
+void ble_host_test_set_device_state(const beet_iface_device_state_t *state)
+{
+    if (state == NULL) {
+        memset(&s_device_state, 0, sizeof(s_device_state));
+        return;
+    }
+    s_device_state = *state;
+}
+
+void ble_host_test_set_pair_state(uint8_t pair_index, const beet_iface_pair_state_t *state)
+{
+    if (pair_index == 0U || pair_index > BEET_PAIR_COUNT) {
+        return;
+    }
+
+    if (state == NULL) {
+        memset(&s_pair_states[pair_index - 1U], 0, sizeof(s_pair_states[pair_index - 1U]));
+        s_pair_states[pair_index - 1U].pair_index = pair_index;
+        return;
+    }
+
+    s_pair_states[pair_index - 1U] = *state;
+    s_pair_states[pair_index - 1U].pair_index = pair_index;
 }
 
 void ble_host_test_clear_captures(void)
@@ -433,7 +479,7 @@ esp_err_t beet_iface_get_device_state(beet_iface_device_state_t *state)
     if (state == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    memset(state, 0, sizeof(*state));
+    *state = s_device_state;
     return ESP_OK;
 }
 
@@ -442,7 +488,7 @@ esp_err_t beet_iface_get_pair_state(uint8_t pair_index, beet_iface_pair_state_t 
     if (state == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    memset(state, 0, sizeof(*state));
+    *state = s_pair_states[pair_index - 1U];
     state->pair_index = pair_index;
     return ESP_OK;
 }
@@ -452,7 +498,7 @@ esp_err_t beet_iface_get_all_pair_states(beet_iface_pair_state_t states[BEET_PAI
     if (states == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    memset(states, 0, sizeof(beet_iface_pair_state_t) * BEET_PAIR_COUNT);
+    memcpy(states, s_pair_states, sizeof(s_pair_states));
     return ESP_OK;
 }
 

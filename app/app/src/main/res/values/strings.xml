@@ -48,6 +48,7 @@
     <string name="connection_phase_connecting">Connecting</string>
     <string name="connection_phase_discovering_services">Starting session</string>
     <string name="connection_phase_syncing">Syncing</string>
+    <string name="connection_phase_maintenance_required">Firmware update required</string>
     <string name="connection_phase_connected">Connected</string>
     <string name="connection_phase_disconnected">Disconnected</string>
     <string name="connection_phase_error">Error</string>
@@ -67,6 +68,8 @@
     <string name="settings_label_device_id">Device ID</string>
     <string name="settings_label_protocol">Protocol</string>
     <string name="settings_label_firmware">Firmware</string>
+    <string name="settings_label_build">Build</string>
+    <string name="settings_label_firmware_source">Firmware source</string>
     <string name="settings_label_pairs">Pairs</string>
     <string name="settings_label_connection">Connection</string>
     <string name="settings_label_address">Address</string>
@@ -258,6 +261,8 @@
 
     <string name="calibration_source_default">Default</string>
     <string name="calibration_source_user">User</string>
+    <string name="image_kind_bundled">Bundled</string>
+    <string name="image_kind_custom">Custom</string>
 
     <string name="block_reason_code_none">None</string>
     <string name="block_reason_code_moisture_response_test_failed">Moisture response test failed</string>
@@ -350,10 +355,40 @@
     <string name="runtime_no_connected_controller">No connected controller.</string>
     <string name="runtime_control_point_unavailable">Control point is unavailable.</string>
     <string name="runtime_ble_send_failed">Could not send command over BLE.</string>
+    <string name="runtime_reading_maintenance_info">Reading maintenance info.</string>
     <string name="runtime_reading_controller_info">Reading controller info and waiting for live state.</string>
     <string name="runtime_connected_to_controller">Connected to controller.</string>
     <string name="runtime_controller_info_invalid">Controller info payload is invalid.</string>
     <string name="runtime_unsupported_protocol" localizePipeContext="Protocol compatibility error. %1$d is the controller protocol version and %2$d is the supported app protocol version.">Unsupported controller protocol %1$d. Expected %2$d.</string>
+    <string name="runtime_maintenance_info_invalid">Maintenance info could not be read. Searching again.</string>
+    <string name="runtime_maintenance_update_required" localizePipeContext="Forced firmware-update message. %1$d is the controller runtime protocol version and %2$d is the app-supported runtime protocol version.">Firmware update required before this app can control the controller. Runtime protocol %1$d is installed, app supports %2$d.</string>
+    <string name="runtime_maintenance_runtime_unavailable">Firmware update required before normal control is available on this controller.</string>
+    <string name="maintenance_title">Firmware update</string>
+    <string name="maintenance_current_firmware" localizePipeContext="Current firmware summary in maintenance mode. %1$s is firmware version, %2$s is build label, %3$s is the translated image kind label.">Current firmware: %1$s (%2$s, %3$s).</string>
+    <string name="maintenance_use_bundled">Use bundled firmware</string>
+    <string name="maintenance_choose_custom">Choose custom image</string>
+    <string name="maintenance_install_firmware">Install firmware</string>
+    <string name="maintenance_abort_update">Abort update</string>
+    <string name="maintenance_selected_summary" localizePipeContext="Selected firmware summary. %1$s is firmware version, %2$s is build label, %3$s is the source label such as bundled asset name or custom filename.">Selected firmware: %1$s (%2$s) from %3$s.</string>
+    <string name="maintenance_selected_details" localizePipeContext="Selected firmware detail line. %1$s is product ID, %2$s is hardware revision, %3$d is image size in bytes.">Target: %1$s / %2$s, %3$d bytes.</string>
+    <string name="maintenance_warning_downgrade">This image is older than the firmware currently installed on the controller.</string>
+    <string name="maintenance_warning_runtime_protocol">This image reports a runtime protocol that this app may not fully support after installation.</string>
+    <string name="maintenance_ready_to_install" localizePipeContext="Bundled firmware prepared for installation. %1$s is the build label.">Ready to install bundled firmware %1$s.</string>
+    <string name="maintenance_custom_selected" localizePipeContext="Custom firmware selected. %1$s is a filename or short source label.">Custom firmware selected: %1$s.</string>
+    <string name="maintenance_failed_to_load_bundled">Could not load bundled firmware.</string>
+    <string name="maintenance_failed_to_load_custom">Could not load the selected firmware image.</string>
+    <string name="maintenance_update_aborted">Firmware update aborted.</string>
+    <string name="maintenance_control_unavailable">Maintenance control characteristic is unavailable.</string>
+    <string name="maintenance_data_unavailable">Maintenance data characteristic is unavailable.</string>
+    <string name="maintenance_update_failed">Firmware update failed.</string>
+    <string name="maintenance_unexpected_status" localizePipeContext="Unexpected maintenance updater state. %1$s is the raw state name from the controller.">Unexpected maintenance status %1$s.</string>
+    <string name="maintenance_missing_session">Maintenance session ID is missing.</string>
+    <string name="maintenance_uploading_progress" localizePipeContext="Upload progress. %1$d is bytes sent and %2$d is total bytes.">Uploading firmware: %1$d / %2$d bytes.</string>
+    <string name="maintenance_reconnecting_attempt" localizePipeContext="Reconnect progress during maintenance upload. %1$d is the current attempt and %2$d is the maximum retries.">Reconnecting to resume update (%1$d/%2$d).</string>
+    <string name="maintenance_reconnect_timeout">Could not reconnect to resume the firmware update.</string>
+    <string name="maintenance_rebooting_after_update">Firmware uploaded. Controller is rebooting.</string>
+    <string name="maintenance_update_completed">Firmware update completed.</string>
+    <string name="maintenance_chunk_write_failed" localizePipeContext="Chunk write failure with numeric Android GATT status. %1$d is the raw status code.">Firmware chunk write failed with BLE status %1$d.</string>
     <string name="runtime_moisture_test_passed" localizePipeContext="Moisture response test result. Keep %1$d as the irrigation pair number.">Pair %1$d: moisture response test passed.</string>
     <string name="runtime_moisture_test_failed" localizePipeContext="Moisture response test failure. %1$d is the irrigation pair number and %2$s is the already translated failure reason.">Pair %1$d: moisture response test failed (%2$s).</string>
     <string name="runtime_ble_connection_error" localizePipeContext="Bluetooth connection error with numeric Android or GATT status code. Keep %1$d as the raw error code.">BLE connection error %1$d. Searching again.</string>
@@ -377,7 +412,7 @@
     <string name="scan_saved_address_invalid">Saved controller address is invalid. Searching again.</string>
     <string name="scan_pairing_expired_tap_connect">Pairing expired. Tap Connect to pair again.</string>
     <string name="scan_saved_pairing_expired_tap_connect">Saved pairing expired. Tap Connect to pair again.</string>
-    <string name="scan_pairing_in_progress_confirm">Pairing in progress. Confirm the code on your phone.</string>
+    <string name="scan_pairing_in_progress_confirm">Pairing in progress. Finish pairing in Android.</string>
     <string name="scan_pairing_in_progress_wait">Pairing in progress. Waiting for Android to finish bonding.</string>
     <string name="scan_bonding_cancelled">Bonding was cancelled or failed. Searching again.</string>
     <string name="scan_bonding_timed_out">Bonding timed out. Searching again.</string>

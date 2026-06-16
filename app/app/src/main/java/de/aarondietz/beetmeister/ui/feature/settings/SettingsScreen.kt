@@ -39,7 +39,9 @@ import de.aarondietz.beetmeister.ui.core.component.SettingInfoDialog
 import de.aarondietz.beetmeister.ui.core.component.ValueGridRow
 import de.aarondietz.beetmeister.ui.core.formatting.connectionPhaseLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.core.formatting.maintenanceImageKindLabel
 import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
+import de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdatePanel
 
 internal data class SettingsSaveDraft(
     val valveConfig: BeetValveConfig?,
@@ -56,12 +58,17 @@ internal fun SettingsScreen(
     onOpenValveCalibration: () -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
+    onPrepareBundledFirmware: () -> Unit,
+    onPickCustomFirmware: () -> Unit,
+    onStartMaintenanceUpdate: () -> Unit,
+    onAbortMaintenanceUpdate: () -> Unit,
     onDisconnect: () -> Unit,
     onUnsavedStateChange: (Boolean, SettingsSaveDraft?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
     val info = state.controllerInfo
+    val maintenanceInfo = state.maintenanceInfo
     val valveConfig = state.valveConfig
     val deviceState = state.deviceState
     var valveEnabled by remember { mutableStateOf(false) }
@@ -172,16 +179,26 @@ internal fun SettingsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         ValueGridRow(
                             strings.get(R.string.settings_label_device_id),
-                            info?.deviceId ?: strings.get(R.string.placeholder_dash),
+                            info?.deviceId ?: maintenanceInfo?.productId ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.settings_label_protocol),
-                            info?.protocolVersion?.toString() ?: strings.get(R.string.placeholder_dash),
+                            info?.protocolVersion?.toString()
+                                ?: maintenanceInfo?.runtimeProtocolVersion?.toString()
+                                ?: strings.get(R.string.placeholder_dash),
                         )
                         ValueGridRow(
                             strings.get(R.string.settings_label_firmware),
-                            info?.firmwareVersion ?: strings.get(R.string.placeholder_dash),
+                            info?.firmwareVersion ?: maintenanceInfo?.firmwareVersion ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.settings_label_pairs),
                             info?.pairCount?.toString() ?: strings.get(R.string.placeholder_dash),
                         )
+                        if (maintenanceInfo != null) {
+                            ValueGridRow(
+                                strings.get(R.string.settings_label_build),
+                                maintenanceInfo.buildLabel,
+                                strings.get(R.string.settings_label_firmware_source),
+                                maintenanceImageKindLabel(maintenanceInfo.imageKind, strings),
+                            )
+                        }
                         ValueGridRow(
                             strings.get(R.string.settings_label_connection),
                             connectionPhaseLabel(state.connection.phase, strings),
@@ -194,6 +211,18 @@ internal fun SettingsScreen(
                         }
                     }
                 }
+            }
+            item {
+                MaintenanceUpdatePanel(
+                    state = state,
+                    onPrepareBundledFirmware = onPrepareBundledFirmware,
+                    onPickCustomFirmware = onPickCustomFirmware,
+                    onStartMaintenanceUpdate = onStartMaintenanceUpdate,
+                    onAbortMaintenanceUpdate = onAbortMaintenanceUpdate,
+                    onDisconnect = onDisconnect,
+                    showDisconnectButton = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             item {
                 ElevatedCard(

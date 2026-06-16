@@ -53,7 +53,6 @@ beet_ble_command_lane_t beet_ble_classify_command_lane(beet_iface_command_t comm
     case BEET_IFACE_COMMAND_RELAY_TEST_STOP:
     case BEET_IFACE_COMMAND_RESET_BLOCK:
     case BEET_IFACE_COMMAND_STORE_CALIBRATION:
-    case BEET_IFACE_COMMAND_START_OTA:
     case BEET_IFACE_COMMAND_CLEAR_BLE_BONDS:
     case BEET_IFACE_COMMAND_GET_CALIBRATION:
     case BEET_IFACE_COMMAND_DISABLE_PAIR:

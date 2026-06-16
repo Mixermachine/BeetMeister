@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "esp_err.h"
+#include "beet_iface.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -53,12 +54,14 @@ typedef struct queue_stub *QueueHandle_t;
 #define BLE_GAP_EVENT_PASSKEY_ACTION 7
 #define BLE_GAP_EVENT_REPEAT_PAIRING 8
 #define BLE_GAP_REPEAT_PAIRING_RETRY 0
+#define BLE_GAP_REPEAT_PAIRING_IGNORE 1
 #define BLE_GAP_CONN_MODE_UND 0
 #define BLE_GAP_DISC_MODE_GEN 0
 #define BLE_ERR_REM_USER_CONN_TERM 0x13
 
 #define BLE_SM_IOACT_DISP 1
 #define BLE_SM_IOACT_STATIC 2
+#define BLE_HS_IO_NO_INPUT_OUTPUT 3
 #define BLE_SM_IO_CAP_DISP_ONLY 1
 #define BLE_SM_PAIR_KEY_DIST_ENC 0x01
 #define BLE_SM_PAIR_KEY_DIST_ID 0x02
@@ -187,6 +190,9 @@ struct ble_gap_event {
                 uint8_t action;
             } params;
         } passkey;
+        struct {
+            uint16_t conn_handle;
+        } repeat_pairing;
     };
 };
 
@@ -243,12 +249,19 @@ int ble_svc_gap_device_name_set(const char *name);
 int ble_store_clear(void);
 void ble_store_util_status_rr(int status, void *arg);
 int ble_store_util_bonded_peers(ble_addr_t *peers, int *peer_count, int max_peers);
+int ble_store_util_delete_peer(const ble_addr_t *peer_addr);
 
 void ble_host_test_reset(void);
 void ble_host_test_set_att_mtu(uint16_t mtu);
 void ble_host_test_set_conn_desc(uint16_t conn_handle, bool bonded);
+void ble_host_test_advance_time_us(int64_t delta_us);
+void ble_host_test_set_ota_end_result(int rc);
+unsigned ble_host_test_restart_count(void);
+void ble_host_test_reset_ota_state(void);
 void ble_host_test_set_indicate_result(int rc);
 void ble_host_test_set_notify_result(int rc);
+void ble_host_test_set_device_state(const beet_iface_device_state_t *state);
+void ble_host_test_set_pair_state(uint8_t pair_index, const beet_iface_pair_state_t *state);
 void ble_host_test_clear_captures(void);
 const char *ble_host_test_last_indication(void);
 unsigned ble_host_test_indication_count(void);

@@ -22,6 +22,7 @@ import de.aarondietz.beetmeister.model.command.BeetWateringIntervalCommandData
 import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
+import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
@@ -30,6 +31,8 @@ import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
+import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
+import de.aarondietz.beetmeister.model.update.BeetMaintenanceStatus
 
 object BeetJsonCodec {
     private val moshi: Moshi = Moshi.Builder()
@@ -47,6 +50,10 @@ object BeetJsonCodec {
 
     private val controllerInfoPayloadAdapter: JsonAdapter<BeetControllerInfo> =
         moshi.adapter(BeetControllerInfo::class.java)
+    private val maintenanceInfoPayloadAdapter: JsonAdapter<BeetMaintenanceInfo> =
+        moshi.adapter(BeetMaintenanceInfo::class.java)
+    private val maintenanceStatusPayloadAdapter: JsonAdapter<BeetMaintenanceStatus> =
+        moshi.adapter(BeetMaintenanceStatus::class.java)
     private val deviceStatePayloadAdapter: JsonAdapter<BeetDeviceState> =
         moshi.adapter(BeetDeviceState::class.java)
     private val pairStatePayloadAdapter: JsonAdapter<BeetPairState> =
@@ -183,6 +190,34 @@ object BeetJsonCodec {
         )
     }
 
+    fun parseMaintenanceInfo(payload: String): BeetMaintenanceInfo {
+        val header = stateEnvelopeHeaderAdapter.fromJson(payload) ?: error("Invalid maintenance info envelope.")
+        check(header.type == "maintenance_info") { "Unexpected maintenance info type ${header.type}." }
+        return maintenanceInfoPayloadAdapter.fromJson(extractRequiredObjectField(payload, DATA_FIELD))
+            ?: error("Invalid maintenance info payload.")
+    }
+
+    fun parseMaintenanceStatus(payload: String): BeetMaintenanceStatus {
+        val header = stateEnvelopeHeaderAdapter.fromJson(payload) ?: error("Invalid maintenance status envelope.")
+        check(header.type == "maintenance_status") { "Unexpected maintenance status type ${header.type}." }
+        return maintenanceStatusPayloadAdapter.fromJson(extractRequiredObjectField(payload, DATA_FIELD))
+            ?: error("Invalid maintenance status payload.")
+    }
+
+    fun maintenanceQueryStatus(): String = """{"cmd":"query_status"}"""
+
+    fun maintenanceAbortUpdate(): String = """{"cmd":"abort_update"}"""
+
+    fun maintenanceFinishUpdate(): String = """{"cmd":"finish_update"}"""
+
+    fun maintenanceBeginUpdate(firmware: BeetFirmwarePackageSummary): String {
+        val hardwareRevs = firmware.metadata.compatibleHardwareRevs.joinToString(separator = ",") { "\"$it\"" }
+        val imageKind = firmware.metadata.imageKind
+        return """
+            {"cmd":"begin_update","data":{"firmware_version":"${escapeJson(firmware.metadata.firmwareVersion)}","build_label":"${escapeJson(firmware.metadata.buildLabel)}","image_size":${firmware.imageSize},"image_sha256":"${firmware.sha256Hex}","product_id":"${escapeJson(firmware.metadata.productId)}","hardware_revs":[${hardwareRevs}],"runtime_protocol_version":${firmware.metadata.runtimeProtocolVersion},"asset_id":"${escapeJson(firmware.assetId)}","image_kind":"${escapeJson(imageKind)}"}}
+        """.trimIndent()
+    }
+
     fun parseCommandChunk(payload: String): CommandChunkFrame? {
         if (!payload.contains("\"type\"") || !payload.contains("cmd_chunk")) {
             return null
@@ -198,6 +233,20 @@ object BeetJsonCodec {
             base64Fragment = envelope.base64Fragment,
         )
     }
+
+    private fun escapeJson(value: String): String =
+        buildString(value.length) {
+            value.forEach { ch ->
+                when (ch) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> append(ch)
+                }
+            }
+        }
 
     fun manualStart(pairIndex: Int, durationSeconds: Int?): String =
         manualStartEnvelopeAdapter.toJson(

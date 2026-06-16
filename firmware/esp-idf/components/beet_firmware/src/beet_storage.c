@@ -28,7 +28,7 @@ typedef struct {
     char mqtt_username[BEET_MQTT_USER_MAX_LEN + 1U];
     char mqtt_password[BEET_MQTT_PASSWORD_MAX_LEN + 1U];
     char mqtt_base_topic[BEET_MQTT_BASE_TOPIC_MAX_LEN + 1U];
-    char ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
+    char legacy_ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
     uint16_t flags;
 } beet_app_config_v1_t;
 
@@ -47,7 +47,7 @@ typedef struct {
     char mqtt_username[BEET_MQTT_USER_MAX_LEN + 1U];
     char mqtt_password[BEET_MQTT_PASSWORD_MAX_LEN + 1U];
     char mqtt_base_topic[BEET_MQTT_BASE_TOPIC_MAX_LEN + 1U];
-    char ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
+    char legacy_ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
     bool valve_enabled;
     uint8_t valve_open_angle_deg;
     uint8_t valve_close_angle_deg;
@@ -72,7 +72,7 @@ static void beet_copy_common_legacy_config_fields(
     const char *mqtt_username,
     const char *mqtt_password,
     const char *mqtt_base_topic,
-    const char *ota_base_url,
+    const char *legacy_ota_base_url,
     uint16_t flags)
 {
     memcpy(config->device_id, device_id, sizeof(config->device_id));
@@ -88,7 +88,7 @@ static void beet_copy_common_legacy_config_fields(
     memcpy(config->mqtt_username, mqtt_username, sizeof(config->mqtt_username));
     memcpy(config->mqtt_password, mqtt_password, sizeof(config->mqtt_password));
     memcpy(config->mqtt_base_topic, mqtt_base_topic, sizeof(config->mqtt_base_topic));
-    memcpy(config->ota_base_url, ota_base_url, sizeof(config->ota_base_url));
+    memcpy(config->legacy_ota_base_url, legacy_ota_base_url, sizeof(config->legacy_ota_base_url));
     config->flags = flags;
 }
 
@@ -235,7 +235,7 @@ static esp_err_t beet_load_config(beet_app_config_t *config, bool *was_initializ
                 legacy.mqtt_username,
                 legacy.mqtt_password,
                 legacy.mqtt_base_topic,
-                legacy.ota_base_url,
+                legacy.legacy_ota_base_url,
                 legacy.flags);
             config->valve_enabled = legacy.valve_enabled;
             config->valve_open_pulse_us = beet_legacy_angle_to_pulse_us(legacy.valve_open_angle_deg);
@@ -274,7 +274,7 @@ static esp_err_t beet_load_config(beet_app_config_t *config, bool *was_initializ
                 legacy.mqtt_username,
                 legacy.mqtt_password,
                 legacy.mqtt_base_topic,
-                legacy.ota_base_url,
+                legacy.legacy_ota_base_url,
                 legacy.flags);
             err = nvs_set_blob(handle, "app", config, sizeof(*config));
             if (err == ESP_OK) {
