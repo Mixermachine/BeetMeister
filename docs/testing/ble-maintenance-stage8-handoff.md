@@ -1,159 +1,133 @@
 # BLE Maintenance Stage 8 Handoff
 
-Last updated: 2026-06-16
+Last updated: 2026-06-18
 
 ## Current Objective
 
 Continue Stage 8 real-device validation for BLE maintenance firmware updates.
 
-The current task is not complete. Local builds and unit tests pass, but the bundled firmware install flow still needs a verified real-device run against the connected controller and Android phone.
+The current task is NOT complete. The `begin_update` GATT write reaches the firmware (confirmed via test with simplified handler), but the maintenance status indication is not reliably delivered to the Android app, causing the update flow to fail.
+
+## Current State (2026-06-18 Session Summary)
+
+### What we proved
+
+1. **200-byte BEGIN_UPDATE WORKS**: Reducing JSON from 275 to 200 bytes via short field names (`fv`, `bl`, `sz`, `sh`, `pi`, `hr`, `ai`, `ik` + data wrapper `"d"`) produces a write that fits in a single ATT packet. The simplified handler (no session setup, no OTA) confirms: indication received at 66ms, write callback status=0 at 70ms.
+
+2. **Full session setup BREAKS the write**: Adding `beet_ble_clear_maintenance_session()` + `s_ble.maintenance_session.active = true` causes the BEGIN_UPDATE write callback to return status=133 after 10s (GATT_ERROR). The exact mechanism is still unclear — no `esp_ota_begin()` or `esp_ota_abort()` is called, yet the NimBLE host task appears unable to send the Write Response + indication.
+
+3. **GATT write serialization bug fixed**: `sendMaintenanceControl` now properly synchronizes on both the indication AND the write callback before returning, preventing "Could not send command over BLE" errors when QUERY_STATUS and BEGIN_UPDATE are sent back-to-back.
+
+### Changes applied (uncommitted)
+
+#### Firmware (`beet_ble.c`)
+- BEGIN_UPDATE handler: currently has session setup WITHOUT events and WITHOUT OTA begin (lazy OTA begin in `beet_ble_write_maintenance_data` on first chunk)
+- Lazy OTA begin: `beet_ble_write_maintenance_data()` now calls `esp_ota_begin()` inline when `ota_handle_active` is false on first data chunk (checks `active` only, not `ota_handle_active`)
+- Removed deferred OTA begin code from `beet_ble_service_maintenance_session()` entirely
+- `beet_ble_service()` reordered: maintenance session processed AFTER state streaming
+
+#### Firmware (`beet_ble_codec.c`)
+- Short field names accepted: both `"firmware_version"` and `"fv"`, `"data"` and `"d"`, etc. (backward compatible)
+
+#### Android (`BeetJsonCodec.kt`)
+- `maintenanceBeginUpdate` emits short field names: `"d"` instead of `"data"`, `"fv"` instead of `"firmware_version"`, etc.
+
+#### Android (`BeetGattSessionCoordinator.kt`)
+- `sendMaintenanceControl`: now uses two deferred objects — `writeDeferred` (completed by `onCharacteristicWrite`) and `statusDeferred` (completed by `onCharacteristicChanged`). `withTimeout` wraps awaiting BOTH.
+- `onCharacteristicWrite` for `maintenanceControl` UUID now completes `pendingCharacteristicWrite` (previously only logged)
+
+### Root Cause Theory
+
+`beet_ble_clear_maintenance_session()` — when `ota_handle_active` is true (leftover from prior session on the same boot cycle) — calls `esp_ota_abort()` which may trigger flash operations, blocking the NimBLE host task via shared SPI flash bus on ESP32-S3. Even when `ota_handle_active` is false, the `memset(&s_ble.maintenance_session, 0, ...)` zeros the entire session state, which might interact poorly with the NimBLE callback context.
+
+### Remaining Work
+
+1. **Determine why clear_maintenance_session breaks the write**: Isolate whether it's the `esp_ota_abort()` call, the `memset`, or some interaction with the BLE stack's connection state. Try calling `clear_maintenance_session` conditionally (only when there's an active OTA handle), or defer it.
+
+2. **Test the lazy OTA begin path**: The BEGIN_UPDATE handler currently works with session setup but NO events. The first data chunk write should trigger `esp_ota_begin()` in the NimBLE callback, which will likely cause a disconnect again. The Android resume logic needs to be validated.
+
+3. **Consider moving esp_ota_begin to a separate FreeRTOS task**: The fundamental issue is that `esp_ota_begin()` (flash erase) blocks both CPU cores on ESP32-S3 via the shared SPI flash bus. A dedicated task or IRAM-resident NimBLE code may be required.
+
+4. **Update host tests**: `beet_ble_codec.c` parser changes need test coverage for short field names; `beet_ble.c` data handler needs tests for lazy OTA begin.
 
 ## Current Hardware And Environment
 
 - Repository: `C:\git\BeetMeister`
 - Android device ADB serial: `RZCY51LB7BD`
-- Controller serial port: likely `COM4`
+- Controller serial port: `COM4`
+- Android version: 16 (API 36)
 - Android package: `de.aarondietz.beetmeister`
 - Current shell: PowerShell
-- The phone must be unlocked before UI automation or the Stage 8 runner can interact with the app.
 
-## Code Changes In Progress
+## Summary of Changes Made (all uncommitted)
 
-These files currently contain Stage 8 changes:
+### Firmware (`firmware/esp-idf/components/beet_firmware/src/beet_ble.c`)
 
-- `app/app/src/main/java/de/aarondietz/beetmeister/data/ble/BeetGattSessionCoordinator.kt`
-- `scripts/dev/run-android-real-device-validation.ps1`
+1. **Security**: Changed GATT characteristic flags from `_AUTHEN` to `_ENC` (encryption instead of authentication) for runtime service characteristics, then removed `_ENC` from maintenance characteristics entirely (the access callback still checks encryption via `beet_ble_require_encrypted`).
+2. **MTU**: Changed `CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU` from 256 to 512 in `sdkconfig`.
+3. **JSON buffer**: Increased `BEET_BLE_MAINTENANCE_CONTROL_JSON_MAX_LEN` from 320 to 512.
+4. **Connection params**: Added `ble_gap_update_params()` call on connect with supervision_timeout=1000 (10s), itvl_min=15, itvl_max=30.
+5. **Deferred OTA begin**: `esp_ota_begin()` blocks the NimBLE host task for ~5s (flash erase). Moved it to a deferred flag processed in `beet_ble_service_maintenance_session()` (called from controller task). Added `deferred_ota_begin_pending` field to `beet_ble_maintenance_session_state_t`.
+6. **Connection update logging**: Added graceful handler for `BLE_GAP_EVENT_CONN_UPDATE_REQ`/`BLE_GAP_EVENT_CONN_UPDATE`.
+7. **Removed unused preferred conn params init code** (API not available in ESP-IDF v6.0 NimBLE).
 
-Current app-side changes:
+### App (`app/app/src/main/java/de/aarondietz/beetmeister/data/ble/BeetGattSessionCoordinator.kt`)
 
-- `waitForMaintenanceConnection()` now accepts an already connected settings session, not only `MaintenanceRequired`, so updates can start from the connected Settings screen.
-- Diagnostic logs were added around `startMaintenanceUpdate`, coroutine/job state, `runMaintenanceUpdate`, session start/resume, control commands, and data upload.
-- `kotlinx.coroutines.job` was imported for temporary job-state diagnostics.
+1. **GATT stability**: Added `lastGattResetAt` tracking and `MAINTENANCE_GATT_STABILITY_MS=600` to prevent starting maintenance during GATT setup.
+2. **MTU**: Changed `DESIRED_MTU` from 247 to 512.
+3. **Write error handling**: REMOVED the `onCharacteristicWrite` error handler for maintenance control (was prematurely failing the deferred on status 133). Now only logs the status.
+4. **QUERY_STATUS first**: Changed `startOrResumeMaintenanceSession` to always send QUERY_STATUS before BEGIN_UPDATE (instead of assuming "idle").
 
-Current script changes:
+### App (`app/app/src/main/java/de/aarondietz/beetmeister/data/protocol/BeetJsonCodec.kt`)
 
-- `run-android-real-device-validation.ps1` grants `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` after installing the app.
-- The script preflight now fails clearly if the Android device is locked.
+1. **Reduced JSON size**: Dropped `runtime_protocol_version` (optional field) and shortened `asset_id` to `"fw.bin"` to reduce JSON from 331 to ~275 bytes.
 
-The diagnostic logs should be reduced once the real-device failure point is understood.
+### App (`app/app/src/main/res/values/strings.xml`)
 
-## Verification Already Run
+1. Added `maintenance_control_write_failed` string resource.
 
-These commands passed during the current Stage 8 work:
+### Firmware tests (`firmware/tests/host/support/`)
 
-```powershell
-cd C:\git\BeetMeister\app
-.\gradlew.bat :app:assembleDebug
-.\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest
-```
+1. Updated test shim (`ble_test_shim.h`, `ble_test_stubs.c`) for `_ENC` flag values, `encrypted` field, and `BLE_ATT_ERR_INSUFFICIENT_ENC`.
 
-The debug APK was installed successfully:
+### Build config (`firmware/esp-idf/sdkconfig`)
 
-```powershell
-adb -s RZCY51LB7BD install -r C:\git\BeetMeister\app\app\build\outputs\apk\debug\app-debug.apk
-```
+1. Changed `CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU` and `CONFIG_NIMBLE_ATT_PREFERRED_MTU` from 256 to 512.
 
-Existing warning: the Android build still reports deprecated Bluetooth API warnings. These were pre-existing/expected for this work.
+## Root Cause Analysis
 
-## Real-Device Findings So Far
+The `begin_update` JSON (~275 bytes) write to the `maintenance_control` characteristic fails in a specific way:
 
-The app can launch on the Android phone and connect to the controller. UI dumps showed:
+1. **QUERY_STATUS** (21 bytes): Works. Write reaches firmware, status indication received by app.
+2. **BEGIN_UPDATE** (275 bytes): Write reaches firmware (confirmed via simplified handler test), but **status indication is NOT received** by the Android app.
+3. **Android GATT callback**: `onCharacteristicWrite` fires with status 133 (`GATT_ERROR`) after ~5 seconds, even though the write WAS processed by the firmware.
+4. **Controller disconnect**: After the GATT error, the controller disconnects (status 8 = peer user termination).
 
-- `Connected controller`
-- `Live BLE session`
-- live battery/state data
-- Settings tab reachable
-- firmware update panel visible
+With `WRITE_TYPE_NO_RESPONSE` (Write Command), the write callback fires immediately with status 0, but the status indication is still NOT received, and the controller still disconnects after ~5 seconds.
 
-One earlier bundled-install attempt reached the install click. Evidence is in:
+The firmware's `beet_ble_send_maintenance_status_indication()` returns ESP_OK (indication queued successfully), but the indication never reaches the Android app.
 
-```text
-artifacts/stage8/bundled-install-attempt-logcat.txt
-```
+The deferred OTA begin (moving `esp_ota_begin()` out of the NimBLE callback) was implemented but not yet verified to work end-to-end because the status indication delivery issue blocks the flow before data upload begins.
 
-That log showed:
+## Remaining Work
 
-- `MaintenanceUpdatePanel: Install button clicked phase=Ready selected=dev/Bundled`
-- `BeetAppViewModel: startMaintenanceUpdate()`
-- `BeetRepository: startMaintenanceUpdate(selected=dev/Bundled, phase=Ready)`
-- `BeetGattSession: startMaintenanceUpdate package=Bundled firmware=dev imageKind=bundled size=718784`
+The status indication delivery after BEGIN_UPDATE is the primary blocker. Possible investigation directions:
 
-It did not show the deeper `runMaintenanceUpdate`, `sendMaintenanceControl`, or upload logs because those were added afterward.
+- Check if NimBLE GATT server's indication queue is stalled after processing a large write
+- Try using `ble_gatts_indicate_custom()` with a small delay
+- Investigate if ATT Indication confirmation is being lost due to Android BLE stack behavior on API 36
+- Consider splitting the `begin_update` JSON into multiple small writes (using `cmd_chunk` pattern like `command_result`) to avoid the large-write issue entirely
+- Try sending the status indication from a NimBLE callout/event rather than inline in the access callback
 
-After the deeper instrumentation was built and installed, the final scripted UI sequence was too fast and did not select bundled firmware before trying to install. The latest useful UI state was:
+## Verification Evidence
 
-```text
-artifacts/stage8/window_dump_settings6.xml
-```
-
-That dump showed the app connected and on Settings, with:
-
-- `Use bundled firmware` visible
-- `Choose custom image` visible
-- `Install firmware` visible but disabled
-
-## Immediate Next Steps
-
-Use slow, verified ADB/UI steps rather than a fast fixed tap sequence.
-
-1. Confirm the phone is unlocked.
-2. Launch the app.
-3. Confirm the app is connected to the controller.
-4. Navigate to Settings if needed.
-5. Tap `Use bundled firmware`.
-6. Dump the UI and verify that the bundled firmware is selected and `Install firmware` is enabled.
-7. Clear logcat.
-8. Tap `Install firmware`.
-9. Capture focused logcat for the firmware update tags.
-10. Determine whether the update reaches `runMaintenanceUpdate`, sends `begin_update`, starts data upload, or fails earlier.
-
-Useful commands:
-
-```powershell
-adb -s RZCY51LB7BD shell monkey -p de.aarondietz.beetmeister -c android.intent.category.LAUNCHER 1
-adb -s RZCY51LB7BD shell uiautomator dump /sdcard/window_dump.xml
-adb -s RZCY51LB7BD pull /sdcard/window_dump.xml C:\git\BeetMeister\artifacts\stage8\window_dump.xml
-adb -s RZCY51LB7BD logcat -c
-adb -s RZCY51LB7BD logcat -d -s MaintenanceUpdatePanel BeetAppViewModel BeetRepository BeetGattSession
-```
-
-Known approximate tap coordinates from previous dumps:
-
-- Settings tab center: around `(954, 2090)`
-- `Use bundled firmware`: around `(353, 1156)` or `(353, 1539)`, depending on scroll position
-- `Install firmware`: around `(297, 1690)` or `(303, 1540)`, depending on scroll position
-
-Prefer verifying the UI dump between taps instead of relying on these coordinates blindly.
-
-## Stage 8 Runner
-
-The runner is available and has been hardened, but the real install flow may still need manual ADB/UI interaction until the scenario is stable:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\dev\run-android-real-device-validation.ps1 -Serial RZCY51LB7BD -ControllerPort COM4 -ScenarioName bundled-success
-```
-
-Expected behavior:
-
-- It grants BLE permissions after install.
-- It fails early if the phone is locked.
-- It writes evidence under `artifacts/stage8/...`.
-
-Do not treat runner startup or local test success as proof of OTA success. The real controller update path still needs to complete and be observed.
-
-## Investigation Branches
-
-Use the new app logs to split the next diagnosis:
-
-- If `scopeActive=false` or the update job is already cancelled, inspect repository/ViewModel lifecycle and `BeetRepository.close()`.
-- If `runMaintenanceUpdate start` appears but `begin_update` is not sent, inspect the maintenance session transition.
-- If `begin_update` is sent and times out, inspect firmware maintenance control/status indication handling.
-- If upload starts and stalls, inspect `writeMaintenanceChunk`, GATT `onCharacteristicWrite`, and controller-side chunk handling.
-- If the controller returns failure, map and surface the exact `failure_reason`.
+- QUERY_STATUS (21 bytes): consistently works, status indication received
+- BEGIN_UPDATE with simplified handler (no OTA): WORKS - status indication received, state update confirmed
+- BEGIN_UPDATE with full handler (deferred OTA begin): status indication NOT received, times out after 10s
+- The firmware does NOT crash during the attempt; it continues running normally after disconnect
 
 ## Artifact Policy
 
 Generated Stage 8 artifacts under `artifacts/stage8/` are evidence and scratch output. Do not add them to git unless a specific artifact is intentionally selected for documentation or review.
 
 This handoff file is a persistent repo document and should be tracked.
-

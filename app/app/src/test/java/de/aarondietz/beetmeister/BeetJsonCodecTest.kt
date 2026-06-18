@@ -466,11 +466,11 @@ class BeetJsonCodecTest {
         )
 
         assertTrue(payload.contains("\"cmd\":\"begin_update\""))
-        assertTrue(payload.contains("\"firmware_version\":\"0.2.0\""))
-        assertTrue(payload.contains("\"build_label\":\"v0.2.0\""))
-        assertTrue(payload.contains("\"image_size\":4096"))
-        assertTrue(payload.contains("\"hardware_revs\":[\"rev_a\",\"rev_b\"]"))
-        assertTrue(payload.contains("\"image_kind\":\"bundled\""))
+        assertTrue(payload.contains("\"fv\":\"0.2.0\""))
+        assertTrue(payload.contains("\"bl\":\"v0.2.0\""))
+        assertTrue(payload.contains("\"sz\":4096"))
+        assertTrue(payload.contains("\"hr\":[\"rev_a\",\"rev_b\"]"))
+        assertTrue(payload.contains("\"ik\":\"bundled\""))
     }
 
     @Test
@@ -497,7 +497,7 @@ class BeetJsonCodecTest {
             ),
         )
 
-        assertTrue(payload.contains("\"asset_id\":\"my-build.bin\""))
-        assertTrue(payload.contains("\"image_kind\":\"custom\""))
+        assertTrue(payload.contains("\"ai\":\"my-build.bin\""))
+        assertTrue(payload.contains("\"ik\":\"custom\""))
     }
 }

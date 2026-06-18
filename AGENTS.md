@@ -49,3 +49,21 @@
 
 - If you create a real repo file, add it to git tracking in the same task.
 - Do not commit temporary files, build outputs, caches, or local machine config such as `local.properties`.
+
+## Never block forever on serial/console readers
+
+`artifacts/stage8/serial_reader.py` is a long-lived stream reader. It will
+**not** return on its own while the port stays open. If you invoke it through
+the bash tool without a bound, the tool call will hang and stall the session.
+
+Rules for yourself:
+
+- Always pass `--max-seconds` (or `--idle-exit`) when launching
+  `serial_reader.py` from this agent. Example:
+  `python artifacts/stage8/serial_reader.py COM4 --max-seconds 15`.
+- For one-shot captures prefer `--idle-exit 3` so it stops as soon as the
+  device goes quiet.
+- Prefer the project's own `invoke-idf.ps1 monitor` / `idf.py monitor` path
+  (see `$esp-idf-installation`) over `serial_reader.py` when possible.
+- If a serial call ever does hang, do not keep waiting on it. Stop the call,
+  capture what already streamed to a file, and move on.

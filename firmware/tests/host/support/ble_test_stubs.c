@@ -166,6 +166,7 @@ int ble_gap_conn_find(uint16_t conn_handle, struct ble_gap_conn_desc *desc)
 
     memset(desc, 0, sizeof(*desc));
     desc->sec_state.bonded = s_conn_bonded;
+    desc->sec_state.encrypted = s_conn_bonded;
     desc->peer_id_addr.type = 1U;
     return 0;
 }

@@ -31,6 +31,7 @@ typedef struct queue_stub *QueueHandle_t;
 #define BLE_HS_FOREVER 0
 
 #define BLE_ATT_ERR_INSUFFICIENT_AUTHEN 0x05
+#define BLE_ATT_ERR_INSUFFICIENT_ENC 0x0F
 #define BLE_ATT_ERR_INSUFFICIENT_RES 0x11
 #define BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN 0x0D
 #define BLE_ATT_ERR_UNLIKELY 0x0E
@@ -39,10 +40,12 @@ typedef struct queue_stub *QueueHandle_t;
 #define BLE_GATT_ACCESS_OP_WRITE_CHR 2
 #define BLE_GATT_SVC_TYPE_PRIMARY 1
 #define BLE_GATT_CHR_F_READ 0x01
-#define BLE_GATT_CHR_F_READ_AUTHEN 0x02
-#define BLE_GATT_CHR_F_NOTIFY 0x04
+#define BLE_GATT_CHR_F_READ_ENC 0x02
+#define BLE_GATT_CHR_F_READ_AUTHEN 0x04
+#define BLE_GATT_CHR_F_NOTIFY 0x10
 #define BLE_GATT_CHR_F_WRITE 0x08
-#define BLE_GATT_CHR_F_WRITE_AUTHEN 0x10
+#define BLE_GATT_CHR_F_WRITE_ENC 0x40
+#define BLE_GATT_CHR_F_WRITE_AUTHEN 0x80
 #define BLE_GATT_CHR_F_INDICATE 0x20
 
 #define BLE_GAP_EVENT_CONNECT 1
@@ -101,6 +104,7 @@ typedef struct {
 typedef struct ble_gap_conn_desc {
     struct {
         bool bonded;
+        bool encrypted;
     } sec_state;
     ble_addr_t peer_id_addr;
 } ble_gap_conn_desc;
@@ -162,6 +166,7 @@ struct ble_gap_event {
                 uint16_t conn_handle;
                 struct {
                     bool bonded;
+                    bool encrypted;
                 } sec_state;
             } conn;
         } disconnect;

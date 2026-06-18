@@ -39,6 +39,7 @@ static const char *TAG = "beet_ble";
 
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
 #define BEET_BLE_JSON_MAX_LEN 320U
+#define BEET_BLE_MAINTENANCE_CONTROL_JSON_MAX_LEN 512U
 #define BEET_BLE_RESULT_STAGE_MAX_LEN 1024U
 #define BEET_BLE_RESULT_STAGE_BASE64_MAX_LEN ((((BEET_BLE_RESULT_STAGE_MAX_LEN) + 2U) / 3U) * 4U + 1U)
 #define BEET_BLE_RESULT_FRAME_MAX_LEN BEET_BLE_RESULT_STAGE_MAX_LEN
@@ -78,6 +79,9 @@ typedef struct {
     bool reconnect_event_pending;
     bool ota_handle_active;
     bool reboot_pending;
+    bool deferred_ota_begin_pending;
+    bool status_indication_pending;
+    int64_t deferred_ota_begin_earliest_at_us;
     beet_maintenance_status_t status;
     int64_t resume_expires_at_us;
     int64_t reboot_due_at_us;
@@ -257,25 +261,25 @@ static const struct ble_gatt_svc_def beet_ble_svcs[] = {
             {
                 .uuid = &BEET_BLE_CONTROLLER_INFO_UUID.u,
                 .access_cb = beet_ble_gatt_access,
-                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_AUTHEN,
+                .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
                 .val_handle = &s_controller_info_handle,
             },
             {
                 .uuid = &BEET_BLE_STATE_STREAM_UUID.u,
                 .access_cb = beet_ble_gatt_access,
-                .flags = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ_AUTHEN,
+                .flags = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ_ENC,
                 .val_handle = &s_state_stream_handle,
             },
             {
                 .uuid = &BEET_BLE_CONTROL_POINT_UUID.u,
                 .access_cb = beet_ble_gatt_access,
-                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_AUTHEN,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
                 .val_handle = &s_control_point_handle,
             },
             {
                 .uuid = &BEET_BLE_COMMAND_RESULT_UUID.u,
                 .access_cb = beet_ble_gatt_access,
-                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_READ_AUTHEN,
+                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_READ_ENC,
                 .val_handle = &s_command_result_handle,
             },
             { 0 },
@@ -294,19 +298,19 @@ static const struct ble_gatt_svc_def beet_ble_svcs[] = {
             {
                 .uuid = &BEET_BLE_MAINTENANCE_CONTROL_UUID.u,
                 .access_cb = beet_ble_maintenance_gatt_access,
-                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_AUTHEN,
+                .flags = BLE_GATT_CHR_F_WRITE,
                 .val_handle = &s_maintenance_control_handle,
             },
             {
                 .uuid = &BEET_BLE_MAINTENANCE_STATUS_UUID.u,
                 .access_cb = beet_ble_maintenance_gatt_access,
-                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_READ_AUTHEN,
+                .flags = BLE_GATT_CHR_F_INDICATE,
                 .val_handle = &s_maintenance_status_handle,
             },
             {
                 .uuid = &BEET_BLE_MAINTENANCE_DATA_UUID.u,
                 .access_cb = beet_ble_maintenance_gatt_access,
-                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_AUTHEN,
+                .flags = BLE_GATT_CHR_F_WRITE,
                 .val_handle = &s_maintenance_data_handle,
             },
             { 0 },
@@ -365,9 +369,19 @@ static bool beet_ble_is_bonded_conn(uint16_t conn_handle)
     return desc.sec_state.bonded;
 }
 
-static int beet_ble_require_bonded(uint16_t conn_handle)
+static int beet_ble_require_encrypted(uint16_t conn_handle)
 {
-    return beet_ble_is_bonded_conn(conn_handle) ? 0 : BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    struct ble_gap_conn_desc desc;
+
+    if (conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+
+    if (ble_gap_conn_find(conn_handle, &desc) != 0) {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
+
+    return desc.sec_state.encrypted ? 0 : BLE_ATT_ERR_INSUFFICIENT_ENC;
 }
 
 static struct os_mbuf *beet_ble_json_mbuf(const char *json)
@@ -562,11 +576,11 @@ static int beet_ble_write_maintenance_control(
     uint16_t conn_handle,
     struct ble_gatt_access_ctxt *ctxt)
 {
-    char json[BEET_BLE_JSON_MAX_LEN];
+    char json[BEET_BLE_MAINTENANCE_CONTROL_JSON_MAX_LEN];
     uint16_t copied = 0U;
     beet_maintenance_request_t request;
 
-    if (beet_ble_require_bonded(conn_handle) != 0) {
+    if (beet_ble_require_encrypted(conn_handle) != 0) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
     if (OS_MBUF_PKTLEN(ctxt->om) >= sizeof(json)) {
@@ -597,8 +611,6 @@ static int beet_ble_write_maintenance_control(
         beet_maintenance_failure_reason_t failure_reason = BEET_MAINTENANCE_FAILURE_NONE;
         bool had_active_session = s_ble.maintenance_session.active;
         uint32_t previous_session_id = had_active_session ? s_ble.maintenance_session.status.session_id : 0U;
-        const esp_partition_t *target_partition = NULL;
-        esp_ota_handle_t ota_handle = 0U;
 
         if (!beet_ble_is_update_eligible(&request.begin_update, &failure_reason)) {
             beet_ble_set_maintenance_terminal_status(
@@ -618,37 +630,19 @@ static int beet_ble_write_maintenance_control(
                 previous_session_id);
         }
 
-        beet_ble_clear_maintenance_session();
-        target_partition = esp_ota_get_next_update_partition(NULL);
-        if (target_partition == NULL ||
-            esp_ota_begin(target_partition, request.begin_update.image_size, &ota_handle) != ESP_OK) {
-            beet_ble_set_maintenance_terminal_status(
-                BEET_MAINTENANCE_STATE_FAILED,
-                BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
-                true,
-                false,
-                0U);
-            (void)beet_ble_send_maintenance_status_indication();
-            return 0;
-        }
-        s_ble.maintenance_terminal_status_valid = false;
-        s_ble.maintenance_session.active = true;
-        s_ble.maintenance_session.ota_handle_active = true;
-        s_ble.maintenance_session.ota_handle = ota_handle;
-        s_ble.maintenance_session.target_partition = target_partition;
         s_ble.maintenance_session.status.state = BEET_MAINTENANCE_STATE_AWAITING_DATA;
         s_ble.maintenance_session.status.has_session_id = true;
         s_ble.maintenance_session.status.session_id = ++s_ble.next_maintenance_session_id;
         s_ble.maintenance_session.status.next_offset = 0U;
         s_ble.maintenance_session.status.bytes_received = 0U;
         s_ble.maintenance_session.status.total_bytes = request.begin_update.image_size;
-        s_ble.maintenance_session.begin_request = request.begin_update;
-        beet_ble_emit_maintenance_event(
-            BEET_SYSTEM_EVENT_UPDATE_STARTED,
-            0U,
-            s_ble.maintenance_session.status.session_id);
-        (void)beet_ble_send_maintenance_status_indication();
-        beet_ble_mark_activity();
+        s_ble.maintenance_session.active = true;
+        s_ble.maintenance_session.status_indication_pending = true;
+        s_ble.maintenance_session.deferred_ota_begin_pending = true;
+        s_ble.maintenance_session.deferred_ota_begin_earliest_at_us =
+            esp_timer_get_time();
+        ESP_LOGI(TAG, "BEGIN_UPDATE done, session_id=%lu",
+                 (unsigned long)s_ble.maintenance_session.status.session_id);
         return 0;
     }
 
@@ -819,10 +813,22 @@ static int beet_ble_write_maintenance_data(
     const uint8_t *payload = NULL;
     size_t payload_len = 0U;
 
-    if (beet_ble_require_bonded(conn_handle) != 0) {
+    if (beet_ble_require_encrypted(conn_handle) != 0) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
-    if (!s_ble.maintenance_session.active || !s_ble.maintenance_session.ota_handle_active) {
+    if (!s_ble.maintenance_session.active) {
+        return BLE_ATT_ERR_UNLIKELY;
+    }
+    if (!s_ble.maintenance_session.ota_handle_active) {
+        if (!s_ble.maintenance_session.deferred_ota_begin_pending) {
+            s_ble.maintenance_session.deferred_ota_begin_pending = true;
+            s_ble.maintenance_session.deferred_ota_begin_earliest_at_us =
+                esp_timer_get_time() + 50000LL;
+            ESP_LOGI(TAG, "deferred ota begin requested");
+        }
+        ESP_LOGI(TAG, "data write rejected ota_handle_active=%d deferred_pending=%d",
+                 (int)s_ble.maintenance_session.ota_handle_active,
+                 (int)s_ble.maintenance_session.deferred_ota_begin_pending);
         return BLE_ATT_ERR_UNLIKELY;
     }
     if (s_ble.maintenance_session.reboot_pending) {
@@ -883,7 +889,7 @@ static int beet_ble_gatt_access(
 {
     (void)arg;
 
-    if (beet_ble_require_bonded(conn_handle) != 0) {
+    if (beet_ble_require_encrypted(conn_handle) != 0) {
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
 
@@ -918,7 +924,7 @@ static int beet_ble_maintenance_gatt_access(
         if (attr_handle == s_maintenance_info_handle) {
             return beet_ble_read_maintenance_info(ctxt);
         }
-        if (beet_ble_require_bonded(conn_handle) != 0) {
+        if (beet_ble_require_encrypted(conn_handle) != 0) {
             return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
         }
         return BLE_ATT_ERR_UNLIKELY;
@@ -1230,6 +1236,34 @@ static void beet_ble_service_maintenance_session(void)
     }
 
     now_us = esp_timer_get_time();
+
+    if (s_ble.maintenance_session.deferred_ota_begin_pending &&
+        now_us >= s_ble.maintenance_session.deferred_ota_begin_earliest_at_us) {
+        const esp_partition_t *target_partition = esp_ota_get_next_update_partition(NULL);
+        esp_ota_handle_t ota_handle = 0U;
+
+        s_ble.maintenance_session.deferred_ota_begin_pending = false;
+        if (target_partition != NULL &&
+            esp_ota_begin(target_partition, s_ble.maintenance_session.status.total_bytes, &ota_handle) == ESP_OK) {
+            s_ble.maintenance_session.target_partition = target_partition;
+            s_ble.maintenance_session.ota_handle = ota_handle;
+            s_ble.maintenance_session.ota_handle_active = true;
+            s_ble.maintenance_terminal_status_valid = false;
+            ESP_LOGI(TAG, "deferred ota begin success partition=%s size=%lu",
+                     target_partition->label,
+                     (unsigned long)s_ble.maintenance_session.status.total_bytes);
+        } else {
+            ESP_LOGE(TAG, "deferred ota begin failed partition=%s total_bytes=%lu",
+                     target_partition ? target_partition->label : "NULL",
+                     (unsigned long)s_ble.maintenance_session.status.total_bytes);
+        }
+    }
+
+    if (s_ble.maintenance_session.status_indication_pending) {
+        s_ble.maintenance_session.status_indication_pending = false;
+        (void)beet_ble_send_maintenance_status_indication();
+    }
+
     if (s_ble.maintenance_session.reboot_pending &&
         now_us >= s_ble.maintenance_session.reboot_due_at_us) {
         esp_restart();
@@ -1885,6 +1919,20 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             s_ble.have_last_device_state = false;
             s_ble.have_last_pair_states = false;
             ESP_LOGI(TAG, "ble connected handle=%u bonded=%d", s_ble.conn_handle, s_ble.bonded);
+            {
+                struct ble_gap_upd_params params = {
+                    .itvl_min = 15,
+                    .itvl_max = 30,
+                    .latency = 0,
+                    .supervision_timeout = 1000,
+                    .min_ce_len = 0,
+                    .max_ce_len = 0,
+                };
+                int rc = ble_gap_update_params(s_ble.conn_handle, &params);
+                if (rc != 0) {
+                    ESP_LOGW(TAG, "update conn params failed rc=%d", rc);
+                }
+            }
             beet_ble_emit_system_event(
                 BEET_SYSTEM_EVENT_BLE_CONNECT,
                 0U,
@@ -1966,6 +2014,14 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             event->notify_tx.attr_handle == s_command_result_handle) {
             beet_ble_on_result_indication_complete(event->notify_tx.status);
         }
+        return 0;
+
+    case BLE_GAP_EVENT_CONN_UPDATE_REQ:
+    case BLE_GAP_EVENT_CONN_UPDATE:
+        ESP_LOGI(
+            TAG,
+            "conn params update status=%d",
+            event->conn_update.status);
         return 0;
 
     case BLE_GAP_EVENT_ENC_CHANGE:
@@ -2457,9 +2513,9 @@ void beet_ble_service(void)
     }
 
     beet_ble_service_pairing_display();
-    beet_ble_service_maintenance_session();
     beet_ble_drain_commands();
     beet_ble_send_pending_result();
+    beet_ble_service_maintenance_session();
 
     if (!s_ble.enabled || !s_ble.connected || !s_ble.bonded || !s_ble.state_stream_subscribed) {
         return;

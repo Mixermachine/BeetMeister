@@ -213,9 +213,8 @@ object BeetJsonCodec {
     fun maintenanceBeginUpdate(firmware: BeetFirmwarePackageSummary): String {
         val hardwareRevs = firmware.metadata.compatibleHardwareRevs.joinToString(separator = ",") { "\"$it\"" }
         val imageKind = firmware.metadata.imageKind
-        return """
-            {"cmd":"begin_update","data":{"firmware_version":"${escapeJson(firmware.metadata.firmwareVersion)}","build_label":"${escapeJson(firmware.metadata.buildLabel)}","image_size":${firmware.imageSize},"image_sha256":"${firmware.sha256Hex}","product_id":"${escapeJson(firmware.metadata.productId)}","hardware_revs":[${hardwareRevs}],"runtime_protocol_version":${firmware.metadata.runtimeProtocolVersion},"asset_id":"${escapeJson(firmware.assetId)}","image_kind":"${escapeJson(imageKind)}"}}
-        """.trimIndent()
+        val shortAssetId = "fw.bin"
+        return """{"cmd":"begin_update","d":{"fv":"${escapeJson(firmware.metadata.firmwareVersion)}","bl":"${escapeJson(firmware.metadata.buildLabel)}","sz":${firmware.imageSize},"sh":"${firmware.sha256Hex}","pi":"${escapeJson(firmware.metadata.productId)}","hr":[${hardwareRevs}],"ai":"${escapeJson(shortAssetId)}","ik":"${escapeJson(imageKind)}"}}""".trimIndent()
     }
 
     fun parseCommandChunk(payload: String): CommandChunkFrame? {

@@ -1269,36 +1269,36 @@ static bool beet_ble_parse_begin_update_data(
             return false;
         }
 
-        if (strcmp(key, "firmware_version") == 0) {
+        if (strcmp(key, "firmware_version") == 0 || strcmp(key, "fv") == 0) {
             if (seen_firmware_version ||
                 !beet_ble_parse_string(cursor, request->firmware_version, sizeof(request->firmware_version))) {
                 return false;
             }
             seen_firmware_version = true;
-        } else if (strcmp(key, "build_label") == 0) {
+        } else if (strcmp(key, "build_label") == 0 || strcmp(key, "bl") == 0) {
             if (seen_build_label ||
                 !beet_ble_parse_string(cursor, request->build_label, sizeof(request->build_label))) {
                 return false;
             }
             seen_build_label = true;
-        } else if (strcmp(key, "image_size") == 0) {
+        } else if (strcmp(key, "image_size") == 0 || strcmp(key, "sz") == 0) {
             if (seen_image_size || !beet_ble_parse_u32(cursor, &request->image_size)) {
                 return false;
             }
             seen_image_size = true;
-        } else if (strcmp(key, "image_sha256") == 0) {
+        } else if (strcmp(key, "image_sha256") == 0 || strcmp(key, "sh") == 0) {
             if (seen_image_sha256 ||
                 !beet_ble_parse_string(cursor, request->image_sha256, sizeof(request->image_sha256))) {
                 return false;
             }
             seen_image_sha256 = true;
-        } else if (strcmp(key, "product_id") == 0) {
+        } else if (strcmp(key, "product_id") == 0 || strcmp(key, "pi") == 0) {
             if (seen_product_id ||
                 !beet_ble_parse_string(cursor, request->product_id, sizeof(request->product_id))) {
                 return false;
             }
             seen_product_id = true;
-        } else if (strcmp(key, "hardware_revs") == 0) {
+        } else if (strcmp(key, "hardware_revs") == 0 || strcmp(key, "hr") == 0) {
             if (seen_hardware_revs ||
                 !beet_ble_parse_string_array(
                     cursor,
@@ -1308,19 +1308,19 @@ static bool beet_ble_parse_begin_update_data(
                 return false;
             }
             seen_hardware_revs = true;
-        } else if (strcmp(key, "runtime_protocol_version") == 0) {
+        } else if (strcmp(key, "runtime_protocol_version") == 0 || strcmp(key, "rp") == 0) {
             if (request->has_runtime_protocol_version ||
                 !beet_ble_parse_u32(cursor, &request->runtime_protocol_version)) {
                 return false;
             }
             request->has_runtime_protocol_version = true;
-        } else if (strcmp(key, "asset_id") == 0) {
+        } else if (strcmp(key, "asset_id") == 0 || strcmp(key, "ai") == 0) {
             if (seen_asset_id ||
                 !beet_ble_parse_string(cursor, request->asset_id, sizeof(request->asset_id))) {
                 return false;
             }
             seen_asset_id = true;
-        } else if (strcmp(key, "image_kind") == 0) {
+        } else if (strcmp(key, "image_kind") == 0 || strcmp(key, "ik") == 0) {
             if (seen_image_kind ||
                 !beet_ble_parse_string(cursor, parsed_string, sizeof(parsed_string))) {
                 return false;
@@ -1744,7 +1744,7 @@ bool beet_ble_parse_maintenance_request_json(
                 return false;
             }
             seen_cmd = true;
-        } else if (strcmp(key, "data") == 0) {
+        } else         if (strcmp(key, "data") == 0 || strcmp(key, "d") == 0) {
             if (seen_data || !seen_cmd) {
                 return false;
             }

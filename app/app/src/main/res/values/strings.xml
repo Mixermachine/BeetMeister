@@ -389,6 +389,7 @@
     <string name="maintenance_rebooting_after_update">Firmware uploaded. Controller is rebooting.</string>
     <string name="maintenance_update_completed">Firmware update completed.</string>
     <string name="maintenance_chunk_write_failed" localizePipeContext="Chunk write failure with numeric Android GATT status. %1$d is the raw status code.">Firmware chunk write failed with BLE status %1$d.</string>
+    <string name="maintenance_control_write_failed" localizePipeContext="Maintenance control write failure with numeric Android GATT status. %1$d is the raw status code.">Firmware control write failed with BLE status %1$d.</string>
     <string name="runtime_moisture_test_passed" localizePipeContext="Moisture response test result. Keep %1$d as the irrigation pair number.">Pair %1$d: moisture response test passed.</string>
     <string name="runtime_moisture_test_failed" localizePipeContext="Moisture response test failure. %1$d is the irrigation pair number and %2$s is the already translated failure reason.">Pair %1$d: moisture response test failed (%2$s).</string>
     <string name="runtime_ble_connection_error" localizePipeContext="Bluetooth connection error with numeric Android or GATT status code. Keep %1$d as the raw error code.">BLE connection error %1$d. Searching again.</string>

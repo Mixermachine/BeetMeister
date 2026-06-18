@@ -68,6 +68,8 @@ internal class BeetGattSessionCoordinator(
     private var maintenanceExpectedRebootDisconnect = false
     private var maintenanceReconnectAttempts = 0
     private var negotiatedMtu = DEFAULT_MTU
+    @Volatile
+    private var lastGattResetAt: Long = 0L
     private val maintenanceWakeLock: PowerManager.WakeLock by lazy {
         val powerManager = host.appContext.getSystemService(PowerManager::class.java)
         powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BeetMeister:MaintenanceUpdate")
@@ -394,6 +396,7 @@ internal class BeetGattSessionCoordinator(
 
     fun openGatt(device: BluetoothDevice) {
         Log.d(TAG, "openGatt(address=${device.address}, bondState=${device.bondState})")
+        lastGattResetAt = System.currentTimeMillis()
         disconnectGatt(clearSelection = false, reason = "openGatt reset existing session")
         resetSyncState()
         host.updateConnection(BeetConnectionPhase.Connecting, strings.get(R.string.runtime_connecting_to_controller, device.address))
@@ -918,19 +921,23 @@ internal class BeetGattSessionCoordinator(
             val controlPoint = host.session.maintenanceControlCharacteristic
                 ?: error(strings.get(R.string.maintenance_control_unavailable))
             Log.d(TAG, "sendMaintenanceControl(payload=$payload)")
-            val deferred = CompletableDeferred<BeetMaintenanceStatus>()
-            pendingMaintenanceStatus = deferred
+            val statusDeferred = CompletableDeferred<BeetMaintenanceStatus>()
+            val writeDeferred = CompletableDeferred<Unit>()
+            pendingMaintenanceStatus = statusDeferred
+            pendingCharacteristicWrite = writeDeferred
             controlPoint.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             controlPoint.value = payload.toByteArray(StandardCharsets.UTF_8)
             @Suppress("MissingPermission")
             val writeStarted = gatt.writeCharacteristic(controlPoint)
             if (!writeStarted) {
                 pendingMaintenanceStatus = null
+                pendingCharacteristicWrite = null
                 error(strings.get(R.string.runtime_ble_send_failed))
             }
             try {
                 withTimeout(MAINTENANCE_CONTROL_TIMEOUT_MS) {
-                    deferred.await().also { status ->
+                    writeDeferred.await()
+                    statusDeferred.await().also { status ->
                         Log.d(
                             TAG,
                             "sendMaintenanceControl result state=${status.state} " +
@@ -941,6 +948,7 @@ internal class BeetGattSessionCoordinator(
                 }
             } finally {
                 pendingMaintenanceStatus = null
+                pendingCharacteristicWrite = null
             }
         }
     }
@@ -1068,7 +1076,9 @@ internal class BeetGattSessionCoordinator(
         val initialStatus = if (resumeAllowed) {
             sendMaintenanceControl(BeetJsonCodec.maintenanceQueryStatus())
         } else {
-            BeetMaintenanceStatus(state = "idle", nextOffset = 0, bytesReceived = 0, totalBytes = 0)
+            val status = sendMaintenanceControl(BeetJsonCodec.maintenanceQueryStatus())
+            Log.d(TAG, "startOrResumeMaintenanceSession query_status result state=${status.state}")
+            status
         }
         Log.d(
             TAG,
@@ -1157,12 +1167,14 @@ internal class BeetGattSessionCoordinator(
         val deadline = System.currentTimeMillis() + MAINTENANCE_RECONNECT_TIMEOUT_MS
         while (System.currentTimeMillis() < deadline) {
             val phase = host.state.value.connection.phase
+            val stableFor = System.currentTimeMillis() - lastGattResetAt
             if ((phase == BeetConnectionPhase.MaintenanceRequired || phase == BeetConnectionPhase.Connected) &&
                 host.session.currentGatt != null &&
                 host.session.maintenanceControlCharacteristic != null &&
-                host.session.maintenanceDataCharacteristic != null
+                host.session.maintenanceDataCharacteristic != null &&
+                stableFor >= MAINTENANCE_GATT_STABILITY_MS
             ) {
-                Log.d(TAG, "waitForMaintenanceConnection satisfied phase=$phase mtu=$negotiatedMtu")
+                Log.d(TAG, "waitForMaintenanceConnection satisfied phase=$phase mtu=$negotiatedMtu stableFor=${stableFor}ms")
                 return
             }
             delay(200L)
@@ -1356,6 +1368,7 @@ internal class BeetGattSessionCoordinator(
 
     private fun disconnectGatt(clearSelection: Boolean, reason: String) {
         Log.d(TAG, "disconnectGatt(reason=$reason, clearSelection=$clearSelection, currentAddress=${host.currentAddress}, phase=${host.state.value.connection.phase})")
+        lastGattResetAt = System.currentTimeMillis()
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = null
         cancelControllerInfoRetry("disconnect gatt: $reason")
@@ -1535,6 +1548,17 @@ internal class BeetGattSessionCoordinator(
                         IllegalStateException(strings.get(R.string.maintenance_chunk_write_failed, status)),
                     )
                 }
+                return@beetGattCallback
+            }
+            if (characteristic.uuid == BeetBluetoothSupport.maintenanceControlUuid) {
+                Log.d(TAG, "onCharacteristicWrite maintenance control status=$status")
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    pendingCharacteristicWrite?.complete(Unit)
+                } else {
+                    pendingCharacteristicWrite?.completeExceptionally(
+                        IllegalStateException(strings.get(R.string.maintenance_control_write_failed, status)),
+                    )
+                }
             }
         },
         onCharacteristicRead = { gatt, characteristic, status ->
@@ -1580,6 +1604,7 @@ internal class BeetGattSessionCoordinator(
         private const val CONNECTION_TIMEOUT_MS = 30_000L
         private const val MAINTENANCE_RECONNECT_TIMEOUT_MS = 30_000L
         private const val MAINTENANCE_RECONNECT_DELAY_MS = 1_000L
+        private const val MAINTENANCE_GATT_STABILITY_MS = 600L
         private const val MAINTENANCE_WAKELOCK_TIMEOUT_MS = 20L * 60L * 1000L
         private const val MAX_MAINTENANCE_RECONNECT_ATTEMPTS = 3
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
