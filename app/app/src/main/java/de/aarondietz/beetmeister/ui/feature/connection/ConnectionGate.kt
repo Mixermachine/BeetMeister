@@ -39,6 +39,19 @@ import de.aarondietz.beetmeister.ui.core.formatting.maintenanceImageKindLabel
 
 private const val MAINTENANCE_PANEL_TAG = "MaintenanceUpdatePanel"
 
+private fun selectedMatchesInstalled(
+    selected: de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary?,
+    info: de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo?,
+): Boolean {
+    if (selected == null || info == null) {
+        return false
+    }
+    val metadata = selected.metadata
+    return metadata.firmwareVersion == info.firmwareVersion &&
+        metadata.buildLabel == info.buildLabel &&
+        metadata.imageKind == info.imageKind
+}
+
 @Composable
 internal fun ConnectionGate(
     state: BeetRepositoryState,
@@ -198,6 +211,7 @@ internal fun MaintenanceUpdatePanel(
     val info = state.maintenanceInfo
     val update = state.maintenanceUpdate
     val selected = update.selectedFirmware
+    val selectedAlreadyInstalled = selectedMatchesInstalled(selected, info)
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F0E5)),
         modifier = modifier.testTag(MaintenanceUpdateTestTags.Card),
@@ -315,10 +329,18 @@ internal fun MaintenanceUpdatePanel(
                             )
                             onStartMaintenanceUpdate()
                         },
-                        enabled = selected != null,
+                        enabled = selected != null && !selectedAlreadyInstalled,
                         modifier = Modifier.testTag(MaintenanceUpdateTestTags.InstallButton),
                     ) {
-                        Text(strings.get(R.string.maintenance_install_firmware))
+                        Text(
+                            strings.get(
+                                if (selectedAlreadyInstalled) {
+                                    R.string.maintenance_selected_already_installed
+                                } else {
+                                    R.string.maintenance_install_firmware
+                                },
+                            ),
+                        )
                     }
                 }
             }

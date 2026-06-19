@@ -123,8 +123,8 @@ static const char *beet_begin_update_json(void)
 static const char *beet_stage4_begin_update_json(void)
 {
     return
-        "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"dev\",\"build_label\":\"dev\","
-        "\"image_size\":102,\"image_sha256\":\"38d9eb72722db13c16fc1dced1e14d461d3e32e1f80c9639de320dc8baf65b85\","
+        "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"bd88ef0-dirty\",\"build_label\":\"bd88ef0-dirty\","
+        "\"image_size\":122,\"image_sha256\":\"9e0bc87921e10a3718521ae05f49abe9ff53b894eefdeef48dbb52f087dd62de\","
         "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":9,"
         "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
 }
@@ -147,6 +147,19 @@ static void beet_write_maintenance_chunk(
     chunk_buf[7] = (uint8_t)((offset >> 24) & 0xFFU);
     memcpy(chunk_buf + 8U, payload, payload_len);
     *chunk_len = payload_len + 8U;
+}
+
+static void beet_start_maintenance_update(const char *begin_update_json)
+{
+    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(begin_update_json, true));
+    beet_ble_service();
+}
+
+static void beet_flush_maintenance_service(unsigned iterations)
+{
+    for (unsigned i = 0U; i < iterations; ++i) {
+        beet_ble_service();
+    }
 }
 
 static beet_iface_command_response_t beet_make_single_result(void)
@@ -357,11 +370,12 @@ static void test_maintenance_begin_update_creates_session(void)
     beet_iface_device_state_t device = { 0 };
 
     beet_prepare_session(247U);
+    beet_ble_host_test_set_state_stream_subscription(true);
     device.battery_state = BEET_BATTERY_STATE_ACTIVE;
     device.valve_state = BEET_VALVE_STATE_CLOSED;
     ble_host_test_set_device_state(&device);
     beet_ble_host_test_set_maintenance_status_subscription(true);
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_begin_update_json(), true));
+    beet_start_maintenance_update(beet_begin_update_json());
     TEST_ASSERT_U32_EQ(1U, ble_host_test_indication_count());
     TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"state\":\"awaiting_data\"");
     TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"session_id\":1");
@@ -392,15 +406,16 @@ static void test_maintenance_second_begin_update_invalidates_previous_session(vo
     beet_iface_device_state_t device = { 0 };
 
     beet_prepare_session(247U);
+    beet_ble_host_test_set_state_stream_subscription(true);
     device.battery_state = BEET_BATTERY_STATE_ACTIVE;
     device.valve_state = BEET_VALVE_STATE_CLOSED;
     ble_host_test_set_device_state(&device);
     beet_ble_host_test_set_maintenance_status_subscription(true);
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_begin_update_json(), true));
+    beet_start_maintenance_update(beet_begin_update_json());
     TEST_ASSERT_U32_EQ(1U, ble_host_test_indication_count());
 
     ble_host_test_clear_captures();
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_begin_update_json(), true));
+    beet_start_maintenance_update(beet_begin_update_json());
     TEST_ASSERT_U32_EQ(1U, ble_host_test_indication_count());
     TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"session_id\":2");
     TEST_ASSERT_U32_EQ(3U, s_system_events.count);
@@ -421,7 +436,7 @@ static void test_maintenance_finish_update_fails_when_upload_incomplete(void)
     device.valve_state = BEET_VALVE_STATE_CLOSED;
     ble_host_test_set_device_state(&device);
     beet_ble_host_test_set_maintenance_status_subscription(true);
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_begin_update_json(), true));
+    beet_start_maintenance_update(beet_begin_update_json());
 
     ble_host_test_clear_captures();
     TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control("{\"cmd\":\"finish_update\"}", true));
@@ -429,6 +444,95 @@ static void test_maintenance_finish_update_fails_when_upload_incomplete(void)
     TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"state\":\"failed\"");
     TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"failure_reason\":\"image_upload_incomplete\"");
     TEST_ASSERT_FALSE(beet_ble_maintenance_runtime_blocking());
+}
+
+static void test_maintenance_session_suppresses_runtime_state_stream(void)
+{
+    beet_iface_device_state_t device = { 0 };
+
+    beet_prepare_session(247U);
+    device.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    device.valve_state = BEET_VALVE_STATE_CLOSED;
+    device.battery_mv = 3348U;
+    ble_host_test_set_device_state(&device);
+    beet_ble_service();
+    beet_ble_host_test_set_maintenance_status_subscription(true);
+    beet_start_maintenance_update(beet_begin_update_json());
+    TEST_ASSERT_TRUE(beet_ble_maintenance_runtime_blocking());
+
+    ble_host_test_clear_captures();
+    device.battery_mv = 3352U;
+    ble_host_test_set_device_state(&device);
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(0U, ble_host_test_notification_count());
+}
+
+static void test_runtime_state_stream_suppresses_minor_jitter(void)
+{
+    beet_iface_device_state_t device = { 0 };
+    beet_iface_pair_state_t pair = { 0 };
+
+    beet_prepare_session(247U);
+    beet_ble_host_test_set_state_stream_subscription(true);
+    device.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    device.valve_state = BEET_VALVE_STATE_CLOSED;
+    device.battery_mv = 3348U;
+    device.next_check_in_s = 4812U;
+    strcpy(device.device_id, "beetmeister-01");
+    ble_host_test_set_device_state(&device);
+
+    pair.pair_state = BEET_PAIR_STATE_IDLE;
+    pair.moisture_pct = 58U;
+    pair.sensor_mv = 1680U;
+    pair.sensor_valid = true;
+    ble_host_test_set_pair_state(1U, &pair);
+
+    beet_ble_service();
+    TEST_ASSERT_TRUE(ble_host_test_notification_count() > 0U);
+
+    ble_host_test_clear_captures();
+    device.battery_mv = 3354U;
+    device.next_check_in_s = 4801U;
+    ble_host_test_set_device_state(&device);
+    pair.sensor_mv = 1692U;
+    ble_host_test_set_pair_state(1U, &pair);
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(0U, ble_host_test_notification_count());
+}
+
+static void test_runtime_state_stream_notifies_meaningful_changes(void)
+{
+    beet_iface_device_state_t device = { 0 };
+    beet_iface_pair_state_t pair = { 0 };
+
+    beet_prepare_session(247U);
+    beet_ble_host_test_set_state_stream_subscription(true);
+    device.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    device.valve_state = BEET_VALVE_STATE_CLOSED;
+    device.battery_mv = 3348U;
+    device.next_check_in_s = 4812U;
+    strcpy(device.device_id, "beetmeister-01");
+    ble_host_test_set_device_state(&device);
+
+    pair.pair_state = BEET_PAIR_STATE_IDLE;
+    pair.moisture_pct = 58U;
+    pair.sensor_mv = 1680U;
+    pair.sensor_valid = true;
+    ble_host_test_set_pair_state(1U, &pair);
+
+    beet_ble_service();
+    ble_host_test_clear_captures();
+
+    device.next_check_in_s = 4690U;
+    ble_host_test_set_device_state(&device);
+    beet_ble_service();
+    TEST_ASSERT_TRUE(ble_host_test_notification_count() > 0U);
+
+    ble_host_test_clear_captures();
+    pair.sensor_mv = 1710U;
+    ble_host_test_set_pair_state(1U, &pair);
+    beet_ble_service();
+    TEST_ASSERT_TRUE(ble_host_test_notification_count() > 0U);
 }
 
 static void test_maintenance_session_expires_after_disconnect(void)
@@ -440,7 +544,7 @@ static void test_maintenance_session_expires_after_disconnect(void)
     device.valve_state = BEET_VALVE_STATE_CLOSED;
     ble_host_test_set_device_state(&device);
     beet_ble_host_test_set_maintenance_status_subscription(true);
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_begin_update_json(), true));
+    beet_start_maintenance_update(beet_begin_update_json());
     TEST_ASSERT_TRUE(beet_ble_maintenance_runtime_blocking());
 
     beet_ble_host_test_disconnect();
@@ -467,7 +571,7 @@ static void test_maintenance_session_resumes_before_expiry(void)
     device.valve_state = BEET_VALVE_STATE_CLOSED;
     ble_host_test_set_device_state(&device);
     beet_ble_host_test_set_maintenance_status_subscription(true);
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_begin_update_json(), true));
+    beet_start_maintenance_update(beet_begin_update_json());
     TEST_ASSERT_TRUE(beet_ble_maintenance_runtime_blocking());
 
     beet_ble_host_test_disconnect();
@@ -526,7 +630,7 @@ static void test_maintenance_data_requires_bond(void)
     device.valve_state = BEET_VALVE_STATE_CLOSED;
     ble_host_test_set_device_state(&device);
     beet_ble_host_test_set_maintenance_status_subscription(true);
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_stage4_begin_update_json(), true));
+    beet_start_maintenance_update(beet_stage4_begin_update_json());
 
     beet_write_maintenance_chunk(1U, 0U, payload, sizeof(payload), chunk, &chunk_len);
     TEST_ASSERT_U32_EQ(
@@ -537,8 +641,8 @@ static void test_maintenance_data_requires_bond(void)
 static void test_maintenance_data_upload_and_finish_reboots(void)
 {
     beet_iface_device_state_t device = { 0 };
-    uint8_t image[102];
-    uint8_t chunk[128];
+    uint8_t image[16U + sizeof(g_beet_generated_metadata_block)];
+    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block)];
     size_t chunk_len = 0U;
 
     memset(image, 0, 16U);
@@ -550,16 +654,64 @@ static void test_maintenance_data_upload_and_finish_reboots(void)
     ble_host_test_set_device_state(&device);
     beet_ble_host_test_set_maintenance_status_subscription(true);
 
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_stage4_begin_update_json(), true));
+    beet_start_maintenance_update(beet_stage4_begin_update_json());
     beet_write_maintenance_chunk(1U, 0U, image, sizeof(image), chunk, &chunk_len);
     TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_data(chunk, chunk_len, true));
+    beet_flush_maintenance_service(2U);
 
     ble_host_test_clear_captures();
     TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control("{\"cmd\":\"finish_update\"}", true));
+    beet_flush_maintenance_service(2U);
+    TEST_ASSERT_U32_EQ(1U, ble_host_test_indication_count());
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"state\":\"rebooting\"");
+    TEST_ASSERT_U32_EQ(0U, ble_host_test_restart_count());
+
+    beet_ble_host_test_notify_maintenance_status_tx(0);
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(0U, ble_host_test_restart_count());
+
+    beet_ble_host_test_notify_maintenance_status_tx(BLE_HS_EDONE);
+    ble_host_test_advance_time_us(90000LL);
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(0U, ble_host_test_restart_count());
+
+    ble_host_test_advance_time_us(20000LL);
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(1U, ble_host_test_restart_count());
+}
+
+static void test_maintenance_reboot_falls_back_without_confirmation(void)
+{
+    beet_iface_device_state_t device = { 0 };
+    uint8_t image[16U + sizeof(g_beet_generated_metadata_block)];
+    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block)];
+    size_t chunk_len = 0U;
+
+    memset(image, 0, 16U);
+    memcpy(image + 16U, g_beet_generated_metadata_block, sizeof(g_beet_generated_metadata_block));
+
+    beet_prepare_session(247U);
+    device.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    device.valve_state = BEET_VALVE_STATE_CLOSED;
+    ble_host_test_set_device_state(&device);
+    beet_ble_host_test_set_maintenance_status_subscription(true);
+
+    beet_start_maintenance_update(beet_stage4_begin_update_json());
+    beet_write_maintenance_chunk(1U, 0U, image, sizeof(image), chunk, &chunk_len);
+    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_data(chunk, chunk_len, true));
+    beet_flush_maintenance_service(2U);
+
+    ble_host_test_clear_captures();
+    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control("{\"cmd\":\"finish_update\"}", true));
+    beet_flush_maintenance_service(2U);
     TEST_ASSERT_U32_EQ(1U, ble_host_test_indication_count());
     TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"state\":\"rebooting\"");
 
-    ble_host_test_advance_time_us(300000LL);
+    ble_host_test_advance_time_us(1900000LL);
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(0U, ble_host_test_restart_count());
+
+    ble_host_test_advance_time_us(100000LL);
     beet_ble_service();
     TEST_ASSERT_U32_EQ(1U, ble_host_test_restart_count());
 }
@@ -576,7 +728,7 @@ static void test_maintenance_data_rejects_offset_mismatch(void)
     device.valve_state = BEET_VALVE_STATE_CLOSED;
     ble_host_test_set_device_state(&device);
     beet_ble_host_test_set_maintenance_status_subscription(true);
-    TEST_ASSERT_U32_EQ(0U, beet_ble_host_test_write_maintenance_control(beet_stage4_begin_update_json(), true));
+    beet_start_maintenance_update(beet_stage4_begin_update_json());
 
     beet_write_maintenance_chunk(1U, 7U, payload, sizeof(payload), chunk, &chunk_len);
     TEST_ASSERT_U32_EQ(BLE_ATT_ERR_UNLIKELY, beet_ble_host_test_write_maintenance_data(chunk, chunk_len, true));
@@ -599,10 +751,14 @@ int main(void)
         {"maintenance_begin_update_rejects_low_battery", test_maintenance_begin_update_rejects_low_battery},
         {"maintenance_second_begin_update_invalidates_previous_session", test_maintenance_second_begin_update_invalidates_previous_session},
         {"maintenance_finish_update_fails_when_upload_incomplete", test_maintenance_finish_update_fails_when_upload_incomplete},
+        {"maintenance_session_suppresses_runtime_state_stream", test_maintenance_session_suppresses_runtime_state_stream},
+        {"runtime_state_stream_suppresses_minor_jitter", test_runtime_state_stream_suppresses_minor_jitter},
+        {"runtime_state_stream_notifies_meaningful_changes", test_runtime_state_stream_notifies_meaningful_changes},
         {"maintenance_session_expires_after_disconnect", test_maintenance_session_expires_after_disconnect},
         {"maintenance_session_resumes_before_expiry", test_maintenance_session_resumes_before_expiry},
         {"maintenance_data_requires_bond", test_maintenance_data_requires_bond},
         {"maintenance_data_upload_and_finish_reboots", test_maintenance_data_upload_and_finish_reboots},
+        {"maintenance_reboot_falls_back_without_confirmation", test_maintenance_reboot_falls_back_without_confirmation},
         {"maintenance_data_rejects_offset_mismatch", test_maintenance_data_rejects_offset_mismatch},
     };
 

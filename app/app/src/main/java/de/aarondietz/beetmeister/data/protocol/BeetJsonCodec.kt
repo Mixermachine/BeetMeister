@@ -33,6 +33,7 @@ import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
 import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
 import de.aarondietz.beetmeister.model.update.BeetMaintenanceStatus
+import java.nio.charset.StandardCharsets
 
 object BeetJsonCodec {
     private val moshi: Moshi = Moshi.Builder()
@@ -40,6 +41,7 @@ object BeetJsonCodec {
         .build()
 
     private const val DATA_FIELD = "data"
+    private const val MAX_MAINTENANCE_CONTROL_PAYLOAD_BYTES = 253
 
     private val stateEnvelopeHeaderAdapter: JsonAdapter<StateEnvelopeHeaderDto> =
         moshi.adapter(StateEnvelopeHeaderDto::class.java)
@@ -213,8 +215,11 @@ object BeetJsonCodec {
     fun maintenanceBeginUpdate(firmware: BeetFirmwarePackageSummary): String {
         val hardwareRevs = firmware.metadata.compatibleHardwareRevs.joinToString(separator = ",") { "\"$it\"" }
         val imageKind = firmware.metadata.imageKind
-        val shortAssetId = "fw.bin"
-        return """{"cmd":"begin_update","d":{"fv":"${escapeJson(firmware.metadata.firmwareVersion)}","bl":"${escapeJson(firmware.metadata.buildLabel)}","sz":${firmware.imageSize},"sh":"${firmware.sha256Hex}","pi":"${escapeJson(firmware.metadata.productId)}","hr":[${hardwareRevs}],"ai":"${escapeJson(shortAssetId)}","ik":"${escapeJson(imageKind)}"}}""".trimIndent()
+        val payload = """{"cmd":"begin_update","d":{"fv":"${escapeJson(firmware.metadata.firmwareVersion)}","bl":"${escapeJson(firmware.metadata.buildLabel)}","sz":${firmware.imageSize},"sh":"${firmware.sha256Hex}","pi":"${escapeJson(firmware.metadata.productId)}","hr":[${hardwareRevs}],"rp":${firmware.metadata.runtimeProtocolVersion},"ai":"${escapeJson(firmware.assetId)}","ik":"${escapeJson(imageKind)}"}}""".trimIndent()
+        require(payload.toByteArray(StandardCharsets.UTF_8).size <= MAX_MAINTENANCE_CONTROL_PAYLOAD_BYTES) {
+            "Maintenance begin_update payload exceeds $MAX_MAINTENANCE_CONTROL_PAYLOAD_BYTES bytes."
+        }
+        return payload
     }
 
     fun parseCommandChunk(payload: String): CommandChunkFrame? {

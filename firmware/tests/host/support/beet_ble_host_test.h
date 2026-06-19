@@ -18,8 +18,10 @@ void beet_ble_host_test_set_session(
     uint16_t command_result_handle);
 void beet_ble_host_test_set_pending_result(const beet_iface_command_response_t *response);
 void beet_ble_host_test_notify_tx(int status);
+void beet_ble_host_test_notify_maintenance_status_tx(int status);
 void beet_ble_host_test_disconnect(void);
 void beet_ble_host_test_set_command_result_subscription(bool subscribed);
+void beet_ble_host_test_set_state_stream_subscription(bool subscribed);
 int beet_ble_host_test_read_maintenance_info(char *buf, size_t len, bool bonded);
 int beet_ble_host_test_write_maintenance_control(const char *json, bool bonded);
 int beet_ble_host_test_write_maintenance_data(const uint8_t *data, size_t len, bool bonded);

@@ -98,6 +98,16 @@ if (-not (Import-VsBuildEnvironment)) {
 & $cmake -S $sourceDir -B $resolvedBuildDir -G Ninja `
     "-DCMAKE_MAKE_PROGRAM=$ninja" `
     "-DCMAKE_C_COMPILER=cl"
+if ($LASTEXITCODE -ne 0) {
+    throw "CMake configure failed."
+}
 
 & $cmake --build $resolvedBuildDir
+if ($LASTEXITCODE -ne 0) {
+    throw "Host test build failed."
+}
+
 & $ctest --test-dir $resolvedBuildDir --output-on-failure
+if ($LASTEXITCODE -ne 0) {
+    throw "Host tests failed."
+}

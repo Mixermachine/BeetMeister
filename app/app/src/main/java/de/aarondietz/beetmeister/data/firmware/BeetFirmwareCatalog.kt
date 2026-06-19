@@ -9,6 +9,8 @@ import de.aarondietz.beetmeister.model.update.BeetFirmwareSource
 
 internal object BeetFirmwareCatalog {
     private const val BUNDLED_ASSET_PATH = "firmware/beetmeister-rev_a-dev.bin"
+    private const val BUNDLED_BLE_ASSET_ID = "bundled-dev"
+    private const val CUSTOM_BLE_ASSET_ID = "custom"
     private const val MAX_CUSTOM_IMAGE_BYTES = 4 * 1024 * 1024
 
     fun loadBundledFirmware(
@@ -21,7 +23,7 @@ internal object BeetFirmwareCatalog {
         return imagePackage to imagePackage.toSummary(
             source = BeetFirmwareSource.Bundled,
             sourceLabel = "Bundled",
-            assetId = BUNDLED_ASSET_PATH,
+            assetId = BUNDLED_BLE_ASSET_ID,
             maintenanceInfo = maintenanceInfo,
             supportedRuntimeProtocolVersion = supportedRuntimeProtocolVersion,
         )
@@ -44,7 +46,7 @@ internal object BeetFirmwareCatalog {
         return normalizedPackage to normalizedPackage.toSummary(
             source = BeetFirmwareSource.Custom,
             sourceLabel = label,
-            assetId = label,
+            assetId = CUSTOM_BLE_ASSET_ID,
             maintenanceInfo = maintenanceInfo,
             supportedRuntimeProtocolVersion = supportedRuntimeProtocolVersion,
         )
@@ -64,6 +66,19 @@ internal object BeetFirmwareCatalog {
         maintenanceInfo = maintenanceInfo,
         supportedRuntimeProtocolVersion = supportedRuntimeProtocolVersion,
     )
+
+    internal fun matchesInstalledFirmware(
+        selectedFirmware: BeetFirmwarePackageSummary,
+        maintenanceInfo: BeetMaintenanceInfo?,
+    ): Boolean {
+        val info = maintenanceInfo ?: return false
+        val metadata = selectedFirmware.metadata
+        return info.productId == metadata.productId &&
+            info.firmwareVersion == metadata.firmwareVersion &&
+            info.runtimeProtocolVersion == metadata.runtimeProtocolVersion &&
+            info.imageKind == metadata.imageKind &&
+            metadata.compatibleHardwareRevs.contains(info.hardwareRev)
+    }
 
     private fun BeetFirmwareImagePackage.toSummary(
         source: BeetFirmwareSource,

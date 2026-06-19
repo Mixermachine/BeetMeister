@@ -761,8 +761,8 @@ static void test_maintenance_metadata_and_info(void)
     TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_metadata_parse(block, block_len, &metadata));
     TEST_ASSERT_STR_EQ("beetmeister", metadata.product_id);
     TEST_ASSERT_STR_EQ("rev_a", metadata.hardware_rev);
-    TEST_ASSERT_STR_EQ("dev", metadata.firmware_version);
-    TEST_ASSERT_STR_EQ("dev", metadata.build_label);
+    TEST_ASSERT_STR_EQ("bd88ef0-dirty", metadata.firmware_version);
+    TEST_ASSERT_STR_EQ("bd88ef0-dirty", metadata.build_label);
     TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_PROTOCOL_VERSION, metadata.maintenance_protocol_version);
     TEST_ASSERT_U32_EQ(BEET_RUNTIME_PROTOCOL_VERSION, metadata.runtime_protocol_version);
     TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, metadata.image_kind);

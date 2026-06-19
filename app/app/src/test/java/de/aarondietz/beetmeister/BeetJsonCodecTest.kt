@@ -6,6 +6,7 @@ import de.aarondietz.beetmeister.model.stream.BeetStateMessage
 import de.aarondietz.beetmeister.model.update.BeetFirmwareMetadata
 import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
 import de.aarondietz.beetmeister.model.update.BeetFirmwareSource
+import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -447,7 +448,7 @@ class BeetJsonCodecTest {
             BeetFirmwarePackageSummary(
                 source = BeetFirmwareSource.Bundled,
                 sourceLabel = "Bundled",
-                assetId = "firmware/beetmeister-rev_a-dev.bin",
+                assetId = "bundled-dev",
                 metadata = BeetFirmwareMetadata(
                     productId = "beetmeister",
                     hardwareRev = "rev_a",
@@ -470,7 +471,10 @@ class BeetJsonCodecTest {
         assertTrue(payload.contains("\"bl\":\"v0.2.0\""))
         assertTrue(payload.contains("\"sz\":4096"))
         assertTrue(payload.contains("\"hr\":[\"rev_a\",\"rev_b\"]"))
+        assertTrue(payload.contains("\"rp\":9"))
+        assertTrue(payload.contains("\"ai\":\"bundled-dev\""))
         assertTrue(payload.contains("\"ik\":\"bundled\""))
+        assertTrue(payload.toByteArray(StandardCharsets.UTF_8).size <= 220)
     }
 
     @Test
@@ -479,7 +483,7 @@ class BeetJsonCodecTest {
             BeetFirmwarePackageSummary(
                 source = BeetFirmwareSource.Custom,
                 sourceLabel = "my-build.bin",
-                assetId = "my-build.bin",
+                assetId = "custom",
                 metadata = BeetFirmwareMetadata(
                     productId = "beetmeister",
                     hardwareRev = "rev_a",
@@ -497,7 +501,9 @@ class BeetJsonCodecTest {
             ),
         )
 
-        assertTrue(payload.contains("\"ai\":\"my-build.bin\""))
+        assertTrue(payload.contains("\"ai\":\"custom\""))
+        assertTrue(payload.contains("\"rp\":10"))
         assertTrue(payload.contains("\"ik\":\"custom\""))
+        assertTrue(payload.toByteArray(StandardCharsets.UTF_8).size <= 220)
     }
 }

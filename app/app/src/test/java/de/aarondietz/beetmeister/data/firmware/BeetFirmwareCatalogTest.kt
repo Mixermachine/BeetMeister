@@ -2,6 +2,7 @@ package de.aarondietz.beetmeister.data.firmware
 
 import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
 import de.aarondietz.beetmeister.model.update.BeetFirmwareMetadata
+import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
 import de.aarondietz.beetmeister.model.update.BeetFirmwareSource
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -86,5 +87,77 @@ class BeetFirmwareCatalogTest {
 
         assertFalse(summary.isDowngrade)
         assertFalse(summary.runtimeProtocolWarning)
+    }
+
+    @Test
+    fun matchesInstalledFirmwareIgnoresBuildLabel() {
+        val selectedFirmware = BeetFirmwarePackageSummary(
+            source = BeetFirmwareSource.Bundled,
+            sourceLabel = "Bundled",
+            assetId = "bundled-dev",
+            metadata = BeetFirmwareMetadata(
+                productId = "beetmeister",
+                hardwareRev = "rev_a",
+                firmwareVersion = "dev",
+                buildLabel = "dev",
+                maintenanceProtocolVersion = 1,
+                runtimeProtocolVersion = 9,
+                imageKind = "bundled",
+                compatibleHardwareRevs = listOf("rev_a", "rev_b"),
+            ),
+            imageSize = 16,
+            sha256Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            isDowngrade = false,
+            runtimeProtocolWarning = false,
+        )
+
+        val installedFirmware = BeetMaintenanceInfo(
+            productId = "beetmeister",
+            hardwareRev = "rev_a",
+            firmwareVersion = "dev",
+            buildLabel = "767f7e9-dirty",
+            maintenanceProtocolVersion = 1,
+            runtimeProtocolVersion = 9,
+            updateCapable = true,
+            imageKind = "bundled",
+        )
+
+        assertTrue(BeetFirmwareCatalog.matchesInstalledFirmware(selectedFirmware, installedFirmware))
+    }
+
+    @Test
+    fun matchesInstalledFirmwareRejectsDifferentImageKind() {
+        val selectedFirmware = BeetFirmwarePackageSummary(
+            source = BeetFirmwareSource.Custom,
+            sourceLabel = "custom.bin",
+            assetId = "custom",
+            metadata = BeetFirmwareMetadata(
+                productId = "beetmeister",
+                hardwareRev = "rev_a",
+                firmwareVersion = "dev",
+                buildLabel = "custom-abc123",
+                maintenanceProtocolVersion = 1,
+                runtimeProtocolVersion = 9,
+                imageKind = "custom",
+                compatibleHardwareRevs = listOf("rev_a"),
+            ),
+            imageSize = 16,
+            sha256Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            isDowngrade = false,
+            runtimeProtocolWarning = false,
+        )
+
+        val installedFirmware = BeetMaintenanceInfo(
+            productId = "beetmeister",
+            hardwareRev = "rev_a",
+            firmwareVersion = "dev",
+            buildLabel = "dev",
+            maintenanceProtocolVersion = 1,
+            runtimeProtocolVersion = 9,
+            updateCapable = true,
+            imageKind = "bundled",
+        )
+
+        assertFalse(BeetFirmwareCatalog.matchesInstalledFirmware(selectedFirmware, installedFirmware))
     }
 }

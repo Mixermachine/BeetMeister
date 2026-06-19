@@ -388,6 +388,7 @@
     <string name="maintenance_reconnect_timeout">Could not reconnect to resume the firmware update.</string>
     <string name="maintenance_rebooting_after_update">Firmware uploaded. Controller is rebooting.</string>
     <string name="maintenance_update_completed">Firmware update completed.</string>
+    <string name="maintenance_selected_already_installed">Selected firmware is already installed.</string>
     <string name="maintenance_chunk_write_failed" localizePipeContext="Chunk write failure with numeric Android GATT status. %1$d is the raw status code.">Firmware chunk write failed with BLE status %1$d.</string>
     <string name="maintenance_control_write_failed" localizePipeContext="Maintenance control write failure with numeric Android GATT status. %1$d is the raw status code.">Firmware control write failed with BLE status %1$d.</string>
     <string name="runtime_moisture_test_passed" localizePipeContext="Moisture response test result. Keep %1$d as the irrigation pair number.">Pair %1$d: moisture response test passed.</string>
