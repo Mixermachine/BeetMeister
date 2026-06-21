@@ -41,7 +41,11 @@ object BeetJsonCodec {
         .build()
 
     private const val DATA_FIELD = "data"
-    private const val MAX_MAINTENANCE_CONTROL_PAYLOAD_BYTES = 253
+    data class MaintenanceBeginUpdatePayload(
+        val json: String,
+        val compact: Boolean,
+        val sizeBytes: Int,
+    )
 
     private val stateEnvelopeHeaderAdapter: JsonAdapter<StateEnvelopeHeaderDto> =
         moshi.adapter(StateEnvelopeHeaderDto::class.java)
@@ -212,14 +216,33 @@ object BeetJsonCodec {
 
     fun maintenanceFinishUpdate(): String = """{"cmd":"finish_update"}"""
 
-    fun maintenanceBeginUpdate(firmware: BeetFirmwarePackageSummary): String {
+    fun maintenanceBeginUpdate(
+        firmware: BeetFirmwarePackageSummary,
+        maxPayloadBytes: Int,
+    ): MaintenanceBeginUpdatePayload {
         val hardwareRevs = firmware.metadata.compatibleHardwareRevs.joinToString(separator = ",") { "\"$it\"" }
         val imageKind = firmware.metadata.imageKind
-        val payload = """{"cmd":"begin_update","d":{"fv":"${escapeJson(firmware.metadata.firmwareVersion)}","bl":"${escapeJson(firmware.metadata.buildLabel)}","sz":${firmware.imageSize},"sh":"${firmware.sha256Hex}","pi":"${escapeJson(firmware.metadata.productId)}","hr":[${hardwareRevs}],"rp":${firmware.metadata.runtimeProtocolVersion},"ai":"${escapeJson(firmware.assetId)}","ik":"${escapeJson(imageKind)}"}}""".trimIndent()
-        require(payload.toByteArray(StandardCharsets.UTF_8).size <= MAX_MAINTENANCE_CONTROL_PAYLOAD_BYTES) {
-            "Maintenance begin_update payload exceeds $MAX_MAINTENANCE_CONTROL_PAYLOAD_BYTES bytes."
+        val verbosePayload =
+            """{"cmd":"begin_update","data":{"firmware_version":"${escapeJson(firmware.metadata.firmwareVersion)}","build_label":"${escapeJson(firmware.metadata.buildLabel)}","image_size":${firmware.imageSize},"image_sha256":"${firmware.sha256Hex}","product_id":"${escapeJson(firmware.metadata.productId)}","hardware_revs":[${hardwareRevs}],"runtime_protocol_version":${firmware.metadata.runtimeProtocolVersion},"asset_id":"${escapeJson(firmware.assetId)}","image_kind":"${escapeJson(imageKind)}"}}""".trimIndent()
+        val verboseSize = verbosePayload.toByteArray(StandardCharsets.UTF_8).size
+        if (verboseSize <= maxPayloadBytes) {
+            return MaintenanceBeginUpdatePayload(
+                json = verbosePayload,
+                compact = false,
+                sizeBytes = verboseSize,
+            )
         }
-        return payload
+        val compactPayload =
+            """{"cmd":"begin_update","d":{"fv":"${escapeJson(firmware.metadata.firmwareVersion)}","bl":"${escapeJson(firmware.metadata.buildLabel)}","sz":${firmware.imageSize},"sh":"${firmware.sha256Hex}","pi":"${escapeJson(firmware.metadata.productId)}","hr":[${hardwareRevs}],"rp":${firmware.metadata.runtimeProtocolVersion},"ai":"${escapeJson(firmware.assetId)}","ik":"${escapeJson(imageKind)}"}}""".trimIndent()
+        val compactSize = compactPayload.toByteArray(StandardCharsets.UTF_8).size
+        require(compactSize <= maxPayloadBytes) {
+            "Maintenance begin_update payload exceeds $maxPayloadBytes bytes for negotiated MTU."
+        }
+        return MaintenanceBeginUpdatePayload(
+            json = compactPayload,
+            compact = true,
+            sizeBytes = compactSize,
+        )
     }
 
     fun parseCommandChunk(payload: String): CommandChunkFrame? {

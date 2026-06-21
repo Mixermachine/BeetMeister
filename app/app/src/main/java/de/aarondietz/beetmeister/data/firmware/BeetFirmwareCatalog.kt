@@ -40,10 +40,7 @@ internal object BeetFirmwareCatalog {
         check(imageBytes.size in 1..MAX_CUSTOM_IMAGE_BYTES) { "Selected firmware image is empty or too large." }
         val imagePackage = BeetFirmwareImageParser.parseImage(imageBytes)
         val label = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: "custom image"
-        val normalizedPackage = imagePackage.copy(
-            metadata = imagePackage.metadata.copy(imageKind = "custom"),
-        )
-        return normalizedPackage to normalizedPackage.toSummary(
+        return imagePackage to imagePackage.toSummary(
             source = BeetFirmwareSource.Custom,
             sourceLabel = label,
             assetId = CUSTOM_BLE_ASSET_ID,

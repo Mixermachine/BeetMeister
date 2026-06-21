@@ -60,6 +60,7 @@ internal fun formatEventSubject(event: BeetWateringEvent, strings: BeetStringRes
         strings.get(R.string.common_pair_number, event.pairIndex)
     }
 
+
 internal fun connectionPhaseLabel(phase: BeetConnectionPhase, strings: BeetStringResolver): String = strings.get(
     when (phase) {
         BeetConnectionPhase.PermissionsRequired -> R.string.connection_phase_permissions_required

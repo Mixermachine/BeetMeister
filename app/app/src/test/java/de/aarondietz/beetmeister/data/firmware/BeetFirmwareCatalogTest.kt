@@ -160,4 +160,40 @@ class BeetFirmwareCatalogTest {
 
         assertFalse(BeetFirmwareCatalog.matchesInstalledFirmware(selectedFirmware, installedFirmware))
     }
+
+    @Test
+    fun matchesInstalledFirmwareAllowsCustomSelectedFileWithBundledEmbeddedMetadata() {
+        val selectedFirmware = BeetFirmwarePackageSummary(
+            source = BeetFirmwareSource.Custom,
+            sourceLabel = "picked-from-files.bin",
+            assetId = "custom",
+            metadata = BeetFirmwareMetadata(
+                productId = "beetmeister",
+                hardwareRev = "rev_a",
+                firmwareVersion = "zz-stage81a",
+                buildLabel = "zz-stage81a",
+                maintenanceProtocolVersion = 1,
+                runtimeProtocolVersion = 9,
+                imageKind = "bundled",
+                compatibleHardwareRevs = listOf("rev_a"),
+            ),
+            imageSize = 16,
+            sha256Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            isDowngrade = false,
+            runtimeProtocolWarning = false,
+        )
+
+        val installedFirmware = BeetMaintenanceInfo(
+            productId = "beetmeister",
+            hardwareRev = "rev_a",
+            firmwareVersion = "zz-stage81a",
+            buildLabel = "zz-stage81a",
+            maintenanceProtocolVersion = 1,
+            runtimeProtocolVersion = 9,
+            updateCapable = true,
+            imageKind = "bundled",
+        )
+
+        assertTrue(BeetFirmwareCatalog.matchesInstalledFirmware(selectedFirmware, installedFirmware))
+    }
 }

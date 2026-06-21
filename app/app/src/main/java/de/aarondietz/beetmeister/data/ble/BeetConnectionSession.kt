@@ -25,7 +25,10 @@ internal class BeetConnectionSession {
     val descriptorQueue = ArrayDeque<Pair<BluetoothGattCharacteristic, ByteArray>>()
 
     private val syncedPairs = linkedSetOf<Int>()
+    private var controllerInfoLoaded = false
+    private var expectedPairCount = 8
 
+    @Synchronized
     fun resetSyncState() {
         controllerInfoCharacteristic = null
         stateStreamCharacteristic = null
@@ -42,12 +45,35 @@ internal class BeetConnectionSession {
         syncedTimeBootId = 0L
         serviceDiscoveryStarted = false
         servicesConfigured = false
+        controllerInfoLoaded = false
+        expectedPairCount = 8
         syncedPairs.clear()
     }
 
-    fun markPairSynced(pairIndex: Int) {
+    @Synchronized
+    fun markPairSynced(pairIndex: Int): Int {
         syncedPairs += pairIndex
+        return syncedPairs.size
     }
 
+    @Synchronized
     fun syncedPairCount(): Int = syncedPairs.size
+
+    @Synchronized
+    fun markControllerInfoLoaded(pairCount: Int) {
+        controllerInfoLoaded = true
+        expectedPairCount = pairCount.coerceAtLeast(1)
+    }
+
+    @Synchronized
+    fun tryCompleteInitialSync(): Boolean {
+        if (initialSyncCompleted) {
+            return false
+        }
+        if (!controllerInfoLoaded || syncedPairs.size < expectedPairCount) {
+            return false
+        }
+        initialSyncCompleted = true
+        return true
+    }
 }

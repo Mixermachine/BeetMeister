@@ -17,12 +17,15 @@ import de.aarondietz.beetmeister.model.connection.BeetConnectionState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
+import de.aarondietz.beetmeister.service.BeetMaintenanceForegroundService
 import de.aarondietz.beetmeister.strings.AndroidBeetStringResolver
 import de.aarondietz.beetmeister.strings.BeetStringResolver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +50,11 @@ internal class BeetRepository(
 
     private val scanBondCoordinator = BeetScanBondCoordinator(this)
     private val gattSessionCoordinator = BeetGattSessionCoordinator(this)
+    private val maintenanceServiceJob = scope.launch {
+        state.collectLatest { current ->
+            BeetMaintenanceForegroundService.sync(appContext, current)
+        }
+    }
 
     fun start() = scanBondCoordinator.start()
 
@@ -54,6 +62,8 @@ internal class BeetRepository(
         Log.d(TAG, "close()")
         scanBondCoordinator.close()
         gattSessionCoordinator.close()
+        maintenanceServiceJob.cancel()
+        BeetMaintenanceForegroundService.stop(appContext)
         scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     }
 

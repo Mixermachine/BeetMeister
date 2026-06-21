@@ -43,6 +43,8 @@ data class BeetMaintenanceUpdateState(
     val phase: BeetMaintenanceUpdatePhase = BeetMaintenanceUpdatePhase.Idle,
     val bytesTransferred: Int = 0,
     val totalBytes: Int = 0,
+    val elapsedSeconds: Int = 0,
+    val estimatedRemainingSeconds: Int? = null,
     val retryCount: Int = 0,
     val statusDetail: String? = null,
     val errorDetail: String? = null,

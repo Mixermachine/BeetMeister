@@ -73,6 +73,9 @@
     <string name="settings_label_pairs">Pairs</string>
     <string name="settings_label_connection">Connection</string>
     <string name="settings_label_address">Address</string>
+    <string name="settings_firmware_update_title">Firmware update</string>
+    <string name="settings_firmware_update_subtitle">Open the dedicated maintenance flow to select firmware, review warnings, and install updates.</string>
+    <string name="settings_open_firmware_update">Open firmware update</string>
     <string name="settings_watering_interval_title">Watering evaluation interval</string>
     <string name="settings_watering_interval_subtitle">How often the controller evaluates all pairs for automatic watering.</string>
     <string name="settings_label_current_watering_interval">Current interval</string>
@@ -364,13 +367,34 @@
     <string name="runtime_maintenance_update_required" localizePipeContext="Forced firmware-update message. %1$d is the controller runtime protocol version and %2$d is the app-supported runtime protocol version.">Firmware update required before this app can control the controller. Runtime protocol %1$d is installed, app supports %2$d.</string>
     <string name="runtime_maintenance_runtime_unavailable">Firmware update required before normal control is available on this controller.</string>
     <string name="maintenance_title">Firmware update</string>
+    <string name="maintenance_screen_optional_intro">Select a firmware image, review the summary, and install it from this dedicated maintenance screen.</string>
+    <string name="maintenance_screen_forced_intro">Normal control is unavailable until the controller firmware is updated. Complete the update here or disconnect.</string>
+    <string name="maintenance_screen_return_chip">Return to firmware update</string>
+    <string name="maintenance_leave_title">Leave firmware update screen?</string>
+    <string name="maintenance_leave_body">The firmware update will continue in the background if possible. You can return to this screen from the app while the update is still active.</string>
+    <string name="maintenance_leave_stay">Stay here</string>
+    <string name="maintenance_leave_continue">Leave and continue</string>
+    <string name="maintenance_notification_channel">Firmware update</string>
+    <string name="maintenance_notification_title">Firmware update running</string>
+    <string name="maintenance_notification_fallback">Keep BeetMeister available while the firmware update continues.</string>
     <string name="maintenance_current_firmware" localizePipeContext="Current firmware summary in maintenance mode. %1$s is firmware version, %2$s is build label, %3$s is the translated image kind label.">Current firmware: %1$s (%2$s, %3$s).</string>
-    <string name="maintenance_use_bundled">Use bundled firmware</string>
-    <string name="maintenance_choose_custom">Choose custom image</string>
+    <string name="maintenance_use_bundled">Bundled in app</string>
+    <string name="maintenance_choose_custom">Custom file</string>
     <string name="maintenance_install_firmware">Install firmware</string>
     <string name="maintenance_abort_update">Abort update</string>
+    <string name="maintenance_selected_header">Selected firmware</string>
+    <string name="maintenance_selected_version_label">Version</string>
+    <string name="maintenance_selected_target_label">Target</string>
+    <string name="maintenance_selected_source_label">Selection source</string>
+    <string name="maintenance_selected_file_label">Selected file</string>
+    <string name="maintenance_selected_image_kind_label">Embedded image kind</string>
+    <string name="maintenance_selected_details_value" localizePipeContext="Target details value. %1$s is product ID, %2$s is hardware revision, %3$d is image size in bytes.">%1$s / %2$s, %3$d bytes</string>
     <string name="maintenance_selected_summary" localizePipeContext="Selected firmware summary. %1$s is firmware version, %2$s is build label, %3$s is the source label such as bundled asset name or custom filename.">Selected firmware: %1$s (%2$s) from %3$s.</string>
     <string name="maintenance_selected_details" localizePipeContext="Selected firmware detail line. %1$s is product ID, %2$s is hardware revision, %3$d is image size in bytes.">Target: %1$s / %2$s, %3$d bytes.</string>
+    <string name="maintenance_selected_source_detail" localizePipeContext="Selection source summary. %1$s is a short source label such as Bundled in app or Custom file.">Selection source: %1$s.</string>
+    <string name="maintenance_selected_image_kind_detail" localizePipeContext="Embedded image kind summary. %1$s is the translated image kind label from firmware metadata.">Embedded image kind: %1$s.</string>
+    <string name="maintenance_selection_source_bundled">Bundled in app</string>
+    <string name="maintenance_selection_source_custom">Custom file</string>
     <string name="maintenance_warning_downgrade">This image is older than the firmware currently installed on the controller.</string>
     <string name="maintenance_warning_runtime_protocol">This image reports a runtime protocol that this app may not fully support after installation.</string>
     <string name="maintenance_ready_to_install" localizePipeContext="Bundled firmware prepared for installation. %1$s is the build label.">Ready to install bundled firmware %1$s.</string>
@@ -384,6 +408,9 @@
     <string name="maintenance_unexpected_status" localizePipeContext="Unexpected maintenance updater state. %1$s is the raw state name from the controller.">Unexpected maintenance status %1$s.</string>
     <string name="maintenance_missing_session">Maintenance session ID is missing.</string>
     <string name="maintenance_uploading_progress" localizePipeContext="Upload progress. %1$d is bytes sent and %2$d is total bytes.">Uploading firmware: %1$d / %2$d bytes.</string>
+    <string name="maintenance_progress_percent" localizePipeContext="Percent completion during firmware upload. %1$d is the integer percentage.">%1$d%% complete.</string>
+    <string name="maintenance_progress_elapsed" localizePipeContext="Elapsed firmware update time. %1$s is an already formatted duration string.">Elapsed: %1$s.</string>
+    <string name="maintenance_progress_remaining" localizePipeContext="Estimated remaining firmware update time. %1$s is an already formatted duration string.">Estimated remaining: %1$s.</string>
     <string name="maintenance_reconnecting_attempt" localizePipeContext="Reconnect progress during maintenance upload. %1$d is the current attempt and %2$d is the maximum retries.">Reconnecting to resume update (%1$d/%2$d).</string>
     <string name="maintenance_reconnect_timeout">Could not reconnect to resume the firmware update.</string>
     <string name="maintenance_rebooting_after_update">Firmware uploaded. Controller is rebooting.</string>

@@ -958,6 +958,63 @@ Exit condition:
 
 - the updater passes the required real-device scenarios on actual hardware with logs captured for review
 
+#### Stage 8.1: Dedicated Firmware Update Flow And Maintenance-State Split
+
+Goal:
+
+- move firmware update out of the regular Settings screen into a dedicated maintenance flow that owns OTA-specific UI, navigation, and connection handling
+
+Scope:
+
+- add a dedicated firmware update screen that is separate from the normal runtime screens
+- enter that screen manually from Settings for optional updates
+- auto-enter that screen when the controller is in forced maintenance mode because normal runtime protocol is unavailable or incompatible
+- hide normal app navigation while the dedicated firmware update screen is active
+- allow the user to leave the screen as expected, but keep an active update running through a sticky foreground-capable Android service with notification support
+- provide an in-app return entry when an update is still active outside the screen
+- remove the active firmware update controls from the regular Settings screen once the dedicated flow exists
+- split maintenance-specific connection state handling from normal runtime connection handling so OTA reconnect and resume no longer rely on the main-screen connection assumptions
+- fix the app-side timeout behavior so an active maintenance reconnect or resumed upload is treated as valid progress instead of a failed connection attempt
+
+Required implementation outcomes:
+
+- the app has one dedicated firmware update flow for both optional and forced maintenance cases
+- the OTA flow can continue safely when the app screen is left or backgrounded
+- reconnect-after-drop resumes the active OTA session without the app timing itself out while maintenance progress is still happening
+- successful post-update reconnect returns to normal runtime UI only when the installed firmware is compatible with the app runtime protocol
+- incompatible post-update reconnect remains in the maintenance or update-required path instead of falling back to normal runtime control
+- the current real-device baseline is preserved: `begin_update` succeeds, sustained OTA writes succeed, and reconnect/resume after a BLE drop continues the same session
+- the known remaining blocker from `artifacts/stage8/live-20260620-114205-e2e-final` is removed: the app must no longer kill a healthy resumed OTA session with its own connection-timeout logic while the connection phase is `MaintenanceRequired`
+
+Validation notes:
+
+- verify the dedicated screen works for both a runtime-compatible controller and a forced-maintenance controller
+- verify leaving the screen during upload does not abort the update and that the user can return to the active flow
+- verify the known real-device failure from `artifacts/stage8/live-20260620-114205-e2e-final` is resolved by preventing maintenance-progress reconnects from being killed by the normal connection timeout logic
+
+Testing focus for Stage 8.1:
+
+- validate the dedicated firmware update flow on a real Android phone connected through ADB and a real BeetMeister controller connected on the bench
+- verify optional update entry from Settings opens the dedicated firmware update screen instead of keeping the user in the regular Settings page
+- verify forced-maintenance connection auto-enters the dedicated firmware update screen and does not expose normal runtime control while the controller is outdated or incompatible
+- verify leaving the dedicated screen during an active upload does not abort the update and that the app exposes a clear way to return to the active update flow
+- verify the sticky foreground-capable service and notification behavior while the app is backgrounded and then reopened
+- verify BLE disconnect during upload resumes correctly inside the dedicated maintenance flow and does not restart from zero when the controller still reports a resumable session
+- verify the known timeout failure from `artifacts/stage8/live-20260620-114205-e2e-final` is resolved: the app must not fire the normal connection timeout while maintenance reconnect or resumed upload is making forward progress
+- verify successful update completion returns to normal runtime UI only when the installed firmware is app-compatible
+- verify successful installation of an app-incompatible firmware returns to a safe maintenance or update-required path instead of pretending normal control is available
+- capture Android logcat, controller serial logs, and user-visible UI evidence for each of these scenarios
+
+Exit evidence for Stage 8.1 testing:
+
+- at least one real phone and the attached controller complete the dedicated-screen OTA flow end to end
+- reconnect-and-resume after a real BLE drop is demonstrated on hardware without the app-side maintenance timeout bug recurring
+- logs and UI captures are saved under the Stage 8 artifact workflow for later review
+
+Exit condition:
+
+- firmware update is no longer hosted inside the regular Settings page, and the app can complete or actively resume BLE OTA without the normal connection timeout logic terminating a healthy maintenance session
+
 ## Test Plan
 
 ### Firmware host tests

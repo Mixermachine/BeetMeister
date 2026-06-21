@@ -41,7 +41,6 @@ import de.aarondietz.beetmeister.ui.core.formatting.connectionPhaseLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
 import de.aarondietz.beetmeister.ui.core.formatting.maintenanceImageKindLabel
 import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
-import de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdatePanel
 
 internal data class SettingsSaveDraft(
     val valveConfig: BeetValveConfig?,
@@ -58,10 +57,7 @@ internal fun SettingsScreen(
     onOpenValveCalibration: () -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
-    onPrepareBundledFirmware: () -> Unit,
-    onPickCustomFirmware: () -> Unit,
-    onStartMaintenanceUpdate: () -> Unit,
-    onAbortMaintenanceUpdate: () -> Unit,
+    onOpenFirmwareUpdate: () -> Unit,
     onDisconnect: () -> Unit,
     onUnsavedStateChange: (Boolean, SettingsSaveDraft?) -> Unit,
     modifier: Modifier = Modifier,
@@ -213,16 +209,18 @@ internal fun SettingsScreen(
                 }
             }
             item {
-                MaintenanceUpdatePanel(
-                    state = state,
-                    onPrepareBundledFirmware = onPrepareBundledFirmware,
-                    onPickCustomFirmware = onPickCustomFirmware,
-                    onStartMaintenanceUpdate = onStartMaintenanceUpdate,
-                    onAbortMaintenanceUpdate = onAbortMaintenanceUpdate,
-                    onDisconnect = onDisconnect,
-                    showDisconnectButton = false,
+                ElevatedCard(
                     modifier = Modifier.fillMaxWidth(),
-                )
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F0E5)),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(strings.get(R.string.settings_firmware_update_title), style = MaterialTheme.typography.titleMedium)
+                        Text(strings.get(R.string.settings_firmware_update_subtitle), style = MaterialTheme.typography.bodyMedium)
+                        Button(onClick = onOpenFirmwareUpdate) {
+                            Text(strings.get(R.string.settings_open_firmware_update))
+                        }
+                    }
+                }
             }
             item {
                 ElevatedCard(

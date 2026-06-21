@@ -445,7 +445,7 @@ class BeetJsonCodecTest {
     @Test
     fun buildsMaintenanceBeginUpdateCommand() {
         val payload = BeetJsonCodec.maintenanceBeginUpdate(
-            BeetFirmwarePackageSummary(
+            firmware = BeetFirmwarePackageSummary(
                 source = BeetFirmwareSource.Bundled,
                 sourceLabel = "Bundled",
                 assetId = "bundled-dev",
@@ -464,23 +464,25 @@ class BeetJsonCodecTest {
                 isDowngrade = false,
                 runtimeProtocolWarning = false,
             ),
+            maxPayloadBytes = 512,
         )
 
-        assertTrue(payload.contains("\"cmd\":\"begin_update\""))
-        assertTrue(payload.contains("\"fv\":\"0.2.0\""))
-        assertTrue(payload.contains("\"bl\":\"v0.2.0\""))
-        assertTrue(payload.contains("\"sz\":4096"))
-        assertTrue(payload.contains("\"hr\":[\"rev_a\",\"rev_b\"]"))
-        assertTrue(payload.contains("\"rp\":9"))
-        assertTrue(payload.contains("\"ai\":\"bundled-dev\""))
-        assertTrue(payload.contains("\"ik\":\"bundled\""))
-        assertTrue(payload.toByteArray(StandardCharsets.UTF_8).size <= 220)
+        assertFalse(payload.compact)
+        assertTrue(payload.json.contains("\"cmd\":\"begin_update\""))
+        assertTrue(payload.json.contains("\"firmware_version\":\"0.2.0\""))
+        assertTrue(payload.json.contains("\"build_label\":\"v0.2.0\""))
+        assertTrue(payload.json.contains("\"image_size\":4096"))
+        assertTrue(payload.json.contains("\"hardware_revs\":[\"rev_a\",\"rev_b\"]"))
+        assertTrue(payload.json.contains("\"runtime_protocol_version\":9"))
+        assertTrue(payload.json.contains("\"asset_id\":\"bundled-dev\""))
+        assertTrue(payload.json.contains("\"image_kind\":\"bundled\""))
+        assertTrue(payload.sizeBytes <= 512)
     }
 
     @Test
     fun buildsMaintenanceBeginUpdateCommandForCustomImage() {
         val payload = BeetJsonCodec.maintenanceBeginUpdate(
-            BeetFirmwarePackageSummary(
+            firmware = BeetFirmwarePackageSummary(
                 source = BeetFirmwareSource.Custom,
                 sourceLabel = "my-build.bin",
                 assetId = "custom",
@@ -499,11 +501,13 @@ class BeetJsonCodecTest {
                 isDowngrade = false,
                 runtimeProtocolWarning = true,
             ),
+            maxPayloadBytes = 220,
         )
 
-        assertTrue(payload.contains("\"ai\":\"custom\""))
-        assertTrue(payload.contains("\"rp\":10"))
-        assertTrue(payload.contains("\"ik\":\"custom\""))
-        assertTrue(payload.toByteArray(StandardCharsets.UTF_8).size <= 220)
+        assertTrue(payload.compact)
+        assertTrue(payload.json.contains("\"ai\":\"custom\""))
+        assertTrue(payload.json.contains("\"rp\":10"))
+        assertTrue(payload.json.contains("\"ik\":\"custom\""))
+        assertTrue(payload.sizeBytes <= 220)
     }
 }

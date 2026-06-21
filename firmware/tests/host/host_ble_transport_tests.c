@@ -123,8 +123,8 @@ static const char *beet_begin_update_json(void)
 static const char *beet_stage4_begin_update_json(void)
 {
     return
-        "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"bd88ef0-dirty\",\"build_label\":\"bd88ef0-dirty\","
-        "\"image_size\":122,\"image_sha256\":\"9e0bc87921e10a3718521ae05f49abe9ff53b894eefdeef48dbb52f087dd62de\","
+        "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
+        "\"image_size\":122,\"image_sha256\":\"a90ba2135c38eeb61cb20097d2c841c8d9892f76f5e1c4363f8c8746724f95a7\","
         "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":9,"
         "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
 }
@@ -158,6 +158,13 @@ static void beet_start_maintenance_update(const char *begin_update_json)
 static void beet_flush_maintenance_service(unsigned iterations)
 {
     for (unsigned i = 0U; i < iterations; ++i) {
+        beet_ble_service();
+    }
+}
+
+static void beet_flush_state_stream_initial_sync(void)
+{
+    for (unsigned i = 0U; i < (unsigned)BEET_PAIR_COUNT + 2U; ++i) {
         beet_ble_service();
     }
 }
@@ -487,7 +494,7 @@ static void test_runtime_state_stream_suppresses_minor_jitter(void)
     pair.sensor_valid = true;
     ble_host_test_set_pair_state(1U, &pair);
 
-    beet_ble_service();
+    beet_flush_state_stream_initial_sync();
     TEST_ASSERT_TRUE(ble_host_test_notification_count() > 0U);
 
     ble_host_test_clear_captures();
@@ -496,6 +503,7 @@ static void test_runtime_state_stream_suppresses_minor_jitter(void)
     ble_host_test_set_device_state(&device);
     pair.sensor_mv = 1692U;
     ble_host_test_set_pair_state(1U, &pair);
+    ble_host_test_advance_time_us(250000LL);
     beet_ble_service();
     TEST_ASSERT_U32_EQ(0U, ble_host_test_notification_count());
 }
@@ -520,17 +528,19 @@ static void test_runtime_state_stream_notifies_meaningful_changes(void)
     pair.sensor_valid = true;
     ble_host_test_set_pair_state(1U, &pair);
 
-    beet_ble_service();
+    beet_flush_state_stream_initial_sync();
     ble_host_test_clear_captures();
 
     device.next_check_in_s = 4690U;
     ble_host_test_set_device_state(&device);
+    ble_host_test_advance_time_us(1000000LL);
     beet_ble_service();
     TEST_ASSERT_TRUE(ble_host_test_notification_count() > 0U);
 
     ble_host_test_clear_captures();
     pair.sensor_mv = 1710U;
     ble_host_test_set_pair_state(1U, &pair);
+    ble_host_test_advance_time_us(1000000LL);
     beet_ble_service();
     TEST_ASSERT_TRUE(ble_host_test_notification_count() > 0U);
 }

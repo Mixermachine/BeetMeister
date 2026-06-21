@@ -761,8 +761,8 @@ static void test_maintenance_metadata_and_info(void)
     TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_metadata_parse(block, block_len, &metadata));
     TEST_ASSERT_STR_EQ("beetmeister", metadata.product_id);
     TEST_ASSERT_STR_EQ("rev_a", metadata.hardware_rev);
-    TEST_ASSERT_STR_EQ("bd88ef0-dirty", metadata.firmware_version);
-    TEST_ASSERT_STR_EQ("bd88ef0-dirty", metadata.build_label);
+    TEST_ASSERT_STR_EQ("f5146cc-dirty", metadata.firmware_version);
+    TEST_ASSERT_STR_EQ("f5146cc-dirty", metadata.build_label);
     TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_PROTOCOL_VERSION, metadata.maintenance_protocol_version);
     TEST_ASSERT_U32_EQ(BEET_RUNTIME_PROTOCOL_VERSION, metadata.runtime_protocol_version);
     TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, metadata.image_kind);
@@ -810,16 +810,21 @@ static void test_maintenance_codec_and_request_parsing(void)
         "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":9,"
         "\"asset_id\":\"bundled-test\",\"image_kind\":\"bundled\"}}",
         &request));
+    TEST_ASSERT_TRUE(beet_ble_parse_maintenance_request_json(
+        "{\"cmd\":\"begin_update\",\"d\":{\"fv\":\"bd88ef0-dirty\",\"bl\":\"bd88ef0-dirty\","
+        "\"sz\":721488,\"sh\":\"10ab686331845c30569226472b44c1c8bff7a686f42dbefc9da174f6845a1177\","
+        "\"pi\":\"beetmeister\",\"hr\":[\"rev_a\"],\"rp\":9,\"ai\":\"bundled-dev\",\"ik\":\"bundled\"}}",
+        &request));
     TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_COMMAND_BEGIN_UPDATE, request.command);
-    TEST_ASSERT_STR_EQ("v0.2.0", request.begin_update.firmware_version);
-    TEST_ASSERT_STR_EQ("v0.2.0", request.begin_update.build_label);
-    TEST_ASSERT_U32_EQ(1234U, request.begin_update.image_size);
+    TEST_ASSERT_STR_EQ("bd88ef0-dirty", request.begin_update.firmware_version);
+    TEST_ASSERT_STR_EQ("bd88ef0-dirty", request.begin_update.build_label);
+    TEST_ASSERT_U32_EQ(721488U, request.begin_update.image_size);
     TEST_ASSERT_STR_EQ("beetmeister", request.begin_update.product_id);
     TEST_ASSERT_U32_EQ(1U, request.begin_update.hardware_rev_count);
     TEST_ASSERT_STR_EQ("rev_a", request.begin_update.hardware_revs[0]);
     TEST_ASSERT_TRUE(request.begin_update.has_runtime_protocol_version);
     TEST_ASSERT_U32_EQ(9U, request.begin_update.runtime_protocol_version);
-    TEST_ASSERT_STR_EQ("bundled-test", request.begin_update.asset_id);
+    TEST_ASSERT_STR_EQ("bundled-dev", request.begin_update.asset_id);
     TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, request.begin_update.image_kind);
     TEST_ASSERT_TRUE(beet_ble_parse_maintenance_request_json("{\"cmd\":\"abort_update\"}", &request));
     TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_COMMAND_ABORT_UPDATE, request.command);
