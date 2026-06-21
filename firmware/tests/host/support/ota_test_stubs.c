@@ -289,8 +289,10 @@ esp_err_t esp_ota_get_partition_description(const esp_partition_t *partition, es
     if (app_desc == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    static const char k_host_ota_version[] = "host-ota";
+
     memset(app_desc, 0, sizeof(*app_desc));
-    strncpy((char *)app_desc->version, "host-ota", sizeof(app_desc->version) - 1U);
+    app_desc->version = k_host_ota_version;
     return ESP_OK;
 }
 
