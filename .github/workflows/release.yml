@@ -76,7 +76,7 @@ jobs:
           if-no-files-found: warn
 
   app-sign-release:
-    name: App release signing
+    name: App release build
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - firmware-release
@@ -99,14 +99,16 @@ jobs:
         # v4
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - name: Validate signing secrets
+      - name: Report signing mode
         run: |
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          test -n "$ANDROID_KEYSTORE_PASSWORD"
-          test -n "$ANDROID_KEY_ALIAS"
-          test -n "$ANDROID_KEY_PASSWORD"
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "Android signing secrets detected. Building signed release APK."
+          else
+            echo "Android signing secrets not configured. Building unsigned release APK."
+          fi
 
       - name: Decode Android release keystore
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         run: |
           KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
