@@ -1,3 +1,6 @@
+import org.gradle.api.tasks.Exec
+import org.gradle.internal.os.OperatingSystem
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -51,6 +54,40 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets.named("main") {
+        assets.srcDir(layout.buildDirectory.dir("generated/bundledFirmware/main/assets").get().asFile)
+    }
+}
+
+val bundledFirmwareAssetsDir = layout.buildDirectory.dir("generated/bundledFirmware/main/assets/firmware")
+
+val prepareBundledFirmware by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Builds or stages the bundled BeetMeister firmware asset for the app."
+
+    val output = bundledFirmwareAssetsDir.get().asFile.absolutePath
+    val prebuiltImage = System.getenv("BEET_BUNDLED_FIRMWARE_IMAGE")
+
+    val shell = if (OperatingSystem.current().isWindows) "powershell" else "pwsh"
+    commandLine(
+        shell,
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        rootProject.file("../scripts/release/export-bundled-firmware.ps1").absolutePath,
+        "-OutputDir",
+        output,
+    )
+    if (!prebuiltImage.isNullOrBlank()) {
+        args("-PrebuiltImagePath", prebuiltImage)
+    }
+}
+
+tasks.matching { task ->
+    task.name == "preBuild"
+}.configureEach {
+    dependsOn(prepareBundledFirmware)
 }
 
 dependencies {

@@ -8,8 +8,7 @@ import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
 import de.aarondietz.beetmeister.model.update.BeetFirmwareSource
 
 internal object BeetFirmwareCatalog {
-    private const val BUNDLED_ASSET_PATH = "firmware/beetmeister-rev_a-dev.bin"
-    private const val BUNDLED_BLE_ASSET_ID = "bundled-dev"
+    private const val BUNDLED_ASSET_PATH = "firmware/beetmeister-rev_a-bundled.bin"
     private const val CUSTOM_BLE_ASSET_ID = "custom"
     private const val MAX_CUSTOM_IMAGE_BYTES = 4 * 1024 * 1024
 
@@ -20,10 +19,11 @@ internal object BeetFirmwareCatalog {
     ): Pair<BeetFirmwareImagePackage, BeetFirmwarePackageSummary> {
         val imageBytes = context.assets.open(BUNDLED_ASSET_PATH).use { it.readBytes() }
         val imagePackage = BeetFirmwareImageParser.parseImage(imageBytes)
+        val assetId = buildBundledAssetId(imagePackage)
         return imagePackage to imagePackage.toSummary(
             source = BeetFirmwareSource.Bundled,
             sourceLabel = "Bundled",
-            assetId = BUNDLED_BLE_ASSET_ID,
+            assetId = assetId,
             maintenanceInfo = maintenanceInfo,
             supportedRuntimeProtocolVersion = supportedRuntimeProtocolVersion,
         )
@@ -95,6 +95,19 @@ internal object BeetFirmwareCatalog {
             isDowngrade = currentVersion != null && compareVersions(metadata.firmwareVersion, currentVersion) < 0,
             runtimeProtocolWarning = metadata.runtimeProtocolVersion != supportedRuntimeProtocolVersion,
         )
+    }
+
+    private fun buildBundledAssetId(imagePackage: BeetFirmwareImagePackage): String {
+        val metadata = imagePackage.metadata
+        val raw = "bundled-${metadata.hardwareRev}-${metadata.firmwareVersion}"
+        val sanitized = raw.map { char ->
+            when {
+                char.isLetterOrDigit() -> char
+                char == '-' || char == '_' || char == '.' -> char
+                else -> '-'
+            }
+        }.joinToString("")
+        return sanitized.take(64)
     }
 
     private fun compareVersions(left: String, right: String): Int {

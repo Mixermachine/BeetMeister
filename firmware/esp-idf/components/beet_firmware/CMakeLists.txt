@@ -1,13 +1,20 @@
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 set(BEET_METADATA_GENERATED_HEADER "${CMAKE_CURRENT_LIST_DIR}/include/beet_generated_metadata.h")
+if(NOT DEFINED BEET_FIRMWARE_VERSION)
+    set(BEET_FIRMWARE_VERSION "${PROJECT_VER}")
+endif()
+if(NOT DEFINED BEET_BUILD_LABEL)
+    set(BEET_BUILD_LABEL "${PROJECT_VER}")
+endif()
 
 execute_process(
     COMMAND
         ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_LIST_DIR}/tools/gen_beet_metadata_header.py"
         --output "${BEET_METADATA_GENERATED_HEADER}"
-        --project-ver "${PROJECT_VER}"
+        --firmware-version "${BEET_FIRMWARE_VERSION}"
+        --build-label "${BEET_BUILD_LABEL}"
         --product-id "beetmeister"
         --hardware-rev "rev_a"
         --maintenance-protocol-version "1"

@@ -37,7 +37,9 @@ def format_bytes(block: bytes) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True)
-    parser.add_argument("--project-ver", required=True)
+    parser.add_argument("--project-ver")
+    parser.add_argument("--firmware-version")
+    parser.add_argument("--build-label")
     parser.add_argument("--product-id", required=True)
     parser.add_argument("--hardware-rev", required=True)
     parser.add_argument("--maintenance-protocol-version", type=int, required=True)
@@ -46,8 +48,12 @@ def main() -> None:
     parser.add_argument("--compatible-hardware-rev", action="append", required=True)
     args = parser.parse_args()
 
-    firmware_version = args.project_ver
-    build_label = args.project_ver
+    firmware_version = args.firmware_version or args.project_ver
+    build_label = args.build_label or args.project_ver
+    if not firmware_version:
+        raise SystemExit("Either --firmware-version or --project-ver is required.")
+    if not build_label:
+        raise SystemExit("Either --build-label or --project-ver is required.")
 
     tlvs = []
     tlvs.append(tlv_string(TLV_PRODUCT_ID, args.product_id))

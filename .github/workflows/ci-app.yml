@@ -6,11 +6,17 @@ on:
       - "**"
     paths:
       - "app/**"
+      - "firmware/**"
+      - "scripts/release/**"
+      - "scripts/dev/verify-firmware-release-config.ps1"
       - ".github/workflows/ci-app.yml"
       - ".github/workflows/release.yml"
   pull_request:
     paths:
       - "app/**"
+      - "firmware/**"
+      - "scripts/release/**"
+      - "scripts/dev/verify-firmware-release-config.ps1"
       - ".github/workflows/ci-app.yml"
       - ".github/workflows/release.yml"
   workflow_dispatch:
@@ -23,8 +29,60 @@ permissions:
   contents: read
 
 jobs:
+  bundled-firmware:
+    name: Build bundled firmware artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Restore ESP-IDF cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            .ci-cache/esp-idf
+            .ci-cache/esp-tools
+          key: ${{ runner.os }}-espidf-v6.0-v1
+          restore-keys: |
+            ${{ runner.os }}-espidf-v6.0-
+
+      - name: Set up ESP-IDF v6.0
+        uses: espressif/install-esp-idf-action@8fc05d1470d5591417e7a3707a1f2bec178db4ae
+        with:
+          version: v6.0
+          path: ${{ github.workspace }}/.ci-cache/esp-idf
+          tools-path: ${{ github.workspace }}/.ci-cache/esp-tools
+
+      - name: Build bundled firmware
+        working-directory: firmware/esp-idf
+        env:
+          SDKCONFIG_DEFAULTS: sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.release.defaults
+          SDKCONFIG: build/sdkconfig.release.generated
+        run: |
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+          DESCRIBE="$(git describe --tags --always --dirty)"
+          rm -f "$SDKCONFIG"
+          idf.py set-target esp32s3
+          idf.py -DSDKCONFIG="$SDKCONFIG" -DBEET_FIRMWARE_VERSION="dev-${SHORT_SHA}" -DBEET_BUILD_LABEL="${DESCRIBE}" build
+
+      - name: Validate release firmware config
+        shell: pwsh
+        run: ./scripts/dev/verify-firmware-release-config.ps1 -SdkconfigPath ./firmware/esp-idf/build/sdkconfig.release.generated
+
+      - name: Upload bundled firmware
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bundled-firmware
+          path: firmware/esp-idf/build/beetmeister.bin
+          if-no-files-found: error
+
   app-build:
     name: Build Android app
+    needs: bundled-firmware
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -49,10 +107,18 @@ jobs:
         # v4
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e
 
+      - name: Download bundled firmware
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: bundled-firmware
+          path: bundled-firmware
+
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
       - name: Run unit tests and build debug APK
+        env:
+          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/bundled-firmware/beetmeister.bin
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
       - name: Upload debug APK

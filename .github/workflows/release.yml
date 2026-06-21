@@ -17,6 +17,7 @@ jobs:
   app-verify:
     name: App verify (tests + debug)
     if: startsWith(github.ref, 'refs/tags/v')
+    needs: firmware-release
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -41,10 +42,19 @@ jobs:
         # v4
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e
 
+      - name: Download bundled firmware
+        # v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: firmware-release-${{ github.ref_name }}
+          path: firmware-release
+
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
       - name: Run app tests and build debug APK
+        env:
+          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/firmware-release/beetmeister.bin
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
       - name: Upload debug APK
@@ -68,7 +78,9 @@ jobs:
   app-sign-release:
     name: App release signing
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: app-verify
+    needs:
+      - firmware-release
+      - app-verify
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -111,10 +123,19 @@ jobs:
         # v4
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e
 
+      - name: Download bundled firmware
+        # v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: firmware-release-${{ github.ref_name }}
+          path: firmware-release
+
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
       - name: Build release APK
+        env:
+          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/firmware-release/beetmeister.bin
         run: ./gradlew :app:assembleRelease --stacktrace
 
       - name: Upload release APK
@@ -170,9 +191,17 @@ jobs:
 
       - name: Build firmware
         working-directory: firmware/esp-idf
+        env:
+          SDKCONFIG: build/sdkconfig.release.generated
+          SDKCONFIG_DEFAULTS: sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.release.defaults
         run: |
+          rm -f "$SDKCONFIG"
           idf.py set-target esp32s3
-          idf.py build
+          idf.py -DSDKCONFIG="$SDKCONFIG" -DBEET_FIRMWARE_VERSION="${{ github.ref_name }}" -DBEET_BUILD_LABEL="${{ github.ref_name }}" build
+
+      - name: Validate release firmware config
+        shell: pwsh
+        run: ./scripts/dev/verify-firmware-release-config.ps1 -SdkconfigPath ./firmware/esp-idf/build/sdkconfig.release.generated
 
       - name: Upload firmware artifacts
         # v4
