@@ -54,7 +54,7 @@ jobs:
 
       - name: Run app tests and build debug APK
         env:
-          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/firmware-release/beetmeister.bin
+          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/firmware-release/esp-idf/build/beetmeister.bin
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
       - name: Upload debug APK
@@ -135,7 +135,7 @@ jobs:
 
       - name: Build release APK
         env:
-          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/firmware-release/beetmeister.bin
+          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/firmware-release/esp-idf/build/beetmeister.bin
         run: ./gradlew :app:assembleRelease --stacktrace
 
       - name: Upload release APK
