@@ -3,6 +3,23 @@
 tmp-cal-monitor.err
 tmp-cal-monitor.txt
 .tmp_qemu_inspect/
+.codex_gradle_project_cache/
+.codex_tmp_test/
+
+# Stage 8 validation evidence and scratch outputs.
+artifacts/stage8/
+artifacts/script-logs/
+artifacts/tmp-bundled-firmware/
+artifacts/tmp-release-artifact/
+
+# Local ESP-IDF build outputs.
+firmware/esp-idf/build*/
+
+# Generated release metadata and temporary probe files.
+/bundled-firmware-stamp.json
+/write_probe.txt
+/10832
+/17976
 
 app/.idea/
 app/.gradle/

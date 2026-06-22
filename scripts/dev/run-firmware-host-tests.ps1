@@ -1,10 +1,14 @@
 param(
-    [string]$BuildDir = "firmware/tests/host/build"
+    [string]$BuildDir = "firmware/tests/host/build",
+    [switch]$FullOutput
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\\..")
+. (Join-Path $repoRoot "scripts\shared\BeetScriptOutput.ps1")
+$outputMode = Resolve-BeetOutputMode -FullOutput:$FullOutput
+$scriptContext = New-BeetScriptContext -RepoRoot $repoRoot -ScriptName "run-firmware-host-tests" -Mode $outputMode
 $cmake = "C:\\Espressif\\tools\\cmake\\4.0.3\\bin\\cmake.exe"
 $ctest = "C:\\Espressif\\tools\\cmake\\4.0.3\\bin\\ctest.exe"
 $ninja = "C:\\Espressif\\tools\\ninja\\1.12.1\\ninja.exe"
@@ -49,6 +53,7 @@ function Import-VsBuildEnvironment {
 }
 
 function Invoke-CompileOnlyValidation {
+    Write-BeetPhase "Running compile-only firmware host validation."
     $objDir = Join-Path $sourceDir "objcheck"
     Remove-Item -Recurse -Force $objDir -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $objDir | Out-Null
@@ -74,20 +79,23 @@ function Invoke-CompileOnlyValidation {
             $source -like '*ble_test_stubs.c') {
             $extraArgs += '-DBEET_HOST_TEST=1'
         }
-        & $clang `
-            "-I$supportDir" `
-            "-I$(Join-Path $repoRoot 'firmware\\esp-idf\\components\\beet_firmware\\include')" `
-            -Wall -Wextra -Werror -std=c11 `
-            $extraArgs `
-            -c $source `
-            -o (Join-Path $objDir "$name.obj")
-        if ($LASTEXITCODE -ne 0) {
-            throw "Compile-only validation failed for $source"
-        }
+        Invoke-BeetProcess `
+            -Context $scriptContext `
+            -Description "compile-$name" `
+            -FilePath $clang `
+            -ArgumentList @(
+                "-I$supportDir",
+                "-I$(Join-Path $repoRoot 'firmware\\esp-idf\\components\\beet_firmware\\include')",
+                "-Wall", "-Wextra", "-Werror", "-std=c11"
+            ) + $extraArgs + @(
+                "-c", $source,
+                "-o", (Join-Path $objDir "$name.obj")
+            ) `
+            -WorkingDirectory $repoRoot | Out-Null
     }
 
     Remove-Item -Recurse -Force $objDir -ErrorAction SilentlyContinue
-    Write-Host "Host test compile-only validation passed. Native execution requires a Windows MSVC/SDK linker environment."
+    Write-BeetSuccess "Host test compile-only validation passed. Native execution requires a Windows MSVC/SDK linker environment."
 }
 
 if (-not (Import-VsBuildEnvironment)) {
@@ -95,19 +103,37 @@ if (-not (Import-VsBuildEnvironment)) {
     exit 0
 }
 
-& $cmake -S $sourceDir -B $resolvedBuildDir -G Ninja `
-    "-DCMAKE_MAKE_PROGRAM=$ninja" `
-    "-DCMAKE_C_COMPILER=cl"
-if ($LASTEXITCODE -ne 0) {
-    throw "CMake configure failed."
-}
+Write-BeetPhase "Configuring firmware host tests."
+Invoke-BeetProcess `
+    -Context $scriptContext `
+    -Description "cmake-configure" `
+    -FilePath $cmake `
+    -ArgumentList @(
+        "-S", $sourceDir,
+        "-B", $resolvedBuildDir,
+        "-G", "Ninja",
+        "-DCMAKE_MAKE_PROGRAM=$ninja",
+        "-DCMAKE_C_COMPILER=cl"
+    ) `
+    -WorkingDirectory $repoRoot | Out-Null
 
-& $cmake --build $resolvedBuildDir
-if ($LASTEXITCODE -ne 0) {
-    throw "Host test build failed."
-}
+Write-BeetPhase "Building firmware host tests."
+Invoke-BeetProcess `
+    -Context $scriptContext `
+    -Description "cmake-build" `
+    -FilePath $cmake `
+    -ArgumentList @("--build", $resolvedBuildDir) `
+    -WorkingDirectory $repoRoot | Out-Null
 
-& $ctest --test-dir $resolvedBuildDir --output-on-failure
-if ($LASTEXITCODE -ne 0) {
-    throw "Host tests failed."
+Write-BeetPhase "Running firmware host tests."
+Invoke-BeetProcess `
+    -Context $scriptContext `
+    -Description "ctest" `
+    -FilePath $ctest `
+    -ArgumentList @("--test-dir", $resolvedBuildDir, "--output-on-failure") `
+    -WorkingDirectory $repoRoot | Out-Null
+
+Write-BeetSuccess "Firmware host tests passed."
+if ($outputMode -eq "reduced") {
+    Write-BeetSuccess "Detailed logs: $(Get-BeetLogDirectory -Context $scriptContext)"
 }

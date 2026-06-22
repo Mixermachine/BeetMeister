@@ -1,4 +1,5 @@
 param(
+    [switch]$FullOutput,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$IdfArgs
 )
@@ -6,6 +7,11 @@ param(
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\..\.."))
+. (Join-Path $repoRoot "scripts\shared\BeetScriptOutput.ps1")
+$outputMode = Resolve-BeetOutputMode -FullOutput:$FullOutput
+$scriptContext = New-BeetScriptContext -RepoRoot $repoRoot -ScriptName "invoke-idf" -Mode $outputMode
 
 $env:IDF_PATH = 'C:\esp\v6.0\esp-idf'
 $env:IDF_PYTHON_ENV_PATH = 'C:\Espressif\tools\python\v6.0\venv'
@@ -27,5 +33,17 @@ $toolPaths = @(
 $currentPathEntries = $env:Path -split ';' | Where-Object { $_ }
 $env:Path = (($toolPaths + $currentPathEntries) | Select-Object -Unique) -join ';'
 
-& 'C:\Espressif\tools\python\v6.0\venv\Scripts\python.exe' 'C:\esp\v6.0\esp-idf\tools\idf.py' @IdfArgs
-exit $LASTEXITCODE
+$idfInteractionMode = Get-BeetIdfInteractionMode -IdfArgs $IdfArgs
+$processResult = Invoke-BeetProcess `
+    -Context $scriptContext `
+    -Description "idf.py" `
+    -FilePath 'C:\Espressif\tools\python\v6.0\venv\Scripts\python.exe' `
+    -ArgumentList @('C:\esp\v6.0\esp-idf\tools\idf.py') + $IdfArgs `
+    -WorkingDirectory (Get-Location).Path `
+    -Interactive:($idfInteractionMode -eq "interactive")
+
+if ($outputMode -eq "reduced" -and $idfInteractionMode -ne "interactive") {
+    Write-BeetSuccess "idf.py completed. Logs: $(Get-BeetLogDirectory -Context $scriptContext)"
+}
+
+exit $processResult.ExitCode

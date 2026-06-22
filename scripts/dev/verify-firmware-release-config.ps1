@@ -1,6 +1,13 @@
 param(
-    [string]$SdkconfigPath = ".\firmware\esp-idf\sdkconfig"
+    [string]$SdkconfigPath = ".\firmware\esp-idf\sdkconfig",
+    [switch]$FullOutput
 )
+
+$ErrorActionPreference = "Stop"
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+. (Join-Path $repoRoot "scripts\shared\BeetScriptOutput.ps1")
+$outputMode = Resolve-BeetOutputMode -FullOutput:$FullOutput
+$scriptContext = New-BeetScriptContext -RepoRoot $repoRoot -ScriptName "verify-firmware-release-config" -Mode $outputMode
 
 if (-not (Test-Path $SdkconfigPath)) {
     Write-Error "sdkconfig not found at '$SdkconfigPath'. Build firmware first."
@@ -29,4 +36,4 @@ function Require-ExactLine {
 
 Require-ExactLine "CONFIG_BEET_ENABLE_BENCH_DIAGNOSTICS=n" "# CONFIG_BEET_ENABLE_BENCH_DIAGNOSTICS is not set"
 
-Write-Host "Release config checks passed for $SdkconfigPath"
+Write-BeetSuccess "Release config checks passed for $SdkconfigPath"

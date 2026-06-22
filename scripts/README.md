@@ -2,6 +2,8 @@ Project automation scripts live here.
 
 - `dev`: local development helpers
 - `release`: packaging and release helpers
+- Maintained script entrypoints default to reduced console output. Set `BEET_SCRIPT_OUTPUT=full` or pass `-FullOutput` to stream full tool output instead.
+- Reduced mode writes detailed stdout/stderr logs to `artifacts/script-logs/`, which is ignored by git.
 
 Current development helpers include:
 

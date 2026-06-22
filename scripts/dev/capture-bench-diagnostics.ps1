@@ -4,10 +4,15 @@ param(
     [int]$DurationSeconds = 15,
     [string]$OutputPath = "",
     [switch]$BenchOnly,
-    [switch]$NoSummary
+    [switch]$NoSummary,
+    [switch]$FullOutput
 )
 
 $ErrorActionPreference = "Stop"
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+. (Join-Path $repoRoot "scripts\shared\BeetScriptOutput.ps1")
+$outputMode = Resolve-BeetOutputMode -FullOutput:$FullOutput
+$scriptContext = New-BeetScriptContext -RepoRoot $repoRoot -ScriptName "capture-bench-diagnostics" -Mode $outputMode
 
 $serialPort = New-Object System.IO.Ports.SerialPort $Port, $BaudRate, ([System.IO.Ports.Parity]::None), 8, ([System.IO.Ports.StopBits]::One)
 $serialPort.ReadTimeout = 200
@@ -33,6 +38,10 @@ function Add-CapturedLine {
     if ($OutputPath) {
         [System.IO.File]::AppendAllText($OutputPath, $trimmed + [Environment]::NewLine)
     }
+}
+
+if (-not $OutputPath) {
+    $OutputPath = Join-Path (Get-BeetLogDirectory -Context $scriptContext) "serial-capture.txt"
 }
 
 if ($OutputPath) {
@@ -84,11 +93,16 @@ $displayLines = if ($BenchOnly) {
     $allLines | Where-Object { $_ -match '^[IWE] \(\d+\) ' }
 }
 
-foreach ($line in $displayLines) {
-    Write-Output $line
+if ($outputMode -eq "full") {
+    foreach ($line in $displayLines) {
+        Write-Output $line
+    }
 }
 
 if ($NoSummary) {
+    if ($outputMode -eq "reduced") {
+        Write-BeetSuccess "Bench diagnostics captured to $OutputPath"
+    }
     return
 }
 
@@ -154,4 +168,8 @@ if ($latestPairs.Count -gt 0) {
         Format-Table Pair, RelayGpio, MoistureGpio, Raw, RawMillivolts, CorrectedMv, MoisturePct, SampleOk, SensorValid, State, Block
 } else {
     Write-Output "pairs no bench pair lines captured"
+}
+
+if ($outputMode -eq "reduced") {
+    Write-BeetSuccess "Raw serial capture: $OutputPath"
 }

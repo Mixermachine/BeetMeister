@@ -10,12 +10,16 @@ param(
     [switch]$SkipInstall,
     [switch]$SkipInstrumentation,
     [switch]$KeepLogcatRunning,
-    [switch]$KeepControllerCaptureRunning
+    [switch]$KeepControllerCaptureRunning,
+    [switch]$FullOutput
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+. (Join-Path $repoRoot "scripts\shared\BeetScriptOutput.ps1")
+$outputMode = Resolve-BeetOutputMode -FullOutput:$FullOutput
+$scriptContext = New-BeetScriptContext -RepoRoot $repoRoot -ScriptName "run-android-real-device-validation" -Mode $outputMode
 $appRoot = Join-Path $repoRoot "app"
 $appApk = Join-Path $appRoot "app\build\outputs\apk\debug\app-debug.apk"
 $testApk = Join-Path $appRoot "app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk"
@@ -131,15 +135,13 @@ $controllerPidFile = Join-Path $LogDir "controller-capture.pid"
 $notesFile = Join-Path $LogDir "scenario-notes.md"
 
 if (-not $SkipBuild) {
-    Push-Location $appRoot
-    try {
-        & .\gradlew.bat :app:assembleDebug :app:assembleDebugAndroidTest
-        if ($LASTEXITCODE -ne 0) {
-            throw "Gradle build failed."
-        }
-    } finally {
-        Pop-Location
-    }
+    Write-BeetPhase "Building Android app and instrumentation APKs."
+    Invoke-BeetProcess `
+        -Context $scriptContext `
+        -Description "gradle-assemble-debug-and-test" `
+        -FilePath (Join-Path $appRoot "gradlew.bat") `
+        -ArgumentList @(":app:assembleDebug", ":app:assembleDebugAndroidTest") `
+        -WorkingDirectory $appRoot | Out-Null
 }
 
 if (-not (Test-Path $appApk)) {
@@ -150,8 +152,19 @@ if (-not (Test-Path $testApk)) {
 }
 
 if (-not $SkipInstall) {
-    Invoke-Adb -AdbArgs @("install", "-r", $appApk)
-    Invoke-Adb -AdbArgs @("install", "-r", $testApk)
+    Write-BeetPhase "Installing app and test APKs."
+    Invoke-BeetProcess `
+        -Context $scriptContext `
+        -Description "adb-install-app" `
+        -FilePath "adb" `
+        -ArgumentList @("-s", $script:SelectedSerial, "install", "-r", $appApk) `
+        -WorkingDirectory $repoRoot | Out-Null
+    Invoke-BeetProcess `
+        -Context $scriptContext `
+        -Description "adb-install-test-app" `
+        -FilePath "adb" `
+        -ArgumentList @("-s", $script:SelectedSerial, "install", "-r", $testApk) `
+        -WorkingDirectory $repoRoot | Out-Null
 }
 Grant-BlePermissions
 
@@ -224,6 +237,7 @@ try {
     Assert-AndroidPreflightReady
 
     if (-not $SkipInstrumentation) {
+        Write-BeetPhase "Running Android instrumentation scenario."
         $instrumentationCommand = @(
             "shell",
             "am",
@@ -234,11 +248,14 @@ try {
             $InstrumentationClass,
             "de.aarondietz.beetmeister.test/androidx.test.runner.AndroidJUnitRunner"
         )
-        $instrumentationOutput = & adb "-s" $script:SelectedSerial @instrumentationCommand
-        if ($LASTEXITCODE -ne 0) {
-            throw "Instrumentation run failed."
-        }
-        $instrumentationOutput | Set-Content -Path $instrumentationFile
+        $instrumentationOutput = Invoke-BeetProcess `
+            -Context $scriptContext `
+            -Description "adb-instrumentation" `
+            -FilePath "adb" `
+            -ArgumentList @("-s", $script:SelectedSerial) + $instrumentationCommand `
+            -WorkingDirectory $repoRoot `
+            -CaptureStdOut
+        $instrumentationOutput.StdOutText | Set-Content -Path $instrumentationFile
     }
 } finally {
     if (-not $KeepLogcatRunning -and $logcatProcess -and -not $logcatProcess.HasExited) {
@@ -265,4 +282,7 @@ if ($KeepLogcatRunning) {
 }
 if ($KeepControllerCaptureRunning -and -not [string]::IsNullOrWhiteSpace($ControllerPort)) {
     Write-Host "Controller capture is still running. Stop it later with: Stop-Process -Id $(Get-Content '$controllerPidFile')"
+}
+if ($outputMode -eq "reduced") {
+    Write-BeetSuccess "Detailed script logs: $(Get-BeetLogDirectory -Context $scriptContext)"
 }

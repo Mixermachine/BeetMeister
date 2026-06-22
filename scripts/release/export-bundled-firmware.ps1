@@ -3,7 +3,8 @@ param(
     [string]$PrebuiltImagePath,
     [string]$FirmwareBuildDir = ".\firmware\esp-idf\build-bundled-app",
     [string]$TargetHardwareRev = "rev_a",
-    [string]$AssetFileName = "beetmeister-rev_a-bundled.bin"
+    [string]$AssetFileName = "beetmeister-rev_a-bundled.bin",
+    [switch]$FullOutput
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,6 +77,9 @@ function Get-StampValues {
 }
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+. (Join-Path $repoRoot "scripts\shared\BeetScriptOutput.ps1")
+$outputMode = Resolve-BeetOutputMode -FullOutput:$FullOutput
+$scriptContext = New-BeetScriptContext -RepoRoot $repoRoot -ScriptName "export-bundled-firmware" -Mode $outputMode
 $outputPath = Resolve-RepoPath -RepoRoot $repoRoot -PathValue $OutputDir
 $firmwareBuildPath = Resolve-RepoPath -RepoRoot $repoRoot -PathValue $FirmwareBuildDir
 $assetPath = Join-Path $outputPath $AssetFileName
@@ -85,6 +89,7 @@ $releaseConfigCheck = Join-Path $repoRoot "scripts\dev\verify-firmware-release-c
 $releaseSdkconfigPath = Join-Path $firmwareBuildPath "sdkconfig.release.generated"
 
 if (-not $PrebuiltImagePath) {
+    Write-BeetPhase "Building bundled firmware image."
     $stamp = Get-StampValues -RepoRoot $repoRoot
     $env:SDKCONFIG_DEFAULTS = "sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.release.defaults"
     $env:SDKCONFIG = $releaseSdkconfigPath
@@ -94,18 +99,47 @@ if (-not $PrebuiltImagePath) {
     if (Test-Path -LiteralPath $releaseSdkconfigPath) {
         Remove-Item -LiteralPath $releaseSdkconfigPath -Force
     }
-    Push-Location (Join-Path $repoRoot "firmware\esp-idf")
-    & $invokeIdf "-B" $firmwareBuildPath "-DSDKCONFIG=$releaseSdkconfigPath" "-DBEET_FIRMWARE_VERSION=$($stamp.FirmwareVersion)" "-DBEET_BUILD_LABEL=$($stamp.BuildLabel)" "build"
-    Pop-Location
-    if ($LASTEXITCODE -ne 0) {
-        throw "Firmware build failed."
+    $idfArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $invokeIdf
+    )
+    if ($FullOutput) {
+        $idfArgs += "-FullOutput"
     }
-    & $releaseConfigCheck -SdkconfigPath $releaseSdkconfigPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "Firmware release config validation failed."
+    $idfArgs += @(
+        "-B", $firmwareBuildPath,
+        "-DSDKCONFIG=$releaseSdkconfigPath",
+        "-DBEET_FIRMWARE_VERSION=$($stamp.FirmwareVersion)",
+        "-DBEET_BUILD_LABEL=$($stamp.BuildLabel)",
+        "build"
+    )
+    Invoke-BeetProcess `
+        -Context $scriptContext `
+        -Description "build-firmware" `
+        -FilePath "powershell.exe" `
+        -ArgumentList $idfArgs `
+        -WorkingDirectory (Join-Path $repoRoot "firmware\esp-idf") | Out-Null
+
+    Write-BeetPhase "Validating release firmware config."
+    $configArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $releaseConfigCheck,
+        "-SdkconfigPath", $releaseSdkconfigPath
+    )
+    if ($FullOutput) {
+        $configArgs += "-FullOutput"
     }
+    Invoke-BeetProcess `
+        -Context $scriptContext `
+        -Description "validate-release-config" `
+        -FilePath "powershell.exe" `
+        -ArgumentList $configArgs `
+        -WorkingDirectory $repoRoot | Out-Null
     $sourceImagePath = Join-Path $firmwareBuildPath "beetmeister.bin"
 } else {
+    Write-BeetPhase "Using prebuilt firmware image."
     $resolvedPrebuiltImage = Resolve-Path -LiteralPath $PrebuiltImagePath
     $sourceImagePath = $resolvedPrebuiltImage.Path
 }
@@ -114,10 +148,14 @@ if (-not (Test-Path -LiteralPath $sourceImagePath)) {
     throw "Firmware image not found at '$sourceImagePath'."
 }
 
-$metadataJson = & python $metadataTool $sourceImagePath
-if ($LASTEXITCODE -ne 0) {
-    throw "Bundled firmware metadata parsing failed."
-}
+$metadataResult = Invoke-BeetProcess `
+    -Context $scriptContext `
+    -Description "read-firmware-metadata" `
+    -FilePath "python" `
+    -ArgumentList @($metadataTool, $sourceImagePath) `
+    -WorkingDirectory $repoRoot `
+    -CaptureStdOut
+$metadataJson = $metadataResult.StdOutText
 $metadata = $metadataJson | ConvertFrom-Json
 
 if ($metadata.product_id -ne "beetmeister") {
@@ -156,4 +194,7 @@ $stampContent = [ordered]@{
 } | ConvertTo-Json -Depth 4
 $stampContent | Set-Content -LiteralPath $stampPath -Encoding utf8
 
-Write-Host "Bundled firmware exported to $assetPath"
+Write-BeetSuccess "Bundled firmware exported to $assetPath"
+if ($outputMode -eq "reduced") {
+    Write-BeetSuccess "Detailed logs: $(Get-BeetLogDirectory -Context $scriptContext)"
+}
