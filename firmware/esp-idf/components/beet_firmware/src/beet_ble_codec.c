@@ -1679,6 +1679,16 @@ bool beet_ble_parse_command_json(
                 if (!beet_ble_parse_watering_interval_data(&cursor, &request->watering_interval_s)) {
                     return false;
                 }
+            } else if (strcmp(cmd, "reboot_controller") == 0) {
+                request->command = BEET_IFACE_COMMAND_REBOOT_CONTROLLER;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "factory_reset") == 0) {
+                request->command = BEET_IFACE_COMMAND_FACTORY_RESET;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
             } else {
                 return false;
             }

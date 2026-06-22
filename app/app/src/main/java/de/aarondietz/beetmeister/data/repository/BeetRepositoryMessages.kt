@@ -21,6 +21,10 @@ internal fun commandMessageForResult(result: BeetCommandResult, strings: BeetStr
                 "no_bonds" -> strings.get(R.string.command_message_no_bonds)
                 else -> base
             }
+        result.command == "reboot_controller" ->
+            strings.get(R.string.command_message_rebooting)
+        result.command == "factory_reset" ->
+            strings.get(R.string.command_message_factory_reset_started)
         result.command == "open_valve" || result.command == "close_valve" ->
             base
         result.command == "store_watering_interval" && result.status == "accepted" ->
@@ -68,6 +72,8 @@ private fun reasonLabel(reason: String, strings: BeetStringResolver): String {
         "valve_busy" -> R.string.command_reason_valve_busy
         "invalid_valve_config" -> R.string.command_reason_invalid_valve_config
         "watering_active" -> R.string.command_reason_watering_active
+        "rebooting" -> R.string.command_reason_rebooting
+        "factory_reset_started" -> R.string.command_reason_factory_reset_started
         else -> return strings.get(R.string.common_unknown_with_code, reason)
     }
     return strings.get(resId)

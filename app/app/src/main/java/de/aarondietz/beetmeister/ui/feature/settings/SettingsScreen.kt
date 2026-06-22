@@ -19,6 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +59,8 @@ internal fun SettingsScreen(
     onOpenValveCalibration: () -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
+    onRebootController: () -> Unit,
+    onFactoryResetController: () -> Unit,
     onOpenFirmwareUpdate: () -> Unit,
     onDisconnect: () -> Unit,
     onUnsavedStateChange: (Boolean, SettingsSaveDraft?) -> Unit,
@@ -74,6 +78,8 @@ internal fun SettingsScreen(
     var intervalHoursText by remember { mutableStateOf("") }
     var intervalMinutesText by remember { mutableStateOf("") }
     var activeInfo by remember { mutableStateOf<ValveSettingInfo?>(null) }
+    var showRebootDialog by remember { mutableStateOf(false) }
+    var showFactoryResetDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.connection.phase) {
         if (state.connection.phase == BeetConnectionPhase.Connected) {
@@ -149,6 +155,52 @@ internal fun SettingsScreen(
         )
     }
 
+    if (showRebootDialog) {
+        AlertDialog(
+            onDismissRequest = { showRebootDialog = false },
+            title = { Text(strings.get(R.string.settings_reboot_dialog_title)) },
+            text = { Text(strings.get(R.string.settings_reboot_dialog_body)) },
+            dismissButton = {
+                TextButton(onClick = { showRebootDialog = false }) {
+                    Text(strings.get(R.string.common_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRebootDialog = false
+                        onRebootController()
+                    },
+                ) {
+                    Text(strings.get(R.string.settings_reboot_action))
+                }
+            },
+        )
+    }
+
+    if (showFactoryResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showFactoryResetDialog = false },
+            title = { Text(strings.get(R.string.settings_factory_reset_dialog_title)) },
+            text = { Text(strings.get(R.string.settings_factory_reset_dialog_body)) },
+            dismissButton = {
+                TextButton(onClick = { showFactoryResetDialog = false }) {
+                    Text(strings.get(R.string.common_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showFactoryResetDialog = false
+                        onFactoryResetController()
+                    },
+                ) {
+                    Text(strings.get(R.string.settings_factory_reset_action))
+                }
+            },
+        )
+    }
+
     LaunchedEffect(hasUnsavedChanges, savableDraft) {
         onUnsavedStateChange(hasUnsavedChanges, savableDraft)
     }
@@ -218,6 +270,36 @@ internal fun SettingsScreen(
                         Text(strings.get(R.string.settings_firmware_update_subtitle), style = MaterialTheme.typography.bodyMedium)
                         Button(onClick = onOpenFirmwareUpdate) {
                             Text(strings.get(R.string.settings_open_firmware_update))
+                        }
+                    }
+                }
+            }
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF5E9E5)),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(strings.get(R.string.settings_controller_management_title), style = MaterialTheme.typography.titleMedium)
+                        Text(strings.get(R.string.settings_controller_management_subtitle), style = MaterialTheme.typography.bodyMedium)
+                        Button(
+                            onClick = { showRebootDialog = true },
+                            enabled = state.connection.phase == BeetConnectionPhase.Connected && !hasUnsavedChanges,
+                        ) {
+                            Text(strings.get(R.string.settings_reboot_action))
+                        }
+                        Button(
+                            onClick = { showFactoryResetDialog = true },
+                            enabled = state.connection.phase == BeetConnectionPhase.Connected && !hasUnsavedChanges,
+                        ) {
+                            Text(strings.get(R.string.settings_factory_reset_action))
+                        }
+                        if (hasUnsavedChanges) {
+                            Text(
+                                text = strings.get(R.string.settings_controller_management_unsaved_hint),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }

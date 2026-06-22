@@ -389,6 +389,26 @@ esp_err_t beet_storage_load_or_init(
     return ESP_OK;
 }
 
+esp_err_t beet_storage_factory_reset(const char *preserved_device_id)
+{
+    beet_app_config_t config;
+
+    ESP_RETURN_ON_FALSE(preserved_device_id != NULL, ESP_ERR_INVALID_ARG, TAG, "preserved device id is null");
+    ESP_RETURN_ON_ERROR(nvs_flash_deinit_partition("appcfg"), TAG, "appcfg deinit failed");
+    ESP_RETURN_ON_ERROR(nvs_flash_deinit_partition("events"), TAG, "events deinit failed");
+    ESP_RETURN_ON_ERROR(nvs_flash_deinit_partition("sysevents"), TAG, "sysevents deinit failed");
+    ESP_RETURN_ON_ERROR(nvs_flash_erase_partition("appcfg"), TAG, "appcfg erase failed");
+    ESP_RETURN_ON_ERROR(nvs_flash_erase_partition("events"), TAG, "events erase failed");
+    ESP_RETURN_ON_ERROR(nvs_flash_erase_partition("sysevents"), TAG, "sysevents erase failed");
+    ESP_RETURN_ON_ERROR(nvs_flash_init_partition("appcfg"), TAG, "appcfg init failed");
+    ESP_RETURN_ON_ERROR(nvs_flash_init_partition("events"), TAG, "events init failed");
+    ESP_RETURN_ON_ERROR(nvs_flash_init_partition("sysevents"), TAG, "sysevents init failed");
+
+    beet_default_app_config(&config);
+    snprintf(config.device_id, sizeof(config.device_id), "%s", preserved_device_id);
+    return beet_storage_save_config(&config);
+}
+
 esp_err_t beet_storage_scan_event_ring(beet_event_ring_state_t *state)
 {
     nvs_handle_t handle = 0;

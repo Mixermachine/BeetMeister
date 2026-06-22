@@ -53,6 +53,10 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "get_watering_interval";
     case BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL:
         return "store_watering_interval";
+    case BEET_IFACE_COMMAND_REBOOT_CONTROLLER:
+        return "reboot_controller";
+    case BEET_IFACE_COMMAND_FACTORY_RESET:
+        return "factory_reset";
     default:
         return "unknown";
     }
@@ -151,6 +155,10 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "invalid_valve_config";
     case BEET_IFACE_REASON_WATERING_ACTIVE:
         return "watering_active";
+    case BEET_IFACE_REASON_REBOOTING:
+        return "rebooting";
+    case BEET_IFACE_REASON_FACTORY_RESET_STARTED:
+        return "factory_reset_started";
     default:
         return "unknown";
     }

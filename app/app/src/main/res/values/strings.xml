@@ -15,6 +15,7 @@
     <string name="common_reload">Reload</string>
     <string name="common_refresh">Refresh</string>
     <string name="common_details">Details</string>
+    <string name="common_cancel">Cancel</string>
     <string name="common_disconnect">Disconnect</string>
     <string name="common_today">Today</string>
     <string name="common_yesterday">Yesterday</string>
@@ -76,6 +77,15 @@
     <string name="settings_firmware_update_title">Firmware update</string>
     <string name="settings_firmware_update_subtitle">Open the dedicated maintenance flow to select firmware, review warnings, and install updates.</string>
     <string name="settings_open_firmware_update">Open firmware update</string>
+    <string name="settings_controller_management_title">Controller management</string>
+    <string name="settings_controller_management_subtitle">Reboot the controller or wipe its local storage and Bluetooth bonds.</string>
+    <string name="settings_controller_management_unsaved_hint">Save or discard your settings changes before running a controller-management action.</string>
+    <string name="settings_reboot_action">Reboot controller</string>
+    <string name="settings_factory_reset_action">Factory reset controller</string>
+    <string name="settings_reboot_dialog_title">Reboot controller?</string>
+    <string name="settings_reboot_dialog_body">The controller will restart and the app will reconnect automatically when it is back.</string>
+    <string name="settings_factory_reset_dialog_title">Factory reset controller?</string>
+    <string name="settings_factory_reset_dialog_body">This clears controller configuration, calibration, stored history, and Bluetooth pairing, then restarts the controller. You will need to pair it again.</string>
     <string name="settings_watering_interval_title">Watering evaluation interval</string>
     <string name="settings_watering_interval_subtitle">How often the controller evaluates all pairs for automatic watering.</string>
     <string name="settings_label_current_watering_interval">Current interval</string>
@@ -308,6 +318,8 @@
     <string name="command_message_pair_enabled" localizePipeContext="Confirmation message. Keep %1$d as the irrigation pair number.">Pair %1$d enabled.</string>
     <string name="command_message_bonds_cleared">Bluetooth bonds cleared.</string>
     <string name="command_message_no_bonds">No Bluetooth bonds to clear.</string>
+    <string name="command_message_rebooting">Controller is rebooting.</string>
+    <string name="command_message_factory_reset_started">Factory reset started. The controller will reboot and must be paired again.</string>
     <string name="command_message_watering_interval_saved">Watering evaluation interval saved.</string>
     <string name="command_message_pair_prefix" localizePipeContext="Command result prefix. %1$d is the irrigation pair number and %2$s is the already translated result text.">Pair %1$d: %2$s.</string>
 
@@ -346,6 +358,8 @@
     <string name="command_reason_valve_busy">Valve is moving</string>
     <string name="command_reason_invalid_valve_config">Invalid valve configuration</string>
     <string name="command_reason_watering_active">Watering is active</string>
+    <string name="command_reason_rebooting">Controller is rebooting</string>
+    <string name="command_reason_factory_reset_started">Factory reset started</string>
 
     <string name="runtime_calibration_refresh_failed">Calibration refresh failed for pair %1$d.</string>
     <string name="runtime_manual_duration_invalid">Manual duration must be between 1 second and 20 minutes.</string>
@@ -422,6 +436,10 @@
     <string name="runtime_moisture_test_failed" localizePipeContext="Moisture response test failure. %1$d is the irrigation pair number and %2$s is the already translated failure reason.">Pair %1$d: moisture response test failed (%2$s).</string>
     <string name="runtime_ble_connection_error" localizePipeContext="Bluetooth connection error with numeric Android or GATT status code. Keep %1$d as the raw error code.">BLE connection error %1$d. Searching again.</string>
     <string name="runtime_negotiating_ble_session">Negotiating BLE session.</string>
+    <string name="runtime_reboot_reconnecting">Controller rebooting. Reconnecting.</string>
+    <string name="runtime_reboot_reconnect_failed">Controller reboot finished but reconnect did not complete. Searching again.</string>
+    <string name="runtime_factory_reset_waiting">Factory reset in progress. Waiting for controller restart.</string>
+    <string name="runtime_factory_reset_complete">Factory reset completed. Pair the controller again.</string>
     <string name="runtime_controller_disconnected">Controller disconnected. Searching again.</string>
     <string name="runtime_disconnected_from_controller">Disconnected from controller.</string>
     <string name="runtime_gatt_service_incomplete">BeetMeister GATT service is incomplete. Searching again.</string>

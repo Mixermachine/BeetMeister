@@ -378,6 +378,22 @@ object BeetJsonCodec {
             ),
         )
 
+    fun rebootController(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "reboot_controller",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun factoryResetController(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "factory_reset",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
     fun getValveConfig(): String =
         emptyRequestEnvelopeAdapter.toJson(
             CommandRequestEnvelopeDto(

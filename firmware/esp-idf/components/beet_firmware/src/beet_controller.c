@@ -31,6 +31,12 @@ typedef enum {
     BEET_RUN_PHASE_WATERING = 3,
 } beet_run_phase_t;
 
+typedef enum {
+    BEET_PENDING_ACTION_NONE = 0,
+    BEET_PENDING_ACTION_REBOOT = 1,
+    BEET_PENDING_ACTION_FACTORY_RESET = 2,
+} beet_pending_action_t;
+
 typedef struct {
     beet_valve_state_t state;
     int64_t motion_started_us;
@@ -95,6 +101,8 @@ typedef struct {
     beet_boot_epoch_record_t boot_epoch_cache[BEET_BOOT_EPOCH_RING_CAPACITY];
     uint16_t boot_epoch_cache_count;
     beet_valve_runtime_t valve;
+    beet_pending_action_t pending_action;
+    int64_t pending_action_due_us;
 } beet_controller_state_t;
 
 static beet_controller_state_t s_state;
@@ -147,6 +155,9 @@ static bool beet_has_active_pump_runtime(void);
 static bool beet_sensor_refresh_due(int64_t now_us);
 static bool beet_refresh_sensors_if_due(int64_t now_us);
 static bool beet_refresh_sensors_force(int64_t now_us);
+static bool beet_runtime_management_action_allowed(beet_iface_reason_t *reason);
+static void beet_schedule_pending_action(beet_pending_action_t action, int64_t now_us);
+static void beet_service_pending_action(int64_t now_us);
 
 static int64_t beet_now_us(void)
 {
@@ -249,6 +260,57 @@ static uint8_t beet_count_active_pumps(void)
 static void beet_mark_activity(int64_t now_us)
 {
     s_state.last_activity_us = now_us;
+}
+
+static bool beet_runtime_management_action_allowed(beet_iface_reason_t *reason)
+{
+    if (reason == NULL) {
+        return false;
+    }
+    if (s_state.battery_state == BEET_BATTERY_STATE_OTA_IN_PROGRESS ||
+        beet_ble_maintenance_runtime_blocking()) {
+        *reason = BEET_IFACE_REASON_OTA_IN_PROGRESS;
+        return false;
+    }
+    if (beet_valve_servo_activity_active()) {
+        *reason = BEET_IFACE_REASON_VALVE_BUSY;
+        return false;
+    }
+    if (s_state.active_pumps > 0U || beet_has_any_runtime() || s_state.relay_test_active) {
+        *reason = BEET_IFACE_REASON_WATERING_ACTIVE;
+        return false;
+    }
+    *reason = BEET_IFACE_REASON_NONE;
+    return true;
+}
+
+static void beet_schedule_pending_action(beet_pending_action_t action, int64_t now_us)
+{
+    s_state.pending_action = action;
+    s_state.pending_action_due_us = now_us + 250000LL;
+}
+
+static void beet_service_pending_action(int64_t now_us)
+{
+    uint16_t removed_bonds = 0U;
+
+    if (s_state.pending_action == BEET_PENDING_ACTION_NONE ||
+        s_state.pending_action_due_us <= 0LL ||
+        now_us < s_state.pending_action_due_us) {
+        return;
+    }
+
+    if (s_state.pending_action == BEET_PENDING_ACTION_FACTORY_RESET) {
+        char preserved_device_id[BEET_DEVICE_ID_MAX_LEN + 1U];
+
+        snprintf(preserved_device_id, sizeof(preserved_device_id), "%s", s_state.config.device_id);
+        ESP_ERROR_CHECK_WITHOUT_ABORT(beet_ble_clear_bonds(&removed_bonds));
+        ESP_ERROR_CHECK_WITHOUT_ABORT(beet_storage_factory_reset(preserved_device_id));
+    }
+
+    s_state.pending_action = BEET_PENDING_ACTION_NONE;
+    s_state.pending_action_due_us = 0LL;
+    esp_restart();
 }
 
 static void beet_controller_sync_boost_output(void)
@@ -2435,6 +2497,26 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_NONE;
         return ESP_OK;
 
+    case BEET_IFACE_COMMAND_REBOOT_CONTROLLER:
+        if (!beet_runtime_management_action_allowed(&response->reason)) {
+            return ESP_OK;
+        }
+        beet_mark_activity(now_us);
+        beet_schedule_pending_action(BEET_PENDING_ACTION_REBOOT, now_us);
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_REBOOTING;
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_FACTORY_RESET:
+        if (!beet_runtime_management_action_allowed(&response->reason)) {
+            return ESP_OK;
+        }
+        beet_mark_activity(now_us);
+        beet_schedule_pending_action(BEET_PENDING_ACTION_FACTORY_RESET, now_us);
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_FACTORY_RESET_STARTED;
+        return ESP_OK;
+
     default:
         response->reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
         return ESP_OK;
@@ -2729,6 +2811,7 @@ static void beet_controller_task(void *arg)
         beet_ble_service();
         beet_ble_get_diag_status(&ble_status);
         beet_ble_get_pairing_display(&pairing_display);
+        beet_service_pending_action(now_us);
 
         if (beet_controller_scheduler_due(now_us, elapsed_s)) {
             beet_run_scheduler_cycle(now_us);

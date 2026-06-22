@@ -25,5 +25,6 @@ esp_err_t beet_storage_summarize_system_events(uint32_t current_boot_id, uint16_
 esp_err_t beet_storage_save_boot_epoch(uint32_t boot_id, uint32_t boot_epoch_unix_s);
 esp_err_t beet_storage_resolve_boot_epoch(uint32_t boot_id, uint32_t *boot_epoch_unix_s);
 esp_err_t beet_storage_load_boot_epoch_cache(beet_boot_epoch_record_t records[BEET_BOOT_EPOCH_RING_CAPACITY], uint16_t *record_count);
+esp_err_t beet_storage_factory_reset(const char *preserved_device_id);
 
 #endif

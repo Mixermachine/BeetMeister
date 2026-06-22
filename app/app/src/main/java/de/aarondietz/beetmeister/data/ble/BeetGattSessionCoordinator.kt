@@ -52,6 +52,12 @@ internal class BeetGattSessionCoordinator(
 ) {
     private class MaintenanceControlWriteException(message: String) : IllegalStateException(message)
 
+    private enum class ExpectedControllerAction {
+        None,
+        Reboot,
+        FactoryReset,
+    }
+
     private val strings get() = host.strings
     private val commandMutex = Mutex()
     private val maintenanceMutex = Mutex()
@@ -79,6 +85,8 @@ internal class BeetGattSessionCoordinator(
     private var maintenanceLastProgressBytes: Int = 0
     private var maintenanceSmoothedBytesPerSecond: Double? = null
     private var negotiatedMtu = DEFAULT_MTU
+    private var expectedControllerAction: ExpectedControllerAction = ExpectedControllerAction.None
+    private var expectedControllerActionUntilMs: Long = 0L
     @Volatile
     private var lastGattResetAt: Long = 0L
     private val maintenanceWakeLock: PowerManager.WakeLock by lazy {
@@ -103,6 +111,34 @@ internal class BeetGattSessionCoordinator(
 
     fun clearCommandMessage() {
         host.clearCommandMessage()
+    }
+
+    private fun setExpectedControllerAction(action: ExpectedControllerAction) {
+        expectedControllerAction = action
+        expectedControllerActionUntilMs = SystemClock.elapsedRealtime() + EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS
+    }
+
+    private fun clearExpectedControllerAction() {
+        expectedControllerAction = ExpectedControllerAction.None
+        expectedControllerActionUntilMs = 0L
+    }
+
+    private fun expectedControllerActionActive(): Boolean =
+        expectedControllerAction != ExpectedControllerAction.None &&
+            SystemClock.elapsedRealtime() <= expectedControllerActionUntilMs
+
+    private fun clearCachedControllerHistory() {
+        val deviceId = host.state.value.controllerInfo?.deviceId ?: return
+        eventCache.clearDevice(deviceId)
+        host.updateState { state ->
+            state.copy(
+                historySummary = null,
+                systemHistorySummary = null,
+                recentEvents = emptyList(),
+                systemEvents = emptyList(),
+                eventSync = BeetEventSyncState(),
+            )
+        }
     }
 
     private fun resetMaintenanceProgressTracking() {
@@ -333,6 +369,14 @@ internal class BeetGattSessionCoordinator(
         host.scope.launch { sendUserCommand(BeetJsonCodec.closeValve()) }
     }
 
+    fun rebootController() {
+        host.scope.launch { sendUserCommand(BeetJsonCodec.rebootController()) }
+    }
+
+    fun factoryResetController() {
+        host.scope.launch { sendUserCommand(BeetJsonCodec.factoryResetController()) }
+    }
+
     fun prepareBundledFirmware() {
         host.scope.launch {
             runCatching {
@@ -494,7 +538,14 @@ internal class BeetGattSessionCoordinator(
         lastGattResetAt = System.currentTimeMillis()
         disconnectGatt(clearSelection = false, reason = "openGatt reset existing session")
         resetSyncState()
-        host.updateConnection(BeetConnectionPhase.Connecting, strings.get(R.string.runtime_connecting_to_controller, device.address))
+        host.updateConnection(
+            BeetConnectionPhase.Connecting,
+            if (expectedControllerActionActive()) {
+                expectedControllerActionConnectingDetail()
+            } else {
+                strings.get(R.string.runtime_connecting_to_controller, device.address)
+            },
+        )
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = host.scope.launch {
             delay(CONNECTION_TIMEOUT_MS)
@@ -509,7 +560,14 @@ internal class BeetGattSessionCoordinator(
             Log.w(TAG, "Connection timeout fired while phase=$phase")
             disconnectGatt(clearSelection = false, reason = "connection timeout")
             host.clearSession()
-            host.requestStartScan(detail = strings.get(R.string.runtime_connection_timed_out))
+            host.requestStartScan(
+                detail = if (expectedControllerAction == ExpectedControllerAction.Reboot) {
+                    clearExpectedControllerAction()
+                    strings.get(R.string.runtime_reboot_reconnect_failed)
+                } else {
+                    strings.get(R.string.runtime_connection_timed_out)
+                },
+            )
         }
         @Suppress("MissingPermission")
         host.session.currentGatt = device.connectGatt(host.appContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -522,7 +580,18 @@ internal class BeetGattSessionCoordinator(
 
     private suspend fun sendUserCommand(payload: String) {
         runCatching { withSyncPausedForCommand { sendCommand(payload) } }
-            .onSuccess { result -> host.setCommandMessage(messageForResult(result)) }
+            .onSuccess { result ->
+                when {
+                    result.command == "reboot_controller" && result.status == "accepted" ->
+                        setExpectedControllerAction(ExpectedControllerAction.Reboot)
+                    result.command == "factory_reset" && result.status == "accepted" -> {
+                        host.removeLastAddress()
+                        clearCachedControllerHistory()
+                        setExpectedControllerAction(ExpectedControllerAction.FactoryReset)
+                    }
+                }
+                host.setCommandMessage(messageForResult(result))
+            }
             .onFailure { error -> host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed)) }
     }
 
@@ -923,6 +992,7 @@ internal class BeetGattSessionCoordinator(
         connectionTimeoutJob = null
         cancelControllerInfoRetry("initial sync completed")
         host.persistLastAddress(host.currentAddress)
+        clearExpectedControllerAction()
         Log.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
         host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
         if (maintenanceUploadJob?.isActive == true) {
@@ -1888,6 +1958,43 @@ internal class BeetGattSessionCoordinator(
 
     private fun messageForResult(result: BeetCommandResult): String = commandMessageForResult(result, strings)
 
+    private fun expectedControllerActionConnectingDetail(): String = when (expectedControllerAction) {
+        ExpectedControllerAction.Reboot -> strings.get(R.string.runtime_reboot_reconnecting)
+        ExpectedControllerAction.FactoryReset -> strings.get(R.string.runtime_factory_reset_waiting)
+        ExpectedControllerAction.None -> strings.get(R.string.runtime_negotiating_ble_session)
+    }
+
+    private fun handleExpectedControllerActionDisconnect() {
+        when (expectedControllerAction) {
+            ExpectedControllerAction.Reboot -> {
+                val reconnectDevice = resolveMaintenanceReconnectDevice()
+                if (!expectedControllerActionActive() || reconnectDevice == null) {
+                    clearExpectedControllerAction()
+                    host.clearSession()
+                    host.requestStartScan(detail = strings.get(R.string.runtime_reboot_reconnect_failed))
+                    return
+                }
+                host.updateConnection(BeetConnectionPhase.Connecting, strings.get(R.string.runtime_reboot_reconnecting))
+                host.clearSession()
+                host.scope.launch {
+                    delay(EXPECTED_REBOOT_RECONNECT_DELAY_MS)
+                    if (expectedControllerAction != ExpectedControllerAction.Reboot || host.session.currentGatt != null) {
+                        return@launch
+                    }
+                    host.requestOpenGatt(reconnectDevice)
+                }
+            }
+            ExpectedControllerAction.FactoryReset -> {
+                clearExpectedControllerAction()
+                host.currentAddress = null
+                host.clearSession()
+                host.updateState { it.copy(selectedAddress = null) }
+                host.requestStartScan(detail = strings.get(R.string.runtime_factory_reset_complete), clearResults = true)
+            }
+            ExpectedControllerAction.None -> {}
+        }
+    }
+
     private fun handleMoistureTestState(pairState: BeetPairState) {
         val hasSeenActiveState = pendingMoistureTests[pairState.pairIndex] ?: return
         when {
@@ -1929,6 +2036,10 @@ internal class BeetGattSessionCoordinator(
                         )
                 val maintenanceActive = maintenanceUploadJob?.isActive == true
                 disconnectGatt(clearSelection = false, reason = "gatt error status=$status")
+                if (expectedControllerActionActive() && !maintenanceActive) {
+                    handleExpectedControllerActionDisconnect()
+                    return@beetGattCallback
+                }
                 host.clearSession()
                 if (maintenanceActive) {
                     val detail = if (maintenanceExpectedRebootDisconnect) {
@@ -1951,7 +2062,14 @@ internal class BeetGattSessionCoordinator(
 
             when (newState) {
                 BluetoothGatt.STATE_CONNECTED -> {
-                    host.updateConnection(BeetConnectionPhase.DiscoveringServices, strings.get(R.string.runtime_negotiating_ble_session))
+                    host.updateConnection(
+                        BeetConnectionPhase.DiscoveringServices,
+                        if (expectedControllerActionActive()) {
+                            expectedControllerActionConnectingDetail()
+                        } else {
+                            strings.get(R.string.runtime_negotiating_ble_session)
+                        },
+                    )
                     @Suppress("MissingPermission")
                     if (!gatt.requestMtu(DESIRED_MTU)) {
                         negotiatedMtu = DEFAULT_MTU
@@ -1963,6 +2081,10 @@ internal class BeetGattSessionCoordinator(
                 BluetoothGatt.STATE_DISCONNECTED -> {
                     val maintenanceActive = maintenanceUploadJob?.isActive == true
                     disconnectGatt(clearSelection = false, reason = "gatt disconnected callback")
+                    if (expectedControllerActionActive() && !maintenanceActive) {
+                        handleExpectedControllerActionDisconnect()
+                        return@beetGattCallback
+                    }
                     host.clearSession()
                     if (maintenanceActive) {
                         host.updateConnection(
@@ -2122,6 +2244,8 @@ internal class BeetGattSessionCoordinator(
         private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
         private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
+        private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L
+        private const val EXPECTED_REBOOT_RECONNECT_DELAY_MS = 1_000L
     }
 
     private class MaintenanceAbortRequestedException : IllegalStateException("Maintenance update aborted")

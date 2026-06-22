@@ -311,6 +311,12 @@ class BeetJsonCodecTest {
     }
 
     @Test
+    fun buildsRebootAndFactoryResetCommands() {
+        assertEquals("""{"cmd":"reboot_controller","data":{}}""", BeetJsonCodec.rebootController())
+        assertEquals("""{"cmd":"factory_reset","data":{}}""", BeetJsonCodec.factoryResetController())
+    }
+
+    @Test
     fun parsesValveConfigResult() {
         val payload = """
             {

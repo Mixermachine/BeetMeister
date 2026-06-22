@@ -73,6 +73,10 @@ internal class BeetAppViewModel(
 
     fun closeValve() = repository.closeValve()
 
+    fun rebootController() = repository.rebootController()
+
+    fun factoryResetController() = repository.factoryResetController()
+
     fun prepareBundledFirmware() = repository.prepareBundledFirmware()
 
     fun prepareCustomFirmware(uri: Uri) = repository.prepareCustomFirmware(uri)

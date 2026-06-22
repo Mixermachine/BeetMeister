@@ -134,6 +134,10 @@ internal class BeetRepository(
 
     fun closeValve() = gattSessionCoordinator.closeValve()
 
+    fun rebootController() = gattSessionCoordinator.rebootController()
+
+    fun factoryResetController() = gattSessionCoordinator.factoryResetController()
+
     fun prepareBundledFirmware() = gattSessionCoordinator.prepareBundledFirmware()
 
     fun prepareCustomFirmware(uri: Uri) = gattSessionCoordinator.prepareCustomFirmware(uri)
