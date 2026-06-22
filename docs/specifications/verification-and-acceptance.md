@@ -53,6 +53,7 @@ This document turns the baseline requirements into verifiable activities and rel
 | `RQ-038` | `VT-004` host no-comms test, `VT-032` bench offline autonomy scenario |
 | `RQ-039` | `VT-033` OTA persistence and rollback tests |
 | `RQ-040` | Document review gate before implementation milestone `M2` |
+| Runtime reboot and factory reset management | `VT-045` bonded reboot test, `VT-046` bonded factory-reset test |
 
 ## Scenario-based test cases
 
@@ -152,6 +153,18 @@ This document turns the baseline requirements into verifiable activities and rel
 - Expected result: a visible clockwise outline-fill progress indicator is present while sync is active in the connected-status chip and clears when sync is complete.
 - Pass condition: the indicator advances with background event download progress, uses the intended gray-to-primary outline-fill treatment, and does not obscure live connection state text.
 
+### `VT-045` Bonded reboot management test
+
+- Input: bonded Android app connected to the controller, no watering active, no maintenance update active, and the user confirms `Reboot controller` from Settings.
+- Expected result: the command is accepted, the app shows reboot-in-progress state instead of a generic disconnect error, the controller reboots without clearing configuration or history, and the app reconnects automatically when the controller comes back.
+- Pass condition: the same controller reconnects successfully, persisted state remains intact, and the user does not need to manually restart scanning for the normal reboot path.
+
+### `VT-046` Bonded factory-reset management test
+
+- Input: bonded Android app connected to the controller, no watering active, no maintenance update active, and the user confirms `Factory reset controller` from Settings.
+- Expected result: the command is accepted, the controller clears BeetMeister-owned storage and BLE bonds, reboots, and the app returns to scan mode with clear guidance that pairing is required again.
+- Pass condition: configuration and cached history are gone after the next successful pair-and-connect, old BLE bonding no longer grants access, and the app does not remain stuck on the previously selected controller address.
+
 ## Entry and exit criteria by milestone
 
 | Milestone | Entry criteria | Exit criteria |
@@ -180,4 +193,5 @@ This document turns the baseline requirements into verifiable activities and rel
 - Bench tests pass for battery, pump concurrency, sensor sanity, MQTT, BLE, and persistence.
 - At least one 24-hour soak test passes with no invalid watering, missed scheduled checks, or corrupted persisted data.
 - BLE maintenance upgrade from the previous release succeeds and preserves configuration and history.
+- Bonded reboot and bonded factory-reset flows both pass on real hardware.
 - No open blocking defects remain in battery handling, pump scheduling, storage, BLE, MQTT, or the BLE maintenance updater.

@@ -467,6 +467,14 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL, request.command);
     TEST_ASSERT_U32_EQ(21600U, request.watering_interval_s);
 
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"reboot_controller\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_REBOOT_CONTROLLER, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"factory_reset\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_FACTORY_RESET, request.command);
+
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"start_ota\",\"data\":{}}", &request));
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
@@ -967,9 +975,15 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ("relay_test_stopped", beet_iface_reason_name(BEET_IFACE_REASON_RELAY_TEST_STOPPED));
     TEST_ASSERT_STR_EQ("moisture_test_started", beet_iface_reason_name(BEET_IFACE_REASON_MOISTURE_TEST_STARTED));
     TEST_ASSERT_STR_EQ("set_time", beet_iface_command_name(BEET_IFACE_COMMAND_SET_TIME));
+    TEST_ASSERT_STR_EQ("reboot_controller", beet_iface_command_name(BEET_IFACE_COMMAND_REBOOT_CONTROLLER));
+    TEST_ASSERT_STR_EQ("factory_reset", beet_iface_command_name(BEET_IFACE_COMMAND_FACTORY_RESET));
     TEST_ASSERT_STR_EQ("time_updated", beet_iface_reason_name(BEET_IFACE_REASON_TIME_UPDATED));
     TEST_ASSERT_STR_EQ("busy", beet_iface_reason_name(BEET_IFACE_REASON_BUSY));
     TEST_ASSERT_STR_EQ("rate_limited", beet_iface_reason_name(BEET_IFACE_REASON_RATE_LIMITED));
+    TEST_ASSERT_STR_EQ("rebooting", beet_iface_reason_name(BEET_IFACE_REASON_REBOOTING));
+    TEST_ASSERT_STR_EQ(
+        "factory_reset_started",
+        beet_iface_reason_name(BEET_IFACE_REASON_FACTORY_RESET_STARTED));
     TEST_ASSERT_STR_EQ("LOW_BATTERY_ABORT", beet_block_reason_name(BEET_BLOCK_REASON_LOW_BATTERY_ABORT));
     TEST_ASSERT_STR_EQ(
         "MOISTURE_RESPONSE_TEST_FAILED",

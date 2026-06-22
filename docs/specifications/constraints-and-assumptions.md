@@ -46,7 +46,8 @@
 - The Android app is written in Kotlin and Compose and communicates over BLE.
 - BLE access in v1 uses standard OS-managed BLE bonding with no additional application-layer credential.
 - Multiple phones may be bonded over time, but only one BLE central connection is required at a time.
-- Clearing stored BLE bonds is handled as a Home Assistant device-management action rather than a full factory reset.
+- The Android app settings flow owns end-user controller-management actions such as reboot and factory reset.
+- Factory reset clears BeetMeister-owned persisted state and BLE bonds, while preserving the controller identity string.
 - A future security-hardening option may add a physical push button that must be pressed before the controller accepts a new BLE bond.
 - End-user OTA is app-driven over the BLE maintenance service with a bundled or explicitly selected firmware image.
 

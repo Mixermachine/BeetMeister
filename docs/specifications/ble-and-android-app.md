@@ -255,6 +255,27 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
+### Controller management
+
+```json
+{
+  "cmd": "reboot_controller",
+  "data": {}
+}
+```
+
+```json
+{
+  "cmd": "factory_reset",
+  "data": {}
+}
+```
+
+- `reboot_controller` shall only be accepted while the controller is idle.
+- `factory_reset` shall only be accepted while the controller is idle.
+- Accepted `factory_reset` shall erase BeetMeister-owned runtime storage, clear BLE bonds, preserve `device_id`, and reboot.
+- The runtime BLE command channel still does not expose firmware-image transfer itself; firmware update remains on the maintenance service.
+
 ### Watering evaluation interval
 
 ```json
@@ -387,6 +408,11 @@ or
   "reason": "pair_blocked"
 }
 ```
+
+Controller-management results shall use these stable accepted reasons:
+
+- `rebooting`
+- `factory_reset_started`
 
 The `reason` field shall use stable machine-readable strings.
 Accepted commands that take time to complete, such as calibration or OTA start, shall later emit a second completion result.

@@ -172,6 +172,16 @@ The serialized system event record shall fit in 64 bytes and contain sequence nu
 - OTA shall never erase `appcfg`, `events`, or `sysevents`.
 - A failed OTA attempt shall not modify the active-slot application data in a way that invalidates `appcfg`, `events`, or `sysevents`.
 
+## Factory reset behavior
+
+- The controller shall expose a runtime `factory_reset` management command over the bonded BLE app session.
+- Factory reset shall erase BeetMeister-owned records from `appcfg`, `events`, and `sysevents`.
+- Factory reset shall preserve the controller `device_id` so the same physical controller can still be recognized after re-pairing.
+- Factory reset shall clear stored BLE bonds before rebooting.
+- Factory reset shall not erase or invalidate the active firmware image or the inactive OTA slot.
+- Factory reset shall reboot the controller immediately after the erase sequence completes.
+- A plain reboot command shall not erase `appcfg`, `events`, `sysevents`, or BLE bonds.
+
 ## Ownership and lifecycle summary
 
 | Datum | Owner | Write trigger | Retention |
