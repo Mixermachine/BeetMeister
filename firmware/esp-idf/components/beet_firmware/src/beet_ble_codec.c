@@ -498,6 +498,21 @@ int beet_ble_format_command_result_json(
             (unsigned long)response->watering_interval_s);
     }
 
+    if (response->command == BEET_IFACE_COMMAND_GET_PAIR_WIRING &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_pair_wiring) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"pair\":%u,\"moisture_gpio\":%d,\"relay_gpio\":%d}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            response->pair_index,
+            (int)response->moisture_gpio,
+            (int)response->relay_gpio);
+    }
+
     if ((response->command == BEET_IFACE_COMMAND_GET_VALVE_CONFIG ||
             response->command == BEET_IFACE_COMMAND_STORE_VALVE_CONFIG) &&
         response->status == BEET_IFACE_STATUS_ACCEPTED &&
@@ -1690,6 +1705,11 @@ bool beet_ble_parse_command_json(
             } else if (strcmp(cmd, "factory_reset") == 0) {
                 request->command = BEET_IFACE_COMMAND_FACTORY_RESET;
                 if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "get_pair_wiring") == 0) {
+                request->command = BEET_IFACE_COMMAND_GET_PAIR_WIRING;
+                if (!beet_ble_parse_pair_data(&cursor, &request->pair_index)) {
                     return false;
                 }
             } else {

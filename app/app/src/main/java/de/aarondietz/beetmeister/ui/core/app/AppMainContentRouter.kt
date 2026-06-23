@@ -26,6 +26,7 @@ internal fun AppMainContentRouter(
     onPairDetailBack: () -> Unit,
     onShowEventTableChange: (Boolean) -> Unit,
     onShowValveCalibrationChange: (Boolean) -> Unit,
+    onLoadPairWiring: (Int) -> Unit,
     onToggleEnabled: (Int) -> Unit,
     onManualStart: (Int, Int?) -> Unit,
     onManualStop: (Int) -> Unit,
@@ -54,7 +55,11 @@ internal fun AppMainContentRouter(
     when {
         selectedPair != 0 -> PairDetailScreen(
             pairState = state.pairStates.first { it.pairIndex == selectedPair },
+            pairWiring = state.pairWirings[selectedPair],
+            pairWiringLoading = selectedPair in state.pairWiringLoading,
+            pairWiringError = state.pairWiringErrors[selectedPair],
             onBack = onPairDetailBack,
+            onLoadPairWiring = onLoadPairWiring,
             onToggleEnabled = onToggleEnabled,
             onManualStart = onManualStart,
             onManualStop = onManualStop,

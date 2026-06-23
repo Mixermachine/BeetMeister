@@ -174,6 +174,11 @@
     <string name="pair_detail_label_sensor_valid">Sensor valid</string>
     <string name="pair_detail_label_blocked">Blocked</string>
     <string name="pair_detail_label_remaining">Remaining</string>
+    <string name="pair_detail_wiring_title">Controller wiring</string>
+    <string name="pair_detail_label_moisture_gpio">Moisture GPIO</string>
+    <string name="pair_detail_label_relay_gpio">Relay GPIO</string>
+    <string name="pair_detail_wiring_loading">Loading controller wiring...</string>
+    <string name="pair_detail_wiring_retry">Retry wiring read</string>
     <string name="pair_detail_disabled_info">This pair is disabled and excluded from watering and invalid-sensor alarms.</string>
     <string name="pair_detail_manual_watering">Manual watering</string>
     <string name="pair_detail_timed_start_label">Timed start (seconds)</string>
@@ -415,6 +420,7 @@
     <string name="maintenance_custom_selected" localizePipeContext="Custom firmware selected. %1$s is a filename or short source label.">Custom firmware selected: %1$s.</string>
     <string name="maintenance_failed_to_load_bundled">Could not load bundled firmware.</string>
     <string name="maintenance_failed_to_load_custom">Could not load the selected firmware image.</string>
+    <string name="maintenance_starting_update">Starting firmware update.</string>
     <string name="maintenance_update_aborted">Firmware update aborted.</string>
     <string name="maintenance_control_unavailable">Maintenance control characteristic is unavailable.</string>
     <string name="maintenance_data_unavailable">Maintenance data characteristic is unavailable.</string>

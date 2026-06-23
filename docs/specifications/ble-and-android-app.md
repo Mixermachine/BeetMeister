@@ -255,6 +255,20 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
+### Pair wiring lookup
+
+```json
+{
+  "cmd": "get_pair_wiring",
+  "data": {
+    "pair": 3
+  }
+}
+```
+
+This returns static controller wiring metadata for the selected pair on request.
+It shall not be streamed continuously on `state_stream`.
+
 ### Controller management
 
 ```json
@@ -389,6 +403,21 @@ Watering interval results shall return:
 }
 ```
 
+Pair wiring results shall return:
+
+```json
+{
+  "cmd": "get_pair_wiring",
+  "status": "accepted",
+  "reason": "none",
+  "data": {
+    "pair": 3,
+    "moisture_gpio": 10,
+    "relay_gpio": 14
+  }
+}
+```
+
 ```json
 {
   "cmd": "manual_start",
@@ -488,6 +517,7 @@ If a full command-result JSON payload exceeds the negotiated ATT indication payl
 - Device list: discover nearby controllers and show connection state.
 - Device dashboard: show battery state, battery voltage, next scheduler check, and pair summary cards.
 - Pair detail: show current moisture, current state, remaining watering time, block state, and manual start or stop actions.
+- Pair detail: show current moisture, current state, remaining watering time, block state, manual start or stop actions, and on-demand relay or moisture GPIO wiring information for setup.
 - Calibration screen: show live sensor value and allow storing dry and wet calibration references.
 - Settings screen: show firmware version, protocol version, valve state, and valve timing controls.
 - Valve calibration screen: show transient servo preview, pulse range, and saved open or shut markers.

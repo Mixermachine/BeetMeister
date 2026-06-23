@@ -37,6 +37,7 @@ import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.update.BeetMaintenanceUpdatePhase
+import de.aarondietz.beetmeister.model.update.isActiveMaintenancePhase
 import de.aarondietz.beetmeister.ui.core.app.AppMainContentRouter
 import de.aarondietz.beetmeister.ui.core.app.TopLevelScreen
 import de.aarondietz.beetmeister.ui.core.app.findActivity
@@ -119,11 +120,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
             viewModel.prepareCustomFirmware(uri)
         }
     }
-    val maintenanceUpdateActive = state.maintenanceUpdate.phase in setOf(
-        BeetMaintenanceUpdatePhase.Uploading,
-        BeetMaintenanceUpdatePhase.Reconnecting,
-        BeetMaintenanceUpdatePhase.Rebooting,
-    )
+    val maintenanceUpdateActive = state.maintenanceUpdate.phase.isActiveMaintenancePhase()
     val forcedMaintenanceMode = state.connection.phase == BeetConnectionPhase.MaintenanceRequired
     val maintenanceScreenShouldRender =
         maintenanceScreenVisible || (forcedMaintenanceMode && !(maintenanceUpdateActive && maintenanceScreenSuppressedDuringActiveUpdate))
@@ -521,6 +518,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                             showValveCalibration = it
                         }
                     },
+                    onLoadPairWiring = viewModel::loadPairWiring,
                     onToggleEnabled = viewModel::togglePairEnabled,
                     onManualStart = viewModel::manualStart,
                     onManualStop = viewModel::manualStop,

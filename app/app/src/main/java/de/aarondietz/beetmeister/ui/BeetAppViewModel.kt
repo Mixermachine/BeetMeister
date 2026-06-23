@@ -59,6 +59,8 @@ internal class BeetAppViewModel(
     fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) =
         repository.saveCalibration(pairIndex, dryMillivolts, wetMillivolts)
 
+    fun loadPairWiring(pairIndex: Int) = repository.loadPairWiring(pairIndex)
+
     fun refreshValveConfig() = repository.refreshValveConfig()
 
     fun refreshWateringInterval() = repository.refreshWateringInterval()

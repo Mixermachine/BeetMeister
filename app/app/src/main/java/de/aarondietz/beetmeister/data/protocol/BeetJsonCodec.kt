@@ -23,6 +23,7 @@ import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
 import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
+import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
@@ -70,6 +71,8 @@ object BeetJsonCodec {
         moshi.adapter(BeetCommandAckData::class.java)
     private val calibrationPayloadAdapter: JsonAdapter<BeetCalibration> =
         moshi.adapter(BeetCalibration::class.java)
+    private val pairWiringPayloadAdapter: JsonAdapter<BeetPairWiring> =
+        moshi.adapter(BeetPairWiring::class.java)
     private val valveConfigPayloadAdapter: JsonAdapter<BeetValveConfig> =
         moshi.adapter(BeetValveConfig::class.java)
     private val wateringIntervalPayloadAdapter: JsonAdapter<BeetWateringInterval> =
@@ -179,10 +182,15 @@ object BeetJsonCodec {
         } else {
             null
         }
+        val pairWiring = if (header.cmd == "get_pair_wiring" && header.status == "accepted") {
+            pairWiringPayloadAdapter.fromJson(dataJson) ?: error("Invalid pair wiring payload.")
+        } else {
+            null
+        }
         val ack = commandAckPayloadAdapter.fromJson(dataJson)
         return BeetCommandResult(
             command = header.cmd,
-            pairIndex = calibration?.pairIndex ?: event?.pairIndex ?: ack?.pairIndex,
+            pairIndex = calibration?.pairIndex ?: pairWiring?.pairIndex ?: event?.pairIndex ?: ack?.pairIndex,
             status = header.status,
             reason = header.reason,
             acceptedDurationSeconds = ack?.durationSeconds,
@@ -193,6 +201,7 @@ object BeetJsonCodec {
             systemEvent = systemEvent,
             valveConfig = valveConfig,
             wateringInterval = wateringInterval,
+            pairWiring = pairWiring,
         )
     }
 
@@ -334,6 +343,14 @@ object BeetJsonCodec {
         pairRequestEnvelopeAdapter.toJson(
             CommandRequestEnvelopeDto(
                 cmd = "get_calibration",
+                data = BeetPairCommandData(pairIndex = pairIndex),
+            ),
+        )
+
+    fun getPairWiring(pairIndex: Int): String =
+        pairRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_pair_wiring",
                 data = BeetPairCommandData(pairIndex = pairIndex),
             ),
         )

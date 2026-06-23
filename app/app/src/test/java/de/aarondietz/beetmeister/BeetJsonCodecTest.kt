@@ -1,6 +1,7 @@
 package de.aarondietz.beetmeister
 
 import de.aarondietz.beetmeister.data.protocol.BeetJsonCodec
+import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
 import de.aarondietz.beetmeister.model.update.BeetFirmwareMetadata
@@ -308,6 +309,31 @@ class BeetJsonCodecTest {
     @Test
     fun buildsClearBleBondsCommand() {
         assertEquals("""{"cmd":"clear_ble_bonds","data":{}}""", BeetJsonCodec.clearBleBonds())
+    }
+
+    @Test
+    fun parsesAndBuildsPairWiringCommands() {
+        val payload = """
+            {
+              "cmd":"get_pair_wiring",
+              "status":"accepted",
+              "reason":"none",
+              "data":{
+                "pair":4,
+                "moisture_gpio":7,
+                "relay_gpio":38
+              }
+            }
+        """.trimIndent()
+
+        val result = BeetJsonCodec.parseCommandResult(payload)
+
+        assertEquals(
+            BeetPairWiring(pairIndex = 4, moistureGpio = 7, relayGpio = 38),
+            result.pairWiring,
+        )
+        assertEquals(4, result.pairIndex)
+        assertEquals("""{"cmd":"get_pair_wiring","data":{"pair":4}}""", BeetJsonCodec.getPairWiring(4))
     }
 
     @Test

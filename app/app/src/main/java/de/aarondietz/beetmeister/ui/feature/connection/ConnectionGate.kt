@@ -40,6 +40,7 @@ import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.update.BeetFirmwareSource
 import de.aarondietz.beetmeister.model.update.BeetMaintenanceUpdatePhase
+import de.aarondietz.beetmeister.model.update.isActiveMaintenancePhase
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.BeetMeisterLogo
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
@@ -293,6 +294,7 @@ internal fun MaintenanceUpdatePanel(
     val update = state.maintenanceUpdate
     val selected = update.selectedFirmware
     val selectedAlreadyInstalled = selectedMatchesInstalled(selected, info)
+    val updateActive = update.phase.isActiveMaintenancePhase()
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F0E5)),
         modifier = modifier.testTag(MaintenanceUpdateTestTags.Card),
@@ -319,6 +321,7 @@ internal fun MaintenanceUpdatePanel(
             FirmwareSourceActions(
                 onPrepareBundledFirmware = onPrepareBundledFirmware,
                 onPickCustomFirmware = onPickCustomFirmware,
+                enabled = !updateActive,
             )
             if (selected != null) {
                 HorizontalDivider(color = Color(0xFFD7D1C6))
@@ -376,11 +379,7 @@ internal fun MaintenanceUpdatePanel(
                     modifier = Modifier.testTag(MaintenanceUpdateTestTags.StatusDetail),
                 )
             }
-            if (update.phase in setOf(
-                    BeetMaintenanceUpdatePhase.Uploading,
-                    BeetMaintenanceUpdatePhase.Reconnecting,
-                    BeetMaintenanceUpdatePhase.Rebooting,
-                ) && update.totalBytes > 0
+            if (updateActive && update.totalBytes > 0
             ) {
                 val progressPercent = ((update.bytesTransferred.toDouble() / update.totalBytes.toDouble()) * 100.0)
                     .toInt()
@@ -417,6 +416,7 @@ internal fun MaintenanceUpdatePanel(
                 )
             }
             when (update.phase) {
+                BeetMaintenanceUpdatePhase.Starting,
                 BeetMaintenanceUpdatePhase.Uploading,
                 BeetMaintenanceUpdatePhase.Reconnecting,
                 BeetMaintenanceUpdatePhase.Rebooting -> {
@@ -483,6 +483,7 @@ internal fun MaintenanceUpdatePanel(
 private fun FirmwareSourceActions(
     onPrepareBundledFirmware: () -> Unit,
     onPickCustomFirmware: () -> Unit,
+    enabled: Boolean,
 ) {
     val strings = rememberBeetStringResolver()
     BoxWithConstraints {
@@ -491,6 +492,7 @@ private fun FirmwareSourceActions(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 FilledTonalButton(
                     onClick = onPrepareBundledFirmware,
+                    enabled = enabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(MaintenanceUpdateTestTags.BundledButton),
@@ -504,6 +506,7 @@ private fun FirmwareSourceActions(
                 }
                 OutlinedButton(
                     onClick = onPickCustomFirmware,
+                    enabled = enabled,
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(MaintenanceUpdateTestTags.CustomButton),
@@ -523,6 +526,7 @@ private fun FirmwareSourceActions(
             ) {
                 FilledTonalButton(
                     onClick = onPrepareBundledFirmware,
+                    enabled = enabled,
                     modifier = Modifier
                         .weight(1f)
                         .testTag(MaintenanceUpdateTestTags.BundledButton),
@@ -536,6 +540,7 @@ private fun FirmwareSourceActions(
                 }
                 OutlinedButton(
                     onClick = onPickCustomFirmware,
+                    enabled = enabled,
                     modifier = Modifier
                         .weight(1f)
                         .testTag(MaintenanceUpdateTestTags.CustomButton),

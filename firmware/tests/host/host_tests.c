@@ -475,6 +475,11 @@ static void test_ble_command_parsing(void)
         "{\"cmd\":\"factory_reset\",\"data\":{}}", &request));
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_FACTORY_RESET, request.command);
 
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_pair_wiring\",\"data\":{\"pair\":6}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_PAIR_WIRING, request.command);
+    TEST_ASSERT_U32_EQ(6U, request.pair_index);
+
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"start_ota\",\"data\":{}}", &request));
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
@@ -754,6 +759,19 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"get_watering_interval\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"watering_interval_s\":21600}}",
         json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_PAIR_WIRING;
+    response.pair_index = 6U;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_pair_wiring = true;
+    response.moisture_gpio = 5;
+    response.relay_gpio = 40;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_pair_wiring\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"pair\":6,\"moisture_gpio\":5,\"relay_gpio\":40}}",
+        json);
 }
 
 static void test_maintenance_metadata_and_info(void)
@@ -977,6 +995,7 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ("set_time", beet_iface_command_name(BEET_IFACE_COMMAND_SET_TIME));
     TEST_ASSERT_STR_EQ("reboot_controller", beet_iface_command_name(BEET_IFACE_COMMAND_REBOOT_CONTROLLER));
     TEST_ASSERT_STR_EQ("factory_reset", beet_iface_command_name(BEET_IFACE_COMMAND_FACTORY_RESET));
+    TEST_ASSERT_STR_EQ("get_pair_wiring", beet_iface_command_name(BEET_IFACE_COMMAND_GET_PAIR_WIRING));
     TEST_ASSERT_STR_EQ("time_updated", beet_iface_reason_name(BEET_IFACE_REASON_TIME_UPDATED));
     TEST_ASSERT_STR_EQ("busy", beet_iface_reason_name(BEET_IFACE_REASON_BUSY));
     TEST_ASSERT_STR_EQ("rate_limited", beet_iface_reason_name(BEET_IFACE_REASON_RATE_LIMITED));

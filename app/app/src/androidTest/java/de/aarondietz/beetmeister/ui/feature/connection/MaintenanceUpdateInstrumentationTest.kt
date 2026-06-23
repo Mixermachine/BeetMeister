@@ -33,18 +33,15 @@ class MaintenanceUpdateInstrumentationTest {
     @Test
     fun maintenanceRequiredWithoutSelectionShowsActionsAndDisabledInstall() {
         composeRule.setContent {
-            ConnectionGate(
+            MaintenanceScreen(
                 state = baseState(),
-                permissionsPermanentlyDenied = false,
-                onRequestPermissions = {},
-                onRequestBluetooth = {},
-                onScan = {},
-                onConnect = {},
-                onDisconnect = {},
+                forcedMode = true,
+                onClose = null,
                 onPrepareBundledFirmware = {},
                 onPickCustomFirmware = {},
                 onStartMaintenanceUpdate = {},
                 onAbortMaintenanceUpdate = {},
+                onDisconnect = {},
             )
         }
 
@@ -60,7 +57,7 @@ class MaintenanceUpdateInstrumentationTest {
     @Test
     fun selectedCustomFirmwareShowsSummaryWarningsAndEnabledInstall() {
         composeRule.setContent {
-            ConnectionGate(
+            MaintenanceScreen(
                 state = baseState().copy(
                     maintenanceUpdate = BeetMaintenanceUpdateState(
                         selectedFirmware = customSelection(isDowngrade = true, runtimeWarning = true),
@@ -68,16 +65,13 @@ class MaintenanceUpdateInstrumentationTest {
                         statusDetail = "Ready to install custom build",
                     ),
                 ),
-                permissionsPermanentlyDenied = false,
-                onRequestPermissions = {},
-                onRequestBluetooth = {},
-                onScan = {},
-                onConnect = {},
-                onDisconnect = {},
+                forcedMode = true,
+                onClose = null,
                 onPrepareBundledFirmware = {},
                 onPickCustomFirmware = {},
                 onStartMaintenanceUpdate = {},
                 onAbortMaintenanceUpdate = {},
+                onDisconnect = {},
             )
         }
 
@@ -92,7 +86,7 @@ class MaintenanceUpdateInstrumentationTest {
     @Test
     fun uploadingPhaseShowsProgressAndAbortInsteadOfInstall() {
         composeRule.setContent {
-            ConnectionGate(
+            MaintenanceScreen(
                 state = baseState().copy(
                     maintenanceUpdate = BeetMaintenanceUpdateState(
                         selectedFirmware = customSelection(isDowngrade = false, runtimeWarning = false),
@@ -100,22 +94,51 @@ class MaintenanceUpdateInstrumentationTest {
                         statusDetail = "Uploading 512 / 1024 bytes",
                     ),
                 ),
-                permissionsPermanentlyDenied = false,
-                onRequestPermissions = {},
-                onRequestBluetooth = {},
-                onScan = {},
-                onConnect = {},
-                onDisconnect = {},
+                forcedMode = true,
+                onClose = null,
                 onPrepareBundledFirmware = {},
                 onPickCustomFirmware = {},
                 onStartMaintenanceUpdate = {},
                 onAbortMaintenanceUpdate = {},
+                onDisconnect = {},
             )
         }
 
         composeRule.onNodeWithTag(MaintenanceUpdateTestTags.Progress).assertIsDisplayed()
         composeRule.onNodeWithTag(MaintenanceUpdateTestTags.AbortButton).assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithTag(MaintenanceUpdateTestTags.StatusDetail).assertIsDisplayed()
+        composeRule.onNodeWithTag(MaintenanceUpdateTestTags.BundledButton).assertIsNotEnabled()
+        composeRule.onNodeWithTag(MaintenanceUpdateTestTags.CustomButton).assertIsNotEnabled()
+        composeRule.onAllNodesWithTag(MaintenanceUpdateTestTags.InstallButton).assertCountEquals(0)
+    }
+
+    @Test
+    fun startingPhaseShowsAbortAndDisablesSelection() {
+        composeRule.setContent {
+            MaintenanceScreen(
+                state = baseState().copy(
+                    maintenanceUpdate = BeetMaintenanceUpdateState(
+                        selectedFirmware = customSelection(isDowngrade = false, runtimeWarning = false),
+                        phase = BeetMaintenanceUpdatePhase.Starting,
+                        totalBytes = 1024,
+                        statusDetail = "Starting firmware update.",
+                    ),
+                ),
+                forcedMode = true,
+                onClose = null,
+                onPrepareBundledFirmware = {},
+                onPickCustomFirmware = {},
+                onStartMaintenanceUpdate = {},
+                onAbortMaintenanceUpdate = {},
+                onDisconnect = {},
+            )
+        }
+
+        composeRule.onNodeWithTag(MaintenanceUpdateTestTags.Progress).assertIsDisplayed()
+        composeRule.onNodeWithTag(MaintenanceUpdateTestTags.AbortButton).assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag(MaintenanceUpdateTestTags.StatusDetail).assertIsDisplayed()
+        composeRule.onNodeWithTag(MaintenanceUpdateTestTags.BundledButton).assertIsNotEnabled()
+        composeRule.onNodeWithTag(MaintenanceUpdateTestTags.CustomButton).assertIsNotEnabled()
         composeRule.onAllNodesWithTag(MaintenanceUpdateTestTags.InstallButton).assertCountEquals(0)
     }
 

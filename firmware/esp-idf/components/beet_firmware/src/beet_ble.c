@@ -1327,6 +1327,7 @@ static bool beet_ble_is_runtime_mutating_command(beet_iface_command_t command)
     case BEET_IFACE_COMMAND_GET_WATERING_EVENT:
     case BEET_IFACE_COMMAND_GET_VALVE_CONFIG:
     case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
+    case BEET_IFACE_COMMAND_GET_PAIR_WIRING:
         return false;
 
     default:

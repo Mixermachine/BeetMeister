@@ -57,6 +57,8 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "reboot_controller";
     case BEET_IFACE_COMMAND_FACTORY_RESET:
         return "factory_reset";
+    case BEET_IFACE_COMMAND_GET_PAIR_WIRING:
+        return "get_pair_wiring";
     default:
         return "unknown";
     }

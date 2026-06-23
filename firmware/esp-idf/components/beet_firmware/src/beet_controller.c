@@ -1979,6 +1979,7 @@ static bool beet_iface_command_is_mutating(beet_iface_command_t command)
     case BEET_IFACE_COMMAND_GET_WATERING_EVENT:
     case BEET_IFACE_COMMAND_GET_VALVE_CONFIG:
     case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
+    case BEET_IFACE_COMMAND_GET_PAIR_WIRING:
         return false;
 
     default:
@@ -2350,6 +2351,18 @@ esp_err_t beet_iface_submit_command(
         response->reason = BEET_IFACE_REASON_NONE;
         response->has_watering_interval = true;
         response->watering_interval_s = s_state.config.watering_interval_s;
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_GET_PAIR_WIRING:
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_pair_wiring = true;
+        response->moisture_gpio = (int16_t)beet_board_moisture_gpio(request->pair_index);
+        response->relay_gpio = (int16_t)beet_board_relay_gpio(request->pair_index);
         return ESP_OK;
 
     case BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL:

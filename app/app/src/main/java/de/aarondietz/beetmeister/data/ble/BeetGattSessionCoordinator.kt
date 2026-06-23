@@ -36,6 +36,7 @@ import de.aarondietz.beetmeister.model.stream.BeetStateMessage
 import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
 import de.aarondietz.beetmeister.model.update.BeetMaintenanceStatus
 import de.aarondietz.beetmeister.model.update.BeetMaintenanceUpdatePhase
+import de.aarondietz.beetmeister.model.update.isActiveMaintenancePhase
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
@@ -71,6 +72,7 @@ internal class BeetGattSessionCoordinator(
     @Volatile
     private var syncPauseRequested = false
     private val pendingMoistureTests = mutableMapOf<Int, Boolean>()
+    private val pendingPairWiringLoads = mutableSetOf<Int>()
     private val commandChunkAssembler = BeetCommandResultChunkAssembler()
     private var selectedMaintenancePackage: BeetFirmwareImagePackage? = null
     private var pendingMaintenanceStatus: CompletableDeferred<BeetMaintenanceStatus>? = null
@@ -298,6 +300,54 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    fun loadPairWiring(pairIndex: Int) {
+        host.scope.launch {
+            if (!beetIsValidPairIndex(pairIndex)) {
+                return@launch
+            }
+            val alreadyLoaded = host.state.value.pairWirings.containsKey(pairIndex)
+            val alreadyLoading = synchronized(pendingPairWiringLoads) { !pendingPairWiringLoads.add(pairIndex) }
+            if (alreadyLoaded || alreadyLoading) {
+                return@launch
+            }
+            host.updateState { state ->
+                state.copy(
+                    pairWiringLoading = state.pairWiringLoading + pairIndex,
+                    pairWiringErrors = state.pairWiringErrors - pairIndex,
+                )
+            }
+            try {
+                val result = withSyncPausedForCommand { sendCommand(BeetJsonCodec.getPairWiring(pairIndex)) }
+                if (result.status == "accepted" && result.pairWiring != null) {
+                    host.updateState { state ->
+                        state.copy(
+                            pairWiringLoading = state.pairWiringLoading - pairIndex,
+                            pairWiringErrors = state.pairWiringErrors - pairIndex,
+                        )
+                    }
+                } else {
+                    host.updateState { state ->
+                        state.copy(
+                            pairWiringLoading = state.pairWiringLoading - pairIndex,
+                            pairWiringErrors = state.pairWiringErrors + (pairIndex to commandMessageForResult(result, strings)),
+                        )
+                    }
+                }
+            } catch (error: Exception) {
+                host.updateState { state ->
+                    state.copy(
+                        pairWiringLoading = state.pairWiringLoading - pairIndex,
+                        pairWiringErrors = state.pairWiringErrors + (pairIndex to (error.message ?: strings.get(R.string.runtime_command_failed))),
+                    )
+                }
+            } finally {
+                synchronized(pendingPairWiringLoads) {
+                    pendingPairWiringLoads.remove(pairIndex)
+                }
+            }
+        }
+    }
+
     fun refreshValveConfig() {
         host.scope.launch {
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
@@ -459,6 +509,15 @@ internal class BeetGattSessionCoordinator(
     }
 
     fun startMaintenanceUpdate() {
+        val currentPhase = host.state.value.maintenanceUpdate.phase
+        if (maintenanceUploadJob?.isActive == true || currentPhase.isActiveMaintenancePhase()) {
+            Log.i(
+                TAG,
+                "startMaintenanceUpdate ignored because maintenance update is already active " +
+                    "phase=$currentPhase jobActive=${maintenanceUploadJob?.isActive == true}",
+            )
+            return
+        }
         val selectedPackage = selectedMaintenancePackage
         if (selectedPackage == null) {
             Log.w(
@@ -509,19 +568,36 @@ internal class BeetGattSessionCoordinator(
         )
         resetMaintenanceProgressTracking()
         suspendRuntimeSyncForMaintenance("start maintenance update")
-        maintenanceUploadJob?.cancel()
+        host.updateState { state ->
+            state.copy(
+                maintenanceUpdate = state.maintenanceUpdate.copy(
+                    phase = BeetMaintenanceUpdatePhase.Starting,
+                    bytesTransferred = 0,
+                    totalBytes = selectedSummary.imageSize,
+                    elapsedSeconds = 0,
+                    estimatedRemainingSeconds = null,
+                    retryCount = 0,
+                    statusDetail = strings.get(R.string.maintenance_starting_update),
+                    errorDetail = null,
+                ),
+            )
+        }
         val scopeJob = host.scope.coroutineContext.job
         Log.d(TAG, "startMaintenanceUpdate scopeActive=${scopeJob.isActive} scopeCancelled=${scopeJob.isCancelled}")
-        maintenanceUploadJob = host.scope.launch {
+        val launchedJob = host.scope.launch {
             runMaintenanceUpdate(selectedPackage, selectedSummary)
         }
+        maintenanceUploadJob = launchedJob
         Log.d(
             TAG,
             "startMaintenanceUpdate launched jobActive=${maintenanceUploadJob?.isActive} " +
                 "jobCancelled=${maintenanceUploadJob?.isCancelled}",
         )
-        maintenanceUploadJob?.invokeOnCompletion { error ->
-            Log.d(TAG, "maintenanceUploadJob completed cancelled=${maintenanceUploadJob?.isCancelled}", error)
+        launchedJob.invokeOnCompletion { error ->
+            if (maintenanceUploadJob === launchedJob) {
+                maintenanceUploadJob = null
+            }
+            Log.d(TAG, "maintenanceUploadJob completed cancelled=${launchedJob.isCancelled}", error)
         }
     }
 
@@ -1165,6 +1241,7 @@ internal class BeetGattSessionCoordinator(
     }
 
     private fun activeMaintenanceDetail(): String = when (host.state.value.maintenanceUpdate.phase) {
+        BeetMaintenanceUpdatePhase.Starting -> strings.get(R.string.maintenance_starting_update)
         BeetMaintenanceUpdatePhase.Rebooting -> strings.get(R.string.maintenance_rebooting_after_update)
         BeetMaintenanceUpdatePhase.Uploading -> {
             val update = host.state.value.maintenanceUpdate
@@ -1837,6 +1914,15 @@ internal class BeetGattSessionCoordinator(
         result.wateringInterval?.let { interval ->
             host.updateState { it.copy(wateringInterval = interval) }
         }
+        result.pairWiring?.let { wiring ->
+            host.updateState { state ->
+                state.copy(
+                    pairWirings = state.pairWirings + (wiring.pairIndex to wiring),
+                    pairWiringLoading = state.pairWiringLoading - wiring.pairIndex,
+                    pairWiringErrors = state.pairWiringErrors - wiring.pairIndex,
+                )
+            }
+        }
         host.session.pendingCommand?.complete(result)
     }
 
@@ -2264,4 +2350,6 @@ internal class BeetGattSessionCoordinator(
         "LOW_BATTERY_ABORT" -> strings.get(R.string.block_reason_code_low_battery_abort)
         else -> strings.get(R.string.common_unknown_with_code, code)
     }
+
+    private fun beetIsValidPairIndex(pairIndex: Int): Boolean = pairIndex in 1..8
 }

@@ -30,11 +30,23 @@ data class BeetFirmwarePackageSummary(
 enum class BeetMaintenanceUpdatePhase {
     Idle,
     Ready,
+    Starting,
     Uploading,
     Reconnecting,
     Rebooting,
     Completed,
     Failed,
+}
+
+internal fun BeetMaintenanceUpdatePhase.isActiveMaintenancePhase(): Boolean = when (this) {
+    BeetMaintenanceUpdatePhase.Starting,
+    BeetMaintenanceUpdatePhase.Uploading,
+    BeetMaintenanceUpdatePhase.Reconnecting,
+    BeetMaintenanceUpdatePhase.Rebooting -> true
+    BeetMaintenanceUpdatePhase.Idle,
+    BeetMaintenanceUpdatePhase.Ready,
+    BeetMaintenanceUpdatePhase.Completed,
+    BeetMaintenanceUpdatePhase.Failed -> false
 }
 
 data class BeetMaintenanceUpdateState(

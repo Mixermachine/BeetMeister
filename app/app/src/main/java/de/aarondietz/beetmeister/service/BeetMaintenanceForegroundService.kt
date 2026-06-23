@@ -15,7 +15,7 @@ import androidx.core.content.ContextCompat
 import de.aarondietz.beetmeister.MainActivity
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
-import de.aarondietz.beetmeister.model.update.BeetMaintenanceUpdatePhase
+import de.aarondietz.beetmeister.model.update.isActiveMaintenancePhase
 
 internal class BeetMaintenanceForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -87,7 +87,7 @@ internal class BeetMaintenanceForegroundService : Service() {
         private const val NOTIFICATION_ID = 2001
 
         fun sync(context: Context, state: BeetRepositoryState) {
-            if (state.maintenanceUpdate.phase !in ACTIVE_PHASES) {
+            if (!state.maintenanceUpdate.phase.isActiveMaintenancePhase()) {
                 stop(context)
                 return
             }
@@ -104,11 +104,5 @@ internal class BeetMaintenanceForegroundService : Service() {
         fun stop(context: Context) {
             context.stopService(Intent(context, BeetMaintenanceForegroundService::class.java))
         }
-
-        private val ACTIVE_PHASES = setOf(
-            BeetMaintenanceUpdatePhase.Uploading,
-            BeetMaintenanceUpdatePhase.Reconnecting,
-            BeetMaintenanceUpdatePhase.Rebooting,
-        )
     }
 }
