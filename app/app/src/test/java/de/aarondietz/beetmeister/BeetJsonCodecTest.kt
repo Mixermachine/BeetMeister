@@ -405,7 +405,7 @@ class BeetJsonCodecTest {
                 "firmware_version":"0.2.0",
                 "build_label":"v0.2.0",
                 "maintenance_protocol_version":1,
-                "runtime_protocol_version":9,
+            "runtime_protocol_version":${BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION},
                 "update_capable":true,
                 "image_kind":"bundled"
               }
@@ -419,7 +419,7 @@ class BeetJsonCodecTest {
         assertEquals("0.2.0", info.firmwareVersion)
         assertEquals("v0.2.0", info.buildLabel)
         assertEquals(1, info.maintenanceProtocolVersion)
-        assertEquals(9, info.runtimeProtocolVersion)
+        assertEquals(BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION, info.runtimeProtocolVersion)
         assertTrue(info.updateCapable)
         assertEquals("bundled", info.imageKind)
     }
@@ -461,7 +461,7 @@ class BeetJsonCodecTest {
                     firmwareVersion = "0.2.0",
                     buildLabel = "v0.2.0",
                     maintenanceProtocolVersion = 1,
-                    runtimeProtocolVersion = 9,
+                    runtimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
                     imageKind = "bundled",
                     compatibleHardwareRevs = listOf("rev_a", "rev_b"),
                 ),
@@ -479,7 +479,7 @@ class BeetJsonCodecTest {
         assertTrue(payload.json.contains("\"build_label\":\"v0.2.0\""))
         assertTrue(payload.json.contains("\"image_size\":4096"))
         assertTrue(payload.json.contains("\"hardware_revs\":[\"rev_a\",\"rev_b\"]"))
-        assertTrue(payload.json.contains("\"runtime_protocol_version\":9"))
+        assertTrue(payload.json.contains("\"runtime_protocol_version\":${BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION}"))
         assertTrue(payload.json.contains("\"asset_id\":\"bundled-dev\""))
         assertTrue(payload.json.contains("\"image_kind\":\"bundled\""))
         assertTrue(payload.sizeBytes <= 512)
@@ -491,14 +491,14 @@ class BeetJsonCodecTest {
             firmware = BeetFirmwarePackageSummary(
                 source = BeetFirmwareSource.Custom,
                 sourceLabel = "my-build.bin",
-                assetId = "custom",
+                assetId = "c",
                 metadata = BeetFirmwareMetadata(
                     productId = "beetmeister",
                     hardwareRev = "rev_a",
                     firmwareVersion = "0.2.0",
                     buildLabel = "custom-abc1234",
                     maintenanceProtocolVersion = 1,
-                    runtimeProtocolVersion = 10,
+                    runtimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
                     imageKind = "custom",
                     compatibleHardwareRevs = listOf("rev_a"),
                 ),
@@ -511,9 +511,39 @@ class BeetJsonCodecTest {
         )
 
         assertTrue(payload.compact)
-        assertTrue(payload.json.contains("\"ai\":\"custom\""))
-        assertTrue(payload.json.contains("\"rp\":10"))
+        assertTrue(payload.json.contains("\"ai\":\"c\""))
+        assertFalse(payload.json.contains("\"rp\":"))
         assertTrue(payload.json.contains("\"ik\":\"custom\""))
         assertTrue(payload.sizeBytes <= 220)
+    }
+
+    @Test
+    fun buildsCompactMaintenanceBeginUpdateThatFits253BytesForCurrentBundledStyleMetadata() {
+        val payload = BeetJsonCodec.maintenanceBeginUpdate(
+            firmware = BeetFirmwarePackageSummary(
+                source = BeetFirmwareSource.Bundled,
+                sourceLabel = "Bundled",
+                assetId = "b",
+                metadata = BeetFirmwareMetadata(
+                    productId = "beetmeister",
+                    hardwareRev = "rev_a",
+                    firmwareVersion = "dev-ccd0e07-dirty",
+                    buildLabel = "v0.0.0-ci-verify-20260622-4-3-gccd0e07-dirty",
+                    maintenanceProtocolVersion = 1,
+                    runtimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
+                    imageKind = "bundled",
+                    compatibleHardwareRevs = listOf("rev_a"),
+                ),
+                imageSize = 724448,
+                sha256Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                isDowngrade = false,
+                runtimeProtocolWarning = false,
+            ),
+            maxPayloadBytes = 253,
+        )
+
+        assertTrue(payload.compact)
+        assertTrue(payload.sizeBytes <= 253)
+        assertFalse(payload.json.contains("\"rp\":"))
     }
 }

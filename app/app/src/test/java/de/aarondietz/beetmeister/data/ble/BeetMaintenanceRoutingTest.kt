@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.data.ble
 
+import de.aarondietz.beetmeister.BuildConfig
 import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -11,7 +12,7 @@ class BeetMaintenanceRoutingTest {
         firmwareVersion = "0.2.0",
         buildLabel = "v0.2.0",
         maintenanceProtocolVersion = 1,
-        runtimeProtocolVersion = 9,
+        runtimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
         updateCapable = true,
         imageKind = "bundled",
     )
@@ -20,7 +21,11 @@ class BeetMaintenanceRoutingTest {
     fun routesToRuntimeWhenRuntimeServiceAndProtocolMatch() {
         assertEquals(
             BeetMaintenanceRoute.Runtime,
-            determineMaintenanceRoute(baseInfo, runtimeServiceAvailable = true, supportedRuntimeProtocolVersion = 9),
+            determineMaintenanceRoute(
+                baseInfo,
+                runtimeServiceAvailable = true,
+                supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
+            ),
         )
     }
 
@@ -28,7 +33,11 @@ class BeetMaintenanceRoutingTest {
     fun routesToForcedUpdateWhenProtocolDiffers() {
         assertEquals(
             BeetMaintenanceRoute.ForcedUpdate,
-            determineMaintenanceRoute(baseInfo.copy(runtimeProtocolVersion = 8), runtimeServiceAvailable = true, supportedRuntimeProtocolVersion = 9),
+            determineMaintenanceRoute(
+                baseInfo.copy(runtimeProtocolVersion = 8),
+                runtimeServiceAvailable = true,
+                supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
+            ),
         )
     }
 
@@ -36,7 +45,11 @@ class BeetMaintenanceRoutingTest {
     fun routesToForcedUpdateWhenRuntimeServiceMissing() {
         assertEquals(
             BeetMaintenanceRoute.ForcedUpdate,
-            determineMaintenanceRoute(baseInfo, runtimeServiceAvailable = false, supportedRuntimeProtocolVersion = 9),
+            determineMaintenanceRoute(
+                baseInfo,
+                runtimeServiceAvailable = false,
+                supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
+            ),
         )
     }
 }

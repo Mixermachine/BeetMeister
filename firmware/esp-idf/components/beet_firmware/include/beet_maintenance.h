@@ -7,8 +7,13 @@
 
 #include "esp_err.h"
 
-#define BEET_RUNTIME_PROTOCOL_VERSION 9U
-#define BEET_MAINTENANCE_PROTOCOL_VERSION 1U
+#ifndef BEET_RUNTIME_PROTOCOL_VERSION
+#error "BEET_RUNTIME_PROTOCOL_VERSION must be provided by the build configuration."
+#endif
+
+#ifndef BEET_MAINTENANCE_PROTOCOL_VERSION
+#error "BEET_MAINTENANCE_PROTOCOL_VERSION must be provided by the build configuration."
+#endif
 
 #define BEET_MAINTENANCE_PRODUCT_ID_MAX_LEN 24U
 #define BEET_MAINTENANCE_HARDWARE_REV_MAX_LEN 16U

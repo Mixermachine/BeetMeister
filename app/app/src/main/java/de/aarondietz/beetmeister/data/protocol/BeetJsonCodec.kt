@@ -233,7 +233,7 @@ object BeetJsonCodec {
             )
         }
         val compactPayload =
-            """{"cmd":"begin_update","d":{"fv":"${escapeJson(firmware.metadata.firmwareVersion)}","bl":"${escapeJson(firmware.metadata.buildLabel)}","sz":${firmware.imageSize},"sh":"${firmware.sha256Hex}","pi":"${escapeJson(firmware.metadata.productId)}","hr":[${hardwareRevs}],"rp":${firmware.metadata.runtimeProtocolVersion},"ai":"${escapeJson(firmware.assetId)}","ik":"${escapeJson(imageKind)}"}}""".trimIndent()
+            """{"cmd":"begin_update","d":{"fv":"${escapeJson(firmware.metadata.firmwareVersion)}","bl":"${escapeJson(firmware.metadata.buildLabel)}","sz":${firmware.imageSize},"sh":"${firmware.sha256Hex}","pi":"${escapeJson(firmware.metadata.productId)}","hr":[${hardwareRevs}],"ai":"${escapeJson(firmware.assetId)}","ik":"${escapeJson(imageKind)}"}}""".trimIndent()
         val compactSize = compactPayload.toByteArray(StandardCharsets.UTF_8).size
         require(compactSize <= maxPayloadBytes) {
             "Maintenance begin_update payload exceeds $maxPayloadBytes bytes for negotiated MTU."

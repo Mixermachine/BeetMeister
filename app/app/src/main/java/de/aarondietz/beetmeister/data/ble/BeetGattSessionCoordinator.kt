@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
+import de.aarondietz.beetmeister.BuildConfig
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.data.firmware.BeetFirmwareCatalog
 import de.aarondietz.beetmeister.data.firmware.BeetFirmwareImagePackage
@@ -383,7 +384,7 @@ internal class BeetGattSessionCoordinator(
                 val (pkg, summary) = BeetFirmwareCatalog.loadBundledFirmware(
                     context = host.appContext,
                     maintenanceInfo = host.state.value.maintenanceInfo,
-                    supportedRuntimeProtocolVersion = EXPECTED_PROTOCOL_VERSION,
+                    supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
                 )
                 selectedMaintenancePackage = pkg
                 resetMaintenanceProgressTracking()
@@ -424,7 +425,7 @@ internal class BeetGattSessionCoordinator(
                     contentResolver = host.appContext.contentResolver,
                     uri = uri,
                     maintenanceInfo = host.state.value.maintenanceInfo,
-                    supportedRuntimeProtocolVersion = EXPECTED_PROTOCOL_VERSION,
+                    supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
                 )
                 selectedMaintenancePackage = pkg
                 resetMaintenanceProgressTracking()
@@ -1013,13 +1014,20 @@ internal class BeetGattSessionCoordinator(
             host.updateConnection(BeetConnectionPhase.Error, strings.get(R.string.runtime_controller_info_invalid))
             return
         }
-        if (info.protocolVersion != EXPECTED_PROTOCOL_VERSION) {
-            Log.e(TAG, "Unsupported protocol version ${info.protocolVersion}, expected=${EXPECTED_PROTOCOL_VERSION}")
+        if (info.protocolVersion != BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION) {
+            Log.e(
+                TAG,
+                "Unsupported protocol version ${info.protocolVersion}, expected=${BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION}",
+            )
             disconnectGatt(clearSelection = false, reason = "unsupported protocol version ${info.protocolVersion}")
             host.clearSession()
             host.updateConnection(
                 BeetConnectionPhase.Error,
-                strings.get(R.string.runtime_unsupported_protocol, info.protocolVersion, EXPECTED_PROTOCOL_VERSION),
+                strings.get(
+                    R.string.runtime_unsupported_protocol,
+                    info.protocolVersion,
+                    BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
+                ),
             )
             return
         }
@@ -1054,7 +1062,7 @@ internal class BeetGattSessionCoordinator(
             determineMaintenanceRoute(
                 info = info,
                 runtimeServiceAvailable = hasCompleteRuntimeService(),
-                supportedRuntimeProtocolVersion = EXPECTED_PROTOCOL_VERSION,
+            supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
             )
         ) {
             BeetMaintenanceRoute.Runtime -> resolveRuntimeOrActiveMaintenanceRoute(gatt, info)
@@ -1187,7 +1195,7 @@ internal class BeetGattSessionCoordinator(
             strings.get(
                 R.string.runtime_maintenance_update_required,
                 info.runtimeProtocolVersion,
-                EXPECTED_PROTOCOL_VERSION,
+                BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
             )
         } else {
             strings.get(R.string.runtime_maintenance_runtime_unavailable)
@@ -2231,7 +2239,6 @@ internal class BeetGattSessionCoordinator(
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DEFAULT_MTU = 23
         private const val DESIRED_MTU = 247
-        private const val EXPECTED_PROTOCOL_VERSION = 9
         private const val MIN_MAINTENANCE_PAYLOAD_BYTES = 20
         private const val MAX_MAINTENANCE_PAYLOAD_BYTES = 236
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120

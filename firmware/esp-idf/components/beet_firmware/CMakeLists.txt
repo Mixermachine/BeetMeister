@@ -1,6 +1,25 @@
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 set(BEET_METADATA_GENERATED_HEADER "${CMAKE_CURRENT_LIST_DIR}/include/beet_generated_metadata.h")
+set(BEET_PROTOCOL_VERSIONS_FILE "${CMAKE_CURRENT_LIST_DIR}/../../../../config/protocol_versions.properties")
+
+file(STRINGS "${BEET_PROTOCOL_VERSIONS_FILE}" BEET_PROTOCOL_VERSION_LINES REGEX "^[A-Za-z0-9_]+=")
+foreach(BEET_PROTOCOL_LINE IN LISTS BEET_PROTOCOL_VERSION_LINES)
+    if(BEET_PROTOCOL_LINE MATCHES "^maintenance_protocol_version=([0-9]+)$")
+        set(BEET_SHARED_MAINTENANCE_PROTOCOL_VERSION "${CMAKE_MATCH_1}")
+    elseif(BEET_PROTOCOL_LINE MATCHES "^runtime_protocol_version=([0-9]+)$")
+        set(BEET_SHARED_RUNTIME_PROTOCOL_VERSION "${CMAKE_MATCH_1}")
+    endif()
+endforeach()
+
+if(NOT DEFINED BEET_SHARED_MAINTENANCE_PROTOCOL_VERSION)
+    message(FATAL_ERROR "Missing maintenance_protocol_version in ${BEET_PROTOCOL_VERSIONS_FILE}")
+endif()
+
+if(NOT DEFINED BEET_SHARED_RUNTIME_PROTOCOL_VERSION)
+    message(FATAL_ERROR "Missing runtime_protocol_version in ${BEET_PROTOCOL_VERSIONS_FILE}")
+endif()
+
 if(NOT DEFINED BEET_FIRMWARE_VERSION)
     set(BEET_FIRMWARE_VERSION "${PROJECT_VER}")
 endif()
@@ -14,13 +33,13 @@ execute_process(
         "${CMAKE_CURRENT_LIST_DIR}/tools/gen_beet_metadata_header.py"
         --output "${BEET_METADATA_GENERATED_HEADER}"
         --firmware-version "${BEET_FIRMWARE_VERSION}"
-        --build-label "${BEET_BUILD_LABEL}"
-        --product-id "beetmeister"
-        --hardware-rev "rev_a"
-        --maintenance-protocol-version "1"
-        --runtime-protocol-version "9"
-        --image-kind "bundled"
-        --compatible-hardware-rev "rev_a"
+    --build-label "${BEET_BUILD_LABEL}"
+    --product-id "beetmeister"
+    --hardware-rev "rev_a"
+    --maintenance-protocol-version "${BEET_SHARED_MAINTENANCE_PROTOCOL_VERSION}"
+    --runtime-protocol-version "${BEET_SHARED_RUNTIME_PROTOCOL_VERSION}"
+    --image-kind "bundled"
+    --compatible-hardware-rev "rev_a"
     COMMAND_ERROR_IS_FATAL ANY
 )
 
@@ -46,9 +65,14 @@ idf_component_register(
         bt
         esp_app_format
         esp_driver_gpio
-        esp_partition
-        esp_rom
-        esp_timer
-        espressif__led_strip
-        nvs_flash
+    esp_partition
+    esp_rom
+    esp_timer
+    espressif__led_strip
+    nvs_flash
+)
+
+target_compile_definitions(${COMPONENT_LIB} PUBLIC
+    BEET_MAINTENANCE_PROTOCOL_VERSION=${BEET_SHARED_MAINTENANCE_PROTOCOL_VERSION}
+    BEET_RUNTIME_PROTOCOL_VERSION=${BEET_SHARED_RUNTIME_PROTOCOL_VERSION}
 )

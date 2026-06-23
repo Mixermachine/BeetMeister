@@ -99,6 +99,13 @@ if (-not $PrebuiltImagePath) {
     if (Test-Path -LiteralPath $releaseSdkconfigPath) {
         Remove-Item -LiteralPath $releaseSdkconfigPath -Force
     }
+    $idfBuildArgsPacked = (@(
+        "-B", $firmwareBuildPath,
+        "-D", "SDKCONFIG=$releaseSdkconfigPath",
+        "-D", "BEET_FIRMWARE_VERSION=$($stamp.FirmwareVersion)",
+        "-D", "BEET_BUILD_LABEL=$($stamp.BuildLabel)",
+        "build"
+    ) -join [char]0x1f)
     $idfArgs = @(
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
@@ -108,11 +115,7 @@ if (-not $PrebuiltImagePath) {
         $idfArgs += "-FullOutput"
     }
     $idfArgs += @(
-        "-B", $firmwareBuildPath,
-        "-DSDKCONFIG=$releaseSdkconfigPath",
-        "-DBEET_FIRMWARE_VERSION=$($stamp.FirmwareVersion)",
-        "-DBEET_BUILD_LABEL=$($stamp.BuildLabel)",
-        "build"
+        "-IdfArgsPacked", $idfBuildArgsPacked
     )
     Invoke-BeetProcess `
         -Context $scriptContext `

@@ -1,5 +1,14 @@
 import org.gradle.api.tasks.Exec
 import org.gradle.internal.os.OperatingSystem
+import java.util.Properties
+
+val protocolVersions = Properties().apply {
+    rootProject.file("../config/protocol_versions.properties").inputStream().use(::load)
+}
+val beetMaintenanceProtocolVersion = protocolVersions.getProperty("maintenance_protocol_version")
+    ?: error("Missing maintenance_protocol_version in config/protocol_versions.properties")
+val beetRuntimeProtocolVersion = protocolVersions.getProperty("runtime_protocol_version")
+    ?: error("Missing runtime_protocol_version in config/protocol_versions.properties")
 
 plugins {
     alias(libs.plugins.android.application)
@@ -20,6 +29,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("int", "BEET_MAINTENANCE_PROTOCOL_VERSION", beetMaintenanceProtocolVersion)
+        buildConfigField("int", "BEET_RUNTIME_PROTOCOL_VERSION", beetRuntimeProtocolVersion)
     }
 
     signingConfigs {
@@ -53,6 +64,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     sourceSets.named("main") {

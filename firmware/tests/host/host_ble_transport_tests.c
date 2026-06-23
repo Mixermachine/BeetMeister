@@ -11,6 +11,9 @@
 
 static int s_failures = 0;
 
+#define BEET_STRINGIFY_INNER(value) #value
+#define BEET_STRINGIFY(value) BEET_STRINGIFY_INNER(value)
+
 #define TEST_ASSERT_TRUE(cond) do { \
     if (!(cond)) { \
         printf("FAIL %s:%d expected true: %s\n", __FILE__, __LINE__, #cond); \
@@ -114,19 +117,19 @@ static void beet_prepare_session(uint16_t mtu)
 static const char *beet_begin_update_json(void)
 {
     return
-        "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"v0.2.0\",\"build_label\":\"v0.2.0\","
-        "\"image_size\":1234,\"image_sha256\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\","
-        "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":9,"
-        "\"asset_id\":\"bundled-test\",\"image_kind\":\"bundled\"}}";
+    "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"v0.2.0\",\"build_label\":\"v0.2.0\","
+    "\"image_size\":1234,\"image_sha256\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\","
+    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":" BEET_STRINGIFY(BEET_RUNTIME_PROTOCOL_VERSION) ","
+    "\"asset_id\":\"bundled-test\",\"image_kind\":\"bundled\"}}";
 }
 
 static const char *beet_stage4_begin_update_json(void)
 {
     return
-        "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
-        "\"image_size\":122,\"image_sha256\":\"a90ba2135c38eeb61cb20097d2c841c8d9892f76f5e1c4363f8c8746724f95a7\","
-        "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":9,"
-        "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
+    "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
+    "\"image_size\":122,\"image_sha256\":\"696a656b51ce514c366d7321123fcf716f2017af201668f6c9558e84dee480d8\","
+    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":" BEET_STRINGIFY(BEET_RUNTIME_PROTOCOL_VERSION) ","
+    "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
 }
 
 static void beet_write_maintenance_chunk(

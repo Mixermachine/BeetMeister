@@ -79,7 +79,7 @@ Example payload:
 ```json
 {
   "device_id": "beetmeister-01",
-  "protocol_version": 9,
+  "protocol_version": 10,
   "firmware_version": "0.1.0",
   "pair_count": 8
 }

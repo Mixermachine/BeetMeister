@@ -9,7 +9,6 @@ import de.aarondietz.beetmeister.model.update.BeetFirmwareSource
 
 internal object BeetFirmwareCatalog {
     private const val BUNDLED_ASSET_PATH = "firmware/beetmeister-rev_a-bundled.bin"
-    private const val CUSTOM_BLE_ASSET_ID = "custom"
     private const val MAX_CUSTOM_IMAGE_BYTES = 4 * 1024 * 1024
 
     fun loadBundledFirmware(
@@ -43,7 +42,7 @@ internal object BeetFirmwareCatalog {
         return imagePackage to imagePackage.toSummary(
             source = BeetFirmwareSource.Custom,
             sourceLabel = label,
-            assetId = CUSTOM_BLE_ASSET_ID,
+            assetId = buildAssetId(prefix = "c", imagePackage = imagePackage),
             maintenanceInfo = maintenanceInfo,
             supportedRuntimeProtocolVersion = supportedRuntimeProtocolVersion,
         )
@@ -92,27 +91,29 @@ internal object BeetFirmwareCatalog {
             metadata = metadata,
             imageSize = imageSize,
             sha256Hex = sha256Hex,
-            isDowngrade = currentVersion != null && compareVersions(metadata.firmwareVersion, currentVersion) < 0,
+            isDowngrade = currentVersion != null && isKnownDowngrade(
+                candidateVersion = metadata.firmwareVersion,
+                installedVersion = currentVersion,
+            ),
             runtimeProtocolWarning = metadata.runtimeProtocolVersion != supportedRuntimeProtocolVersion,
         )
     }
 
     private fun buildBundledAssetId(imagePackage: BeetFirmwareImagePackage): String {
-        val metadata = imagePackage.metadata
-        val raw = "bundled-${metadata.hardwareRev}-${metadata.firmwareVersion}"
-        val sanitized = raw.map { char ->
-            when {
-                char.isLetterOrDigit() -> char
-                char == '-' || char == '_' || char == '.' -> char
-                else -> '-'
-            }
-        }.joinToString("")
-        return sanitized.take(64)
+        return buildAssetId(prefix = "b", imagePackage = imagePackage)
     }
 
-    private fun compareVersions(left: String, right: String): Int {
-        val leftParts = left.extractVersionParts()
-        val rightParts = right.extractVersionParts()
+    private fun buildAssetId(prefix: String, @Suppress("UNUSED_PARAMETER") imagePackage: BeetFirmwareImagePackage): String {
+        return prefix
+    }
+
+    private fun isKnownDowngrade(candidateVersion: String, installedVersion: String): Boolean {
+        val candidateParts = candidateVersion.parseSemanticVersionParts() ?: return false
+        val installedParts = installedVersion.parseSemanticVersionParts() ?: return false
+        return compareVersionParts(candidateParts, installedParts) < 0
+    }
+
+    private fun compareVersionParts(leftParts: List<Int>, rightParts: List<Int>): Int {
         val max = maxOf(leftParts.size, rightParts.size)
         for (index in 0 until max) {
             val leftValue = leftParts.getOrElse(index) { 0 }
@@ -121,14 +122,18 @@ internal object BeetFirmwareCatalog {
                 return leftValue.compareTo(rightValue)
             }
         }
-        return left.compareTo(right)
+        return 0
     }
 
-    private fun String.extractVersionParts(): List<Int> =
-        trim()
-            .removePrefix("v")
-            .takeWhile { it.isDigit() || it == '.' }
+    private fun String.parseSemanticVersionParts(): List<Int>? {
+        val normalized = trim().removePrefix("v").removePrefix("V")
+        if (normalized.isEmpty() || normalized.any { !it.isDigit() && it != '.' }) {
+            return null
+        }
+        return normalized
             .split('.')
             .filter { it.isNotBlank() }
             .mapNotNull { it.toIntOrNull() }
+            .takeIf { it.isNotEmpty() }
+    }
 }
