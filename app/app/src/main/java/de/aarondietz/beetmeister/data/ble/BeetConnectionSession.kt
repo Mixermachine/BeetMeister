@@ -26,7 +26,6 @@ internal class BeetConnectionSession {
 
     private val syncedPairs = linkedSetOf<Int>()
     private var controllerInfoLoaded = false
-    private var expectedPairCount = 8
 
     @Synchronized
     fun resetSyncState() {
@@ -46,7 +45,6 @@ internal class BeetConnectionSession {
         serviceDiscoveryStarted = false
         servicesConfigured = false
         controllerInfoLoaded = false
-        expectedPairCount = 8
         syncedPairs.clear()
     }
 
@@ -62,7 +60,6 @@ internal class BeetConnectionSession {
     @Synchronized
     fun markControllerInfoLoaded(pairCount: Int) {
         controllerInfoLoaded = true
-        expectedPairCount = pairCount.coerceAtLeast(1)
     }
 
     @Synchronized
@@ -70,10 +67,13 @@ internal class BeetConnectionSession {
         if (initialSyncCompleted) {
             return false
         }
-        if (!controllerInfoLoaded || syncedPairs.size < expectedPairCount) {
+        if (!controllerInfoLoaded || !hasReceivedRuntimeState()) {
             return false
         }
         initialSyncCompleted = true
         return true
     }
+
+    @Synchronized
+    private fun hasReceivedRuntimeState(): Boolean = initialDeviceFrameReceived || syncedPairs.isNotEmpty()
 }
