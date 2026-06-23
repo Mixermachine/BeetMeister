@@ -28,6 +28,13 @@
 - C firmware: `snake_case` for functions/statics, `BEET_*` for constants/macros, short focused helpers, minimal comments.
 - Keep JSON field names and BLE/MQTT contract strings aligned with the docs.
 
+## Protocol Versioning Rules
+
+- Any runtime BLE command, field, result shape, or wire-behavior change requires a `runtime_protocol_version` bump in `config/protocol_versions.properties`.
+- Any maintenance protocol wire change requires explicit user approval first.
+- Maintenance protocol wire changes include command names, required fields, compact aliases, field meanings, status shapes, and other on-wire behavior.
+- Do not merge or ship protocol-surface changes without updating the shared version source and any affected docs.
+
 ## Testing Guidelines
 
 - Add app unit tests under `app/app/src/test` and firmware host tests under `firmware/tests/host`.
