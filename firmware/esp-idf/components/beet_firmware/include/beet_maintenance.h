@@ -99,6 +99,9 @@ typedef struct {
     beet_maintenance_failure_reason_t failure_reason;
 } beet_maintenance_status_t;
 
+// WARNING: The maintenance protocol is intended to be effectively frozen.
+// Do not rename these commands, repurpose them, or change their wire meaning
+// without an explicit backward-compatible protocol migration.
 typedef enum {
     BEET_MAINTENANCE_COMMAND_QUERY_STATUS = 0,
     BEET_MAINTENANCE_COMMAND_BEGIN_UPDATE = 1,
@@ -120,6 +123,9 @@ typedef struct {
     beet_maintenance_image_kind_t image_kind;
 } beet_maintenance_begin_update_request_t;
 
+// WARNING: This request shape defines the firmware-side maintenance wire
+// contract. Preserve backward compatibility for every shipped maintenance
+// protocol version, including compact aliases parsed on the app side.
 typedef struct {
     beet_maintenance_command_t command;
     beet_maintenance_begin_update_request_t begin_update;

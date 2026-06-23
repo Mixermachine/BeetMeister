@@ -210,6 +210,10 @@ object BeetJsonCodec {
             ?: error("Invalid maintenance status payload.")
     }
 
+    // WARNING: The maintenance protocol wire contract is effectively frozen.
+    // Keep command names, required fields, compact aliases, and field semantics
+    // backward compatible across shipped controllers. Do not change this JSON
+    // shape without an explicit protocol decision coordinated with firmware.
     fun maintenanceQueryStatus(): String = """{"cmd":"query_status"}"""
 
     fun maintenanceAbortUpdate(): String = """{"cmd":"abort_update"}"""
@@ -220,6 +224,10 @@ object BeetJsonCodec {
         firmware: BeetFirmwarePackageSummary,
         maxPayloadBytes: Int,
     ): MaintenanceBeginUpdatePayload {
+        // WARNING: The verbose and compact begin_update payloads are both part
+        // of the fixed maintenance protocol surface. Future edits must preserve
+        // backward compatibility for shipped controllers, including compact
+        // aliases such as d/fv/bl/sz/sh/pi/hr/ai/ik.
         val hardwareRevs = firmware.metadata.compatibleHardwareRevs.joinToString(separator = ",") { "\"$it\"" }
         val imageKind = firmware.metadata.imageKind
         val verbosePayload =

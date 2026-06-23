@@ -1239,6 +1239,9 @@ static bool beet_ble_parse_begin_update_data(
     const char **cursor,
     beet_maintenance_begin_update_request_t *request)
 {
+    // WARNING: This parser accepts the fixed maintenance begin_update wire
+    // contract, including compact aliases such as fv/bl/sz/sh/pi/hr/ai/ik.
+    // Future changes must remain backward compatible with shipped apps.
     char key[32];
     char parsed_string[BEET_MAINTENANCE_ASSET_ID_MAX_LEN + 1U];
     bool seen_firmware_version = false;
@@ -1722,6 +1725,9 @@ bool beet_ble_parse_maintenance_request_json(
     const char *json,
     beet_maintenance_request_t *request)
 {
+    // WARNING: The maintenance JSON protocol is intended to remain stable
+    // across app and firmware releases. Keep accepted command names, required
+    // fields, and field meanings backward compatible for shipped versions.
     const char *cursor = json;
     char key[32];
     char cmd[32];
