@@ -136,6 +136,8 @@ typedef struct {
     beet_iface_pair_state_t last_pair_states[BEET_PAIR_COUNT];
     bool have_last_device_state;
     bool have_last_pair_states;
+    bool force_send_device;
+    bool force_send_pair[BEET_PAIR_COUNT];
     bool pending_result_valid;
     beet_iface_command_response_t pending_result;
     uint32_t next_chunk_id;
@@ -2722,12 +2724,15 @@ static bool beet_ble_stream_device_state(void)
     int written;
 
     if (beet_iface_get_device_state(&device_state) != ESP_OK) {
+        s_ble.force_send_device = false;
         return false;
     }
 
-    if (s_ble.have_last_device_state &&
-        !s_ble.initial_sync_pending &&
-        beet_ble_device_states_equal(&device_state, &s_ble.last_device_state)) {
+    if (s_ble.force_send_device) {
+        s_ble.force_send_device = false;
+    } else if (s_ble.have_last_device_state &&
+               !s_ble.initial_sync_pending &&
+               beet_ble_device_states_equal(&device_state, &s_ble.last_device_state)) {
         return false;
     }
 
@@ -2765,12 +2770,15 @@ static bool beet_ble_stream_pair_state(uint8_t pair_index)
     int written;
 
     if (beet_iface_get_pair_state(pair_index, &pair_state) != ESP_OK) {
+        s_ble.force_send_pair[pair_index - 1U] = false;
         return false;
     }
 
-    if (s_ble.have_last_pair_states &&
-        !s_ble.initial_sync_pending &&
-        beet_ble_states_equal(&pair_state, &s_ble.last_pair_states[pair_index - 1U])) {
+    if (s_ble.force_send_pair[pair_index - 1U]) {
+        s_ble.force_send_pair[pair_index - 1U] = false;
+    } else if (s_ble.have_last_pair_states &&
+               !s_ble.initial_sync_pending &&
+               beet_ble_states_equal(&pair_state, &s_ble.last_pair_states[pair_index - 1U])) {
         return false;
     }
 
@@ -2795,6 +2803,8 @@ static void beet_ble_reset_state_stream_sync(void)
     s_ble.state_stream_next_allowed_us = 0LL;
     s_ble.have_last_device_state = false;
     s_ble.have_last_pair_states = false;
+    s_ble.force_send_device = false;
+    memset(s_ble.force_send_pair, 0, sizeof(s_ble.force_send_pair));
 }
 
 static void beet_ble_start_initial_state_stream_sync(void)
@@ -2805,6 +2815,8 @@ static void beet_ble_start_initial_state_stream_sync(void)
     s_ble.state_stream_next_allowed_us = 0LL;
     s_ble.have_last_device_state = false;
     s_ble.have_last_pair_states = false;
+    s_ble.force_send_device = false;
+    memset(s_ble.force_send_pair, 0, sizeof(s_ble.force_send_pair));
 }
 
 static void beet_ble_service_initial_state_stream(void)
@@ -2839,6 +2851,21 @@ static void beet_ble_service_live_state_stream(int64_t now_us)
 {
     if (s_ble.maintenance_session.active) {
         return;
+    }
+
+    {
+        bool has_force = s_ble.force_send_device;
+        if (!has_force) {
+            for (uint8_t i = 0U; i < BEET_PAIR_COUNT; ++i) {
+                if (s_ble.force_send_pair[i]) {
+                    has_force = true;
+                    break;
+                }
+            }
+        }
+        if (has_force) {
+            s_ble.state_stream_next_allowed_us = now_us;
+        }
     }
 
     if (now_us < s_ble.state_stream_next_allowed_us) {
@@ -3046,6 +3073,15 @@ void beet_ble_service(void)
 
     beet_ble_service_pairing_display();
     beet_ble_drain_commands();
+    if (s_ble.pending_result_valid &&
+        s_ble.pending_result.status == BEET_IFACE_STATUS_ACCEPTED &&
+        beet_ble_is_runtime_mutating_command(s_ble.pending_result.command)) {
+        s_ble.force_send_device = true;
+        if (s_ble.pending_result.pair_index >= 1U &&
+            s_ble.pending_result.pair_index <= BEET_PAIR_COUNT) {
+            s_ble.force_send_pair[s_ble.pending_result.pair_index - 1U] = true;
+        }
+    }
     beet_ble_send_pending_result();
     beet_ble_service_maintenance_session();
 
