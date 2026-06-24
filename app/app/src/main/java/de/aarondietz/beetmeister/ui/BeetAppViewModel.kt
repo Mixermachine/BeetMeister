@@ -79,6 +79,8 @@ internal class BeetAppViewModel(
 
     fun factoryResetController() = repository.factoryResetController()
 
+    fun runScheduler() = repository.runScheduler()
+
     fun prepareBundledFirmware() = repository.prepareBundledFirmware()
 
     fun prepareCustomFirmware(uri: Uri) = repository.prepareCustomFirmware(uri)

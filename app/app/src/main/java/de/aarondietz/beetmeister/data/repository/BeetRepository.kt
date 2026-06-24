@@ -140,6 +140,8 @@ internal class BeetRepository(
 
     fun factoryResetController() = gattSessionCoordinator.factoryResetController()
 
+    fun runScheduler() = gattSessionCoordinator.runScheduler()
+
     fun prepareBundledFirmware() = gattSessionCoordinator.prepareBundledFirmware()
 
     fun prepareCustomFirmware(uri: Uri) = gattSessionCoordinator.prepareCustomFirmware(uri)

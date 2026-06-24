@@ -419,6 +419,14 @@ object BeetJsonCodec {
             ),
         )
 
+    fun runScheduler(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "run_scheduler",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
     fun getValveConfig(): String =
         emptyRequestEnvelopeAdapter.toJson(
             CommandRequestEnvelopeDto(

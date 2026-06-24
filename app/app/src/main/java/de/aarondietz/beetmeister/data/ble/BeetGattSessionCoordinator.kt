@@ -428,6 +428,10 @@ internal class BeetGattSessionCoordinator(
         host.scope.launch { sendUserCommand(BeetJsonCodec.factoryResetController()) }
     }
 
+    fun runScheduler() {
+        host.scope.launch { sendUserCommand(BeetJsonCodec.runScheduler()) }
+    }
+
     fun prepareBundledFirmware() {
         host.scope.launch {
             runCatching {

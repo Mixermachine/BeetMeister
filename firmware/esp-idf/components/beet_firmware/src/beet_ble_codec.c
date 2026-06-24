@@ -1707,6 +1707,11 @@ bool beet_ble_parse_command_json(
                 if (!beet_ble_parse_empty_data(&cursor)) {
                     return false;
                 }
+            } else if (strcmp(cmd, "run_scheduler") == 0) {
+                request->command = BEET_IFACE_COMMAND_RUN_SCHEDULER;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
             } else if (strcmp(cmd, "get_pair_wiring") == 0) {
                 request->command = BEET_IFACE_COMMAND_GET_PAIR_WIRING;
                 if (!beet_ble_parse_pair_data(&cursor, &request->pair_index)) {
