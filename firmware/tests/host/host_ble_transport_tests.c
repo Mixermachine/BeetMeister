@@ -123,12 +123,17 @@ static const char *beet_begin_update_json(void)
     "\"asset_id\":\"bundled-test\",\"image_kind\":\"bundled\"}}";
 }
 
+/* Maintenance protocol values are intentionally hardcoded.
+   If the generated metadata block changes, this test WILL fail
+   because the SHA256 and image_size won't match. That failure is
+   the canary: update these values only with an intentional,
+   reviewed change to the maintenance protocol surface. */
 static const char *beet_stage4_begin_update_json(void)
 {
     return
     "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
-    "\"image_size\":122,\"image_sha256\":\"696a656b51ce514c366d7321123fcf716f2017af201668f6c9558e84dee480d8\","
-    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":" BEET_STRINGIFY(BEET_RUNTIME_PROTOCOL_VERSION) ","
+    "\"image_size\":122,\"image_sha256\":\"9a346f4491334ac9a5d608120b979fd304b6a981fece7663f172a91a0e25c3be\","
+    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":11,"
     "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
 }
 
