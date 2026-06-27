@@ -56,6 +56,7 @@ object BeetJsonCodec {
                                 else -> throw JsonDataException("Expected 0/1 got $n")
                             }
                         }
+                        JsonReader.Token.BOOLEAN -> reader.nextBoolean()
                         else -> throw JsonDataException("Expected 0/1 got ${reader.peek()}")
                     }
                 }
