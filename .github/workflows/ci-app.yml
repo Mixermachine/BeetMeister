@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
       - name: Restore ESP-IDF cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             .ci-cache/esp-idf
