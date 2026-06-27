@@ -43,8 +43,8 @@ void beet_default_snapshot(uint8_t pair_index, beet_pair_runtime_snapshot_t *sna
 {
     memset(snapshot, 0, sizeof(*snapshot));
     snapshot->pair_index = pair_index;
-    snapshot->enabled = true;
-    snapshot->pair_state = BEET_PAIR_STATE_IDLE;
+    snapshot->enabled = false;
+    snapshot->pair_state = BEET_PAIR_STATE_DISABLED;
     snapshot->block_reason = BEET_BLOCK_REASON_NONE;
     snapshot->active_run_source = BEET_RUN_SOURCE_NONE;
 }

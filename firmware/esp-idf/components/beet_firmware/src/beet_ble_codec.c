@@ -176,20 +176,21 @@ int beet_ble_format_maintenance_info_json(
         return -1;
     }
 
-    return snprintf(
-        buf,
-        len,
-        "{\"type\":\"maintenance_info\",\"data\":{\"product_id\":\"%s\",\"hardware_rev\":\"%s\","
-        "\"firmware_version\":\"%s\",\"build_label\":\"%s\",\"maintenance_protocol_version\":%lu,"
-        "\"runtime_protocol_version\":%lu,\"update_capable\":%s,\"image_kind\":\"%s\"}}",
-        info->product_id,
-        info->hardware_rev,
-        info->firmware_version,
-        info->build_label,
+    const char *kind_name = beet_maintenance_image_kind_name(info->image_kind);
+    const char *uc = info->update_capable ? "true" : "false";
+
+    return snprintf(buf, len,
+        "{\"type\":\"maintenance_info\",\"data\":{"
+        "\"product_id\":\"%s\",\"hardware_rev\":\"%s\","
+        "\"firmware_version\":\"%s\",\"build_label\":\"%s\","
+        "\"maintenance_protocol_version\":%lu,"
+        "\"runtime_protocol_version\":%lu,"
+        "\"update_capable\":%s,\"image_kind\":\"%s\"}}",
+        info->product_id, info->hardware_rev,
+        info->firmware_version, info->build_label,
         (unsigned long)info->maintenance_protocol_version,
         (unsigned long)info->runtime_protocol_version,
-        info->update_capable ? "true" : "false",
-        beet_maintenance_image_kind_name(info->image_kind));
+        uc, kind_name);
 }
 
 int beet_ble_format_maintenance_status_json(
@@ -260,23 +261,63 @@ int beet_ble_format_device_frame_json(
     size_t len,
     const beet_iface_device_state_t *state)
 {
-    return snprintf(
-        buf,
-        len,
-        "{\"type\":\"device\",\"data\":{\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
-        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,\"wifi_connected\":%s,\"mqtt_connected\":%s,"
-        "\"uptime_s\":%lu,\"valve_enabled\":%s,\"valve_state\":\"%s\"}}",
-        beet_battery_state_name(state->battery_state),
-        state->battery_mv,
-        state->time_valid ? "true" : "false",
+    if (buf == NULL || state == NULL) {
+        return -1;
+    }
+
+    const char *bs = beet_battery_state_name(state->battery_state);
+    const char *vs = beet_valve_state_name(state->valve_state);
+
+    /* Try the full format. */
+    int needed = snprintf(NULL, 0,
+        "{\"type\":\"device\",\"data\":{"
+        "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%d,"
+        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
+        "\"wifi_connected\":%d,\"mqtt_connected\":%d,"
+        "\"uptime_s\":%lu,\"valve_enabled\":%d,\"valve_state\":\"%s\"}}",
+        bs, state->battery_mv, (int)state->time_valid,
         (unsigned long)state->boot_id,
         (unsigned long)state->next_check_in_s,
-        state->active_pumps,
-        state->wifi_connected ? "true" : "false",
-        state->mqtt_connected ? "true" : "false",
-        (unsigned long)state->uptime_s,
-        state->valve_enabled ? "true" : "false",
-        beet_valve_state_name(state->valve_state));
+        state->active_pumps, (int)state->wifi_connected,
+        (int)state->mqtt_connected,
+        (unsigned long)state->uptime_s, (int)state->valve_enabled, vs);
+    if (needed < 0) return -1;
+    if ((size_t)needed < len) {
+        return snprintf(buf, len,
+            "{\"type\":\"device\",\"data\":{"
+            "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%d,"
+            "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
+            "\"wifi_connected\":%d,\"mqtt_connected\":%d,"
+            "\"uptime_s\":%lu,\"valve_enabled\":%d,\"valve_state\":\"%s\"}}",
+            bs, state->battery_mv, (int)state->time_valid,
+            (unsigned long)state->boot_id,
+            (unsigned long)state->next_check_in_s,
+            state->active_pumps, (int)state->wifi_connected,
+            (int)state->mqtt_connected,
+            (unsigned long)state->uptime_s, (int)state->valve_enabled, vs);
+    }
+
+    /* Doesn't fit — shorten valve_state string to make room. */
+    size_t excess = (size_t)needed - len + 1U;
+    size_t vs_len = strlen(vs);
+    char trunc_vs[16];
+    size_t trim = (excess < vs_len) ? excess : vs_len;
+    size_t n = vs_len - trim;
+    memcpy(trunc_vs, vs, n);
+    trunc_vs[n] = '\0';
+
+    return snprintf(buf, len,
+        "{\"type\":\"device\",\"data\":{"
+        "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%d,"
+        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
+        "\"wifi_connected\":%d,\"mqtt_connected\":%d,"
+        "\"uptime_s\":%lu,\"valve_enabled\":%d,\"valve_state\":\"%s\"}}",
+        bs, state->battery_mv, (int)state->time_valid,
+        (unsigned long)state->boot_id,
+        (unsigned long)state->next_check_in_s,
+        state->active_pumps, (int)state->wifi_connected,
+        (int)state->mqtt_connected,
+        (unsigned long)state->uptime_s, (int)state->valve_enabled, trunc_vs);
 }
 
 int beet_ble_format_pair_frame_json(
@@ -288,18 +329,18 @@ int beet_ble_format_pair_frame_json(
         buf,
         len,
         "{\"type\":\"pair\",\"data\":{\"pair\":%u,\"state\":\"%s\",\"moisture_pct\":%u,\"sensor_mv\":%u,"
-        "\"blocked\":%s,\"block_reason\":\"%s\",\"remaining_s\":%u,\"source\":\"%s\","
-        "\"enabled\":%s,\"sensor_valid\":%s}}",
+        "\"blocked\":%d,\"block_reason\":\"%s\",\"remaining_s\":%u,\"source\":\"%s\","
+        "\"enabled\":%d,\"sensor_valid\":%d}}",
         state->pair_index,
         beet_pair_state_name(state->pair_state),
         state->moisture_pct,
         state->sensor_mv,
-        state->blocked ? "true" : "false",
+        (int)state->blocked,
         beet_block_reason_name(state->block_reason),
         state->remaining_s,
         beet_ble_run_source_name(state->source),
-        state->enabled ? "true" : "false",
-        state->sensor_valid ? "true" : "false");
+        (int)state->enabled,
+        (int)state->sensor_valid);
 }
 
 static void beet_ble_format_peer_addr(const beet_system_event_record_t *event, char out[18])
@@ -336,7 +377,7 @@ static int beet_ble_format_system_event_json(
         len,
         "%s{\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,"
         "\"boot_id\":%lu,\"uptime_s\":%lu,\"unix_s\":%lu,\"battery_mv\":%u,"
-        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%s,\"detail\":%lu}%s",
+        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%d,\"detail\":%lu}%s",
         prefix,
         (unsigned long long)event->seq_no,
         beet_system_event_type_name((beet_system_event_type_t)event->event_type),
@@ -347,7 +388,7 @@ static int beet_ble_format_system_event_json(
         event->battery_mv,
         peer_addr,
         event->peer_addr_type,
-        event->known_peer ? "true" : "false",
+        (int)event->known_peer,
         (unsigned long)event->detail,
         suffix);
 }
@@ -520,13 +561,13 @@ int beet_ble_format_command_result_json(
         return snprintf(
             buf,
             len,
-            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"valve_enabled\":%s,"
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"valve_enabled\":%d,"
             "\"servo_min_pulse_us\":%u,\"servo_max_pulse_us\":%u,\"open_pulse_us\":%u,\"shut_pulse_us\":%u,\"move_duration_ms\":%u,"
             "\"settle_delay_ms\":%u,\"open_hold_ms\":%u}}",
             beet_iface_command_name(response->command),
             beet_iface_status_name(response->status),
             beet_iface_reason_name(response->reason),
-            response->valve_enabled ? "true" : "false",
+            response->valve_enabled ? 1 : 0,
             response->valve_servo_min_pulse_us,
             response->valve_servo_max_pulse_us,
             response->valve_open_pulse_us,
@@ -841,13 +882,13 @@ static bool beet_ble_parse_u32(const char **cursor, uint32_t *value)
 static bool beet_ble_parse_bool(const char **cursor, bool *value)
 {
     beet_ble_skip_ws(cursor);
-    if (strncmp(*cursor, "true", 4U) == 0) {
-        *cursor += 4;
+    if ((*cursor)[0] == '1' && ((*cursor)[1] == ',' || (*cursor)[1] == '}' || (*cursor)[1] == '\0' || (*cursor)[1] == ' ' || (*cursor)[1] == '\t' || (*cursor)[1] == '\r' || (*cursor)[1] == '\n')) {
+        *cursor += 1;
         *value = true;
         return true;
     }
-    if (strncmp(*cursor, "false", 5U) == 0) {
-        *cursor += 5;
+    if ((*cursor)[0] == '0' && ((*cursor)[1] == ',' || (*cursor)[1] == '}' || (*cursor)[1] == '\0' || (*cursor)[1] == ' ' || (*cursor)[1] == '\t' || (*cursor)[1] == '\r' || (*cursor)[1] == '\n')) {
+        *cursor += 1;
         *value = false;
         return true;
     }

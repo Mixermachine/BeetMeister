@@ -935,6 +935,10 @@ static void beet_controller_enter_idle_light_sleep(void)
 
 static void beet_controller_enter_deep_low_battery_sleep(void)
 {
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    ESP_LOGI(TAG, "bench override: skipping deep sleep (force_enable_diagnostics)");
+    return;
+#endif
     uint32_t interval_s = beet_deep_low_recovery_interval_s(s_state.power_state.deep_low_recovery_failures);
     esp_err_t err;
 
@@ -1022,6 +1026,13 @@ static void beet_refresh_battery(void)
         beet_ble_maintenance_runtime_blocking(),
         s_state.active_pumps > 0U,
         beet_elapsed_s(s_state.last_activity_us, beet_now_us()));
+
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    if (s_state.battery_state == BEET_BATTERY_STATE_DEEP_LOW_BATTERY) {
+        ESP_LOGI(TAG, "bench override: forcing battery state ACTIVE (was DEEP_LOW_BATTERY, mv=%u)", s_state.battery_mv);
+        s_state.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    }
+#endif
 
     if (!had_battery_sample || s_state.battery_state != previous_state) {
         ESP_LOGI(

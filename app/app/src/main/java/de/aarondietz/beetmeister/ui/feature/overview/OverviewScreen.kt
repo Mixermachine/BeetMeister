@@ -77,7 +77,7 @@ internal fun OverviewScreen(
 @Composable
 private fun SystemValuesCard(state: BeetRepositoryState) {
     val strings = rememberBeetStringResolver()
-    val device = state.deviceState ?: return
+    val device = state.deviceState
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -85,12 +85,14 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
             delay(60_000)
         }
     }
-    val runningSinceUnixSeconds = runningSinceUnixSeconds(
-        connectedAtMillis = state.connectedAtMillis,
-        connectedAtControllerUptimeSeconds = state.connectedAtControllerUptimeSeconds,
-        fallbackUptimeSeconds = device.uptimeSeconds,
-        nowMillis = nowMillis,
-    )
+    val runningSinceUnixSeconds = device?.let {
+        runningSinceUnixSeconds(
+            connectedAtMillis = state.connectedAtMillis,
+            connectedAtControllerUptimeSeconds = state.connectedAtControllerUptimeSeconds,
+            fallbackUptimeSeconds = it.uptimeSeconds,
+            nowMillis = nowMillis,
+        )
+    }
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F1E4)),
         modifier = Modifier.fillMaxWidth(),
@@ -100,39 +102,39 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
             Spacer(modifier = Modifier.height(12.dp))
             ValueGridRow(
                 strings.get(R.string.overview_label_battery),
-                formatMillivolts(device.batteryMillivolts, strings),
+                device?.let { formatMillivolts(it.batteryMillivolts, strings) },
                 strings.get(R.string.overview_label_approx),
-                formatPercent(device.batteryPercentApprox, strings),
+                device?.let { formatPercent(it.batteryPercentApprox, strings) },
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_battery_state),
-                batteryStateLabel(device.batteryState, strings),
+                device?.let { batteryStateLabel(it.batteryState, strings) },
                 strings.get(R.string.overview_label_next_check),
-                formatDuration(device.nextCheckInSeconds, strings),
+                device?.let { formatDuration(it.nextCheckInSeconds, strings) },
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_active_pumps),
-                device.activePumps.toString(),
+                device?.let { it.activePumps.toString() },
                 strings.get(R.string.overview_label_valve),
-                valveStateLabel(device.valveState, strings),
+                device?.let { valveStateLabel(it.valveState, strings) },
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_wifi),
-                yesNo(device.wifiConnected, strings),
+                device?.let { yesNo(it.wifiConnected, strings) },
                 strings.get(R.string.overview_label_time_valid),
-                yesNo(device.timeValid, strings),
+                device?.let { yesNo(it.timeValid, strings) },
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_running_since),
-                formatUnixSeconds(runningSinceUnixSeconds, strings),
+                runningSinceUnixSeconds?.let { formatUnixSeconds(it, strings) },
                 strings.get(R.string.overview_label_mqtt),
-                yesNo(device.mqttConnected, strings),
+                device?.let { yesNo(it.mqttConnected, strings) },
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_uptime),
-                formatDuration(device.uptimeSeconds.toInt(), strings),
+                device?.let { formatDuration(it.uptimeSeconds.toInt(), strings) },
                 strings.get(R.string.settings_label_valve_enabled),
-                yesNo(device.valveEnabled, strings),
+                device?.let { yesNo(it.valveEnabled, strings) },
             )
         }
     }

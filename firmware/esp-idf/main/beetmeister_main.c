@@ -4,6 +4,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "beet_controller.h"
+#include "beet_maintenance.h"
 
 static const char *TAG = "beetmeister";
 
@@ -32,6 +33,23 @@ void app_main(void)
     }
 
     ESP_LOGI(TAG, "BeetMeister controller runtime started");
+
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    /* Boot-time maintenance info self-check */
+    {
+        beet_maintenance_info_t mi;
+        esp_err_t mi_err = beet_maintenance_get_info(&mi);
+        if (mi_err == ESP_OK) {
+            ESP_LOGI(TAG, "maintenance_info OK: prod=%s hw=%s fw=%s build=%s mpv=%lu rpv=%lu kind=%s",
+                mi.product_id, mi.hardware_rev, mi.firmware_version, mi.build_label,
+                (unsigned long)mi.maintenance_protocol_version,
+                (unsigned long)mi.runtime_protocol_version,
+                beet_maintenance_image_kind_name(mi.image_kind));
+        } else {
+            ESP_LOGE(TAG, "maintenance_info FAIL: err=0x%x (%s)", (unsigned)mi_err, esp_err_to_name(mi_err));
+        }
+    }
+#endif
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));

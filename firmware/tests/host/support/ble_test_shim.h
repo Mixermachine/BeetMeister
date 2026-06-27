@@ -56,6 +56,8 @@ typedef struct queue_stub *QueueHandle_t;
 #define BLE_GAP_EVENT_ENC_CHANGE 6
 #define BLE_GAP_EVENT_PASSKEY_ACTION 7
 #define BLE_GAP_EVENT_REPEAT_PAIRING 8
+#define BLE_GAP_EVENT_MTU 15
+#define BLE_GAP_EVENT_PARING_COMPLETE 27
 #define BLE_GAP_REPEAT_PAIRING_RETRY 0
 #define BLE_GAP_REPEAT_PAIRING_IGNORE 1
 #define BLE_GAP_CONN_MODE_UND 0
@@ -198,7 +200,10 @@ struct ble_gap_event {
         struct {
             uint16_t conn_handle;
         } repeat_pairing;
-    };
+        struct {
+            uint16_t conn_handle;
+            int status;
+        } pairing_complete;
 };
 
 typedef struct {

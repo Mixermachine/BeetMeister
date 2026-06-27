@@ -1082,6 +1082,11 @@ internal class BeetGattSessionCoordinator(
         }
         refreshValveConfig()
         refreshWateringInterval()
+        host.scope.launch {
+            delay(POST_CONNECT_EVENT_SYNC_DELAY_MS)
+            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) return@launch
+            startBackgroundEventSync()
+        }
     }
 
     private fun handleControllerInfo(payload: ByteArray) {
@@ -2328,6 +2333,8 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DEFAULT_MTU = 23
+        // MTU is FROZEN at 247. DO NOT INCREASE.
+        // See firmware comment in beet_ble.c for rationale.
         private const val DESIRED_MTU = 247
         private const val MIN_MAINTENANCE_PAYLOAD_BYTES = 20
         private const val MAX_MAINTENANCE_PAYLOAD_BYTES = 236
@@ -2343,6 +2350,7 @@ internal class BeetGattSessionCoordinator(
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
         private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L
         private const val EXPECTED_REBOOT_RECONNECT_DELAY_MS = 1_000L
+        private const val POST_CONNECT_EVENT_SYNC_DELAY_MS = 3_000L
     }
 
     private class MaintenanceAbortRequestedException : IllegalStateException("Maintenance update aborted")

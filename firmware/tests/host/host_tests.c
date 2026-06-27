@@ -6,6 +6,7 @@
 
 #include "beet_ble_codec.h"
 #include "beet_ble_guard.h"
+#include "esp_rom_crc.h"
 #include "beet_event_ring.h"
 #include "beet_iface.h"
 #include "beet_maintenance.h"
@@ -217,6 +218,41 @@ static void test_sensor_refresh_policy(void)
     TEST_ASSERT_U32_EQ(5000U, beet_sensor_refresh_interval_ms(false, true));
     TEST_ASSERT_U32_EQ(1000U, beet_sensor_refresh_interval_ms(true, false));
     TEST_ASSERT_U32_EQ(1000U, beet_sensor_refresh_interval_ms(true, true));
+}
+
+static void test_default_snapshot_is_disabled(void)
+{
+    beet_pair_runtime_snapshot_t snapshot;
+
+    memset(&snapshot, 0xFFU, sizeof(snapshot));
+    beet_default_snapshot(1U, &snapshot);
+    TEST_ASSERT_U32_EQ(1U, snapshot.pair_index);
+    TEST_ASSERT_FALSE(snapshot.enabled);
+    TEST_ASSERT_U32_EQ(BEET_PAIR_STATE_DISABLED, snapshot.pair_state);
+    TEST_ASSERT_U32_EQ(BEET_BLOCK_REASON_NONE, snapshot.block_reason);
+    TEST_ASSERT_U32_EQ(0U, snapshot.active_run_id);
+    TEST_ASSERT_U32_EQ(BEET_RUN_SOURCE_NONE, snapshot.active_run_source);
+
+    memset(&snapshot, 0xFFU, sizeof(snapshot));
+    beet_default_snapshot(8U, &snapshot);
+    TEST_ASSERT_U32_EQ(8U, snapshot.pair_index);
+    TEST_ASSERT_FALSE(snapshot.enabled);
+    TEST_ASSERT_U32_EQ(BEET_PAIR_STATE_DISABLED, snapshot.pair_state);
+    TEST_ASSERT_U32_EQ(BEET_BLOCK_REASON_NONE, snapshot.block_reason);
+    TEST_ASSERT_U32_EQ(0U, snapshot.active_run_id);
+    TEST_ASSERT_U32_EQ(BEET_RUN_SOURCE_NONE, snapshot.active_run_source);
+}
+
+static void test_default_snapshot_avoids_legacy_migration(void)
+{
+    beet_pair_runtime_snapshot_t snapshot;
+
+    beet_default_snapshot(1U, &snapshot);
+    // The migration in beet_restore_snapshots() upgrades legacy snapshots by checking
+    // `!enabled && pair_state != DISABLED`. The new default must set pair_state = DISABLED
+    // so this condition evaluates to false on a fresh device, preventing accidental
+    // re-enabling of pairs after factory reset.
+    TEST_ASSERT_FALSE(!snapshot.enabled && snapshot.pair_state != BEET_PAIR_STATE_DISABLED);
 }
 
 static void test_duration_lookup_boundaries(void)
@@ -440,7 +476,7 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_VALVE_CONFIG, request.command);
 
     TEST_ASSERT_TRUE(beet_ble_parse_command_json(
-        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true,\"servo_min_pulse_us\":700,"
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1,\"servo_min_pulse_us\":700,"
         "\"servo_max_pulse_us\":2400,\"open_pulse_us\":850,\"shut_pulse_us\":2050,\"move_duration_ms\":700,"
         "\"settle_delay_ms\":200,\"open_hold_ms\":1500}}", &request));
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_VALVE_CONFIG, request.command);
@@ -648,12 +684,12 @@ static void test_ble_json_formatting(void)
 
     TEST_ASSERT_TRUE(beet_ble_format_device_frame_json(json, sizeof(json), &device) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":false,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":false,\"mqtt_connected\":false,\"uptime_s\":0,\"valve_enabled\":false,\"valve_state\":\"CLOSED\"}}",
+        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":0,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":0,\"mqtt_connected\":0,\"uptime_s\":0,\"valve_enabled\":0,\"valve_state\":\"CLOSED\"}}",
         json);
 
     TEST_ASSERT_TRUE(beet_ble_format_pair_frame_json(json, sizeof(json), &pair) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"pair\",\"data\":{\"pair\":1,\"state\":\"IDLE\",\"moisture_pct\":1,\"sensor_mv\":2745,\"blocked\":false,\"block_reason\":\"NONE\",\"remaining_s\":0,\"source\":\"NONE\",\"enabled\":false,\"sensor_valid\":true}}",
+        "{\"type\":\"pair\",\"data\":{\"pair\":1,\"state\":\"IDLE\",\"moisture_pct\":1,\"sensor_mv\":2745,\"blocked\":0,\"block_reason\":\"NONE\",\"remaining_s\":0,\"source\":\"NONE\",\"enabled\":0,\"sensor_valid\":1}}",
         json);
 
     memset(&response, 0, sizeof(response));
@@ -719,13 +755,13 @@ static void test_ble_json_formatting(void)
         "{\"cmd\":\"get_system_event\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":"
         "{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,"
         "\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,"
-        "\"known_peer\":true,\"detail\":0}}",
+        "\"known_peer\":1,\"detail\":0}}",
         json);
 
     beet_system_event_record_t system = beet_make_system_event(9U, BEET_SYSTEM_EVENT_BLE_CONNECT);
     TEST_ASSERT_TRUE(beet_ble_format_system_event_frame_json(json, sizeof(json), &system, 0U) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":true,\"detail\":0}}",
+        "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":1,\"detail\":0}}",
         json);
 
     memset(&response, 0, sizeof(response));
@@ -744,7 +780,7 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"get_valve_config\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":"
-        "{\"valve_enabled\":true,\"servo_min_pulse_us\":700,\"servo_max_pulse_us\":2400,"
+        "{\"valve_enabled\":1,\"servo_min_pulse_us\":700,\"servo_max_pulse_us\":2400,"
         "\"open_pulse_us\":880,\"shut_pulse_us\":2010,\"move_duration_ms\":700,"
         "\"settle_delay_ms\":200,\"open_hold_ms\":1500}}",
         json);
@@ -772,6 +808,342 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"get_pair_wiring\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"pair\":6,\"moisture_gpio\":5,\"relay_gpio\":40}}",
         json);
+}
+
+static void test_ble_maintenance_info_json_max_length(void)
+{
+    /* Fill all string fields to their maximum allowed length and verify
+     * the formatted JSON fits within BEET_BLE_JSON_MAX_LEN. */
+    char json[BEET_BLE_JSON_MAX_LEN];
+    beet_maintenance_info_t info;
+    int written;
+    size_t i;
+
+    memset(&info, 0, sizeof(info));
+
+    memset(info.product_id, 'p', BEET_MAINTENANCE_PRODUCT_ID_MAX_LEN);
+    info.product_id[BEET_MAINTENANCE_PRODUCT_ID_MAX_LEN] = '\0';
+
+    memset(info.hardware_rev, 'h', BEET_MAINTENANCE_HARDWARE_REV_MAX_LEN);
+    info.hardware_rev[BEET_MAINTENANCE_HARDWARE_REV_MAX_LEN] = '\0';
+
+    memset(info.firmware_version, 'f', BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN);
+    info.firmware_version[BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN] = '\0';
+
+    memset(info.build_label, 'b', BEET_MAINTENANCE_BUILD_LABEL_MAX_LEN);
+    info.build_label[BEET_MAINTENANCE_BUILD_LABEL_MAX_LEN] = '\0';
+
+    info.maintenance_protocol_version = 999999999U;
+    info.runtime_protocol_version = 999999999U;
+    info.update_capable = true;
+    info.image_kind = BEET_MAINTENANCE_IMAGE_KIND_BUNDLED;
+
+    memset(json, 0xAA, sizeof(json));
+    written = beet_ble_format_maintenance_info_json(json, sizeof(json), &info);
+
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE((size_t)written < sizeof(json));
+    TEST_ASSERT_TRUE(json[written] == '\0');
+
+    /* Verify the JSON starts with the expected type. */
+    TEST_ASSERT_TRUE(strncmp(json, "{\"type\":\"maintenance_info\"", 26) == 0);
+
+    /* Verify the output is valid JSON (ends with }}). */
+    TEST_ASSERT_TRUE(json[written - 1] == '}');
+    TEST_ASSERT_TRUE(json[written - 2] == '}');
+
+    /* Verify that written bytes do not exceed the buffer. */
+    TEST_ASSERT_TRUE((size_t)written <= sizeof(json));
+
+    /* The bytes after the null terminator should be untouched. */
+    for (i = (size_t)(written + 1); i < sizeof(json); ++i) {
+        TEST_ASSERT_U32_EQ(0xAAU, (unsigned)json[i]);
+    }
+}
+
+static void test_ble_runtime_booleans_encoded_as_01(void)
+{
+    char json[BEET_BLE_JSON_MAX_LEN];
+    int written;
+
+    beet_iface_device_state_t ds;
+    memset(&ds, 0, sizeof(ds));
+    ds.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    ds.time_valid = true;
+    ds.wifi_connected = true;
+    ds.mqtt_connected = true;
+    ds.valve_enabled = true;
+    ds.valve_state = BEET_VALVE_STATE_CLOSED;
+
+    written = beet_ble_format_device_frame_json(json, sizeof(json), &ds);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"time_valid\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"wifi_connected\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"mqtt_connected\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"valve_enabled\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+    TEST_ASSERT_TRUE(strstr(json, "false") == NULL);
+
+    ds.time_valid = false;
+    ds.wifi_connected = false;
+    ds.mqtt_connected = false;
+    ds.valve_enabled = false;
+
+    written = beet_ble_format_device_frame_json(json, sizeof(json), &ds);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"time_valid\":0") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"wifi_connected\":0") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"mqtt_connected\":0") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"valve_enabled\":0") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+
+    beet_iface_pair_state_t ps;
+    memset(&ps, 0, sizeof(ps));
+    ps.pair_index = 1U;
+    ps.blocked = true;
+    ps.enabled = true;
+    ps.sensor_valid = true;
+
+    written = beet_ble_format_pair_frame_json(json, sizeof(json), &ps);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"blocked\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"enabled\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"sensor_valid\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+
+    beet_system_event_record_t se;
+    memset(&se, 0, sizeof(se));
+    se.known_peer = true;
+
+    written = beet_ble_format_system_event_frame_json(json, sizeof(json), &se, 0U);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"known_peer\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+
+    beet_iface_command_response_t resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.command = BEET_IFACE_COMMAND_GET_VALVE_CONFIG;
+    resp.status = BEET_IFACE_STATUS_ACCEPTED;
+    resp.has_valve_config = true;
+    resp.valve_enabled = true;
+
+    written = beet_ble_format_command_result_json(json, sizeof(json), &resp);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"valve_enabled\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+
+    /* maintenance_info must still use true/false. */
+    beet_maintenance_info_t mi;
+    memset(&mi, 0, sizeof(mi));
+    mi.image_kind = BEET_MAINTENANCE_IMAGE_KIND_BUNDLED;
+    mi.update_capable = true;
+
+    written = beet_ble_format_maintenance_info_json(json, sizeof(json), &mi);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "true") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"update_capable\":true") != NULL);
+}
+
+static void test_ble_parse_bool_strict_01(void)
+{
+    beet_iface_command_request_t request;
+    bool ok;
+
+    memset(&request, 0, sizeof(request));
+    ok = beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1}}",
+        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1}}"),
+        &request);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_TRUE(request.valve_enabled);
+
+    memset(&request, 0, sizeof(request));
+    ok = beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":0}}",
+        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":0}}"),
+        &request);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_FALSE(request.valve_enabled);
+
+    memset(&request, 0, sizeof(request));
+    ok = beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true}}",
+        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true}}"),
+        &request);
+    TEST_ASSERT_FALSE(ok);
+
+    memset(&request, 0, sizeof(request));
+    ok = beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":false}}",
+        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":false}}"),
+        &request);
+    TEST_ASSERT_FALSE(ok);
+}
+
+static void test_maintenance_metadata_exact_max_firmware_version(void)
+{
+    /* Build a synthetic metadata block with a firmware version exactly at
+     * BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN (32 characters). */
+    uint8_t buf[512];
+    beet_maintenance_image_metadata_t metadata;
+    const char *max_fw = "v3.14.159-rc2-build-20260622-001";
+    uint16_t fw_len = (uint16_t)strlen(max_fw);
+
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN, fw_len);
+
+    /* Manually construct a minimal valid TLV metadata block. */
+    size_t off = 0;
+    /* Header: magic (4) + fmt_ver (2) + total_length (2) + crc placeholder (4) = 12 */
+    uint32_t magic = 0x544D5442UL;
+    uint16_t fmt = 1U;
+
+    memcpy(&buf[off], &magic, 4); off += 4;
+    memcpy(&buf[off], &fmt, 2); off += 2;
+    size_t total_len_pos = off;
+    off += 2; /* total_length, filled later */
+    size_t crc_pos = off;
+    off += 4; /* crc, filled later */
+
+    /* TLV: product_id */
+    memcpy(&buf[off], (uint16_t[]){1}, 2); off += 2;  /* type=PRODUCT_ID */
+    memcpy(&buf[off], (uint16_t[]){11}, 2); off += 2; /* len=11 */
+    memcpy(&buf[off], "beetmeister", 11); off += 11;
+
+    /* TLV: hardware_rev */
+    memcpy(&buf[off], (uint16_t[]){2}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], "rev_a", 5); off += 5;
+
+    /* TLV: firmware_version (long) */
+    memcpy(&buf[off], (uint16_t[]){3}, 2); off += 2;
+    memcpy(&buf[off], &fw_len, 2); off += 2;
+    memcpy(&buf[off], max_fw, fw_len); off += fw_len;
+
+    /* TLV: build_label */
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    memcpy(&buf[off], &fw_len, 2); off += 2;
+    memcpy(&buf[off], max_fw, fw_len); off += fw_len;
+
+    /* TLV: maintenance_protocol_version */
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    uint32_t mpv = 1;
+    memcpy(&buf[off], &mpv, 4); off += 4;
+
+    /* TLV: runtime_protocol_version */
+    memcpy(&buf[off], (uint16_t[]){6}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    uint32_t rpv = 12;
+    memcpy(&buf[off], &rpv, 4); off += 4;
+
+    /* TLV: image_kind */
+    memcpy(&buf[off], (uint16_t[]){7}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){7}, 2); off += 2;
+    memcpy(&buf[off], "bundled", 7); off += 7;
+
+    /* TLV: compatible_hardware_rev */
+    memcpy(&buf[off], (uint16_t[]){8}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], "rev_a", 5); off += 5;
+
+    /* Fill in total_length */
+    uint16_t total = (uint16_t)off;
+    memcpy(&buf[total_len_pos], &total, 2);
+
+    /* Compute and fill in header CRC32 (over header fields before crc). */
+    uint32_t crc = esp_rom_crc32_le(0U, buf, crc_pos);
+    memcpy(&buf[crc_pos], &crc, 4);
+
+    /* Parse the synthetic block. */
+    TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_metadata_parse(buf, total, &metadata));
+    TEST_ASSERT_STR_EQ("beetmeister", metadata.product_id);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.hardware_rev);
+    TEST_ASSERT_STR_EQ(max_fw, metadata.firmware_version);
+    TEST_ASSERT_STR_EQ(max_fw, metadata.build_label);
+    TEST_ASSERT_U32_EQ(1U, metadata.maintenance_protocol_version);
+    TEST_ASSERT_U32_EQ(12U, metadata.runtime_protocol_version);
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, metadata.image_kind);
+    TEST_ASSERT_U32_EQ(1U, metadata.compatible_hardware_rev_count);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.compatible_hardware_revs[0]);
+}
+
+static void test_maintenance_metadata_truncation_on_overflow(void)
+{
+    /* Build a synthetic metadata block with a firmware version longer than
+     * BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN. The parser must truncate it
+     * with a warning and still succeed. */
+    uint8_t buf[512];
+    beet_maintenance_image_metadata_t metadata;
+    const char *overflow_fw = "v0.0.0-ci-verify-20260622-4-14-g0452c52-dirty";
+    uint16_t fw_len = (uint16_t)strlen(overflow_fw);
+    char truncated[BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN + 1U];
+
+    TEST_ASSERT_TRUE(fw_len > BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN);
+    memcpy(truncated, overflow_fw, BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN);
+    truncated[BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN] = '\0';
+
+    /* Manually construct a minimal valid TLV metadata block. */
+    size_t off = 0;
+    uint32_t magic = 0x544D5442UL;
+    uint16_t fmt = 1U;
+
+    memcpy(&buf[off], &magic, 4); off += 4;
+    memcpy(&buf[off], &fmt, 2); off += 2;
+    size_t total_len_pos = off;
+    off += 2;
+    size_t crc_pos = off;
+    off += 4;
+
+    memcpy(&buf[off], (uint16_t[]){1}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){11}, 2); off += 2;
+    memcpy(&buf[off], "beetmeister", 11); off += 11;
+
+    memcpy(&buf[off], (uint16_t[]){2}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], "rev_a", 5); off += 5;
+
+    memcpy(&buf[off], (uint16_t[]){3}, 2); off += 2;
+    memcpy(&buf[off], &fw_len, 2); off += 2;
+    memcpy(&buf[off], overflow_fw, fw_len); off += fw_len;
+
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    memcpy(&buf[off], &fw_len, 2); off += 2;
+    memcpy(&buf[off], overflow_fw, fw_len); off += fw_len;
+
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    uint32_t mpv = 1;
+    memcpy(&buf[off], &mpv, 4); off += 4;
+
+    memcpy(&buf[off], (uint16_t[]){6}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    uint32_t rpv = 12;
+    memcpy(&buf[off], &rpv, 4); off += 4;
+
+    memcpy(&buf[off], (uint16_t[]){7}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){7}, 2); off += 2;
+    memcpy(&buf[off], "bundled", 7); off += 7;
+
+    memcpy(&buf[off], (uint16_t[]){8}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], "rev_a", 5); off += 5;
+
+    uint16_t total = (uint16_t)off;
+    memcpy(&buf[total_len_pos], &total, 2);
+    uint32_t crc = esp_rom_crc32_le(0U, buf, crc_pos);
+    memcpy(&buf[crc_pos], &crc, 4);
+
+    /* Parse — must succeed despite overflow (truncation, not failure). */
+    TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_metadata_parse(buf, total, &metadata));
+    TEST_ASSERT_STR_EQ("beetmeister", metadata.product_id);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.hardware_rev);
+    TEST_ASSERT_STR_EQ(truncated, metadata.firmware_version);
+    TEST_ASSERT_STR_EQ(truncated, metadata.build_label);
+    TEST_ASSERT_U32_EQ(1U, metadata.maintenance_protocol_version);
+    TEST_ASSERT_U32_EQ(12U, metadata.runtime_protocol_version);
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, metadata.image_kind);
+    TEST_ASSERT_U32_EQ(1U, metadata.compatible_hardware_rev_count);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.compatible_hardware_revs[0]);
 }
 
 static void test_maintenance_metadata_and_info(void)
@@ -1016,6 +1388,8 @@ int main(void)
         {"moisture_conversion_boundaries", test_moisture_conversion_boundaries},
         {"sensor_plausibility_and_supply_compensation", test_sensor_plausibility_and_supply_compensation},
         {"sensor_refresh_policy", test_sensor_refresh_policy},
+        {"default_snapshot_is_disabled", test_default_snapshot_is_disabled},
+        {"default_snapshot_avoids_legacy_migration", test_default_snapshot_avoids_legacy_migration},
         {"duration_lookup_boundaries", test_duration_lookup_boundaries},
         {"schema_defaults", test_schema_defaults},
         {"sanity_threshold_and_battery_classification", test_sanity_threshold_and_battery_classification},
@@ -1028,6 +1402,11 @@ int main(void)
         {"ble_command_lane_split", test_ble_command_lane_split},
         {"ble_rejection_response_builder", test_ble_rejection_response_builder},
         {"ble_json_formatting", test_ble_json_formatting},
+        {"ble_maintenance_info_json_max_length", test_ble_maintenance_info_json_max_length},
+        {"ble_runtime_booleans_encoded_as_01", test_ble_runtime_booleans_encoded_as_01},
+        {"ble_parse_bool_strict_01", test_ble_parse_bool_strict_01},
+        {"maintenance_metadata_exact_max_firmware_version", test_maintenance_metadata_exact_max_firmware_version},
+        {"maintenance_metadata_truncation_on_overflow", test_maintenance_metadata_truncation_on_overflow},
         {"maintenance_metadata_and_info", test_maintenance_metadata_and_info},
         {"maintenance_codec_and_request_parsing", test_maintenance_codec_and_request_parsing},
         {"ble_system_event_data_consistency", test_ble_system_event_data_consistency},

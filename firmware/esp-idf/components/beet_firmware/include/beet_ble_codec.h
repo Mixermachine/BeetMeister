@@ -8,6 +8,8 @@
 #include "beet_iface.h"
 #include "beet_maintenance.h"
 
+#define BEET_BLE_JSON_MAX_LEN 384U
+
 int beet_ble_format_controller_info_json(
     char *buf,
     size_t len,
