@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -13,7 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Arrangement
 
 @Composable
-internal fun ValueGridRow(leftLabel: String, leftValue: String, rightLabel: String, rightValue: String) {
+internal fun ValueGridRow(leftLabel: String, leftValue: String?, rightLabel: String, rightValue: String?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -26,9 +28,16 @@ internal fun ValueGridRow(leftLabel: String, leftValue: String, rightLabel: Stri
 }
 
 @Composable
-private fun ValueCell(label: String, value: String, modifier: Modifier = Modifier) {
+private fun ValueCell(label: String, value: String?, modifier: Modifier = Modifier) {
     Column(modifier = modifier) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        if (value != null) {
+            Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        } else {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 2.dp,
+            )
+        }
     }
 }

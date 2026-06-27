@@ -2637,7 +2637,7 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             beet_ble_mark_activity();
             ESP_LOGI(TAG, "command result subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.command_result_subscribed);
         } else if (event->subscribe.attr_handle == s_maintenance_status_handle) {
-            s_ble.maintenance_status_subscribed = event->subscribe.cur_indicate && beet_ble_is_bonded_conn(event->subscribe.conn_handle);
+            s_ble.maintenance_status_subscribed = event->subscribe.cur_indicate;
             beet_ble_mark_activity();
             ESP_LOGI(TAG, "maintenance status subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.maintenance_status_subscribed);
         }
