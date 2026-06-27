@@ -17,8 +17,29 @@
 
 #define BEET_MAINTENANCE_PRODUCT_ID_MAX_LEN 24U
 #define BEET_MAINTENANCE_HARDWARE_REV_MAX_LEN 16U
+
+/*
+ * BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN is FROZEN at 32.
+ *
+ * DO NOT INCREASE THIS VALUE. Increasing it is a band-aid that masks the
+ * real problem (too-long version strings produced by git describe on dirty
+ * trees) and changes struct layouts across the codebase for no benefit.
+ *
+ * If a version string exceeds 32 characters:
+ *   - CI builds: fix the CI tag format. CI always tags before build on a
+ *     clean tree, so the tag name alone is embedded (max ~26 chars).
+ *   - Dev builds: the CMake build system produces "dev-<short-hash>" (11
+ *     chars) for dirty trees. This is always short enough.
+ *   - As a last resort, the runtime parser (beet_copy_tlv_string) truncates
+ *     overlong strings with a warning. The controller still boots and
+ *     exposes a truncated version via BLE.
+ *
+ * Increasing MAX_LEN breaks the design contract, wastes RAM, and guarantees
+ * the next naming-convention change will overflow again. Fix the source,
+ * not the buffer.
+ */
 #define BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN 32U
-#define BEET_MAINTENANCE_BUILD_LABEL_MAX_LEN 48U
+#define BEET_MAINTENANCE_BUILD_LABEL_MAX_LEN 32U
 #define BEET_MAINTENANCE_IMAGE_KIND_MAX_LEN 16U
 #define BEET_MAINTENANCE_SHA256_HEX_LEN 64U
 #define BEET_MAINTENANCE_ASSET_ID_MAX_LEN 64U

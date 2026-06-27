@@ -2328,6 +2328,8 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DEFAULT_MTU = 23
+        // MTU is FROZEN at 247. DO NOT INCREASE.
+        // See firmware comment in beet_ble.c for rationale.
         private const val DESIRED_MTU = 247
         private const val MIN_MAINTENANCE_PAYLOAD_BYTES = 20
         private const val MAX_MAINTENANCE_PAYLOAD_BYTES = 236

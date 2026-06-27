@@ -6,6 +6,7 @@
 
 #include "beet_ble_codec.h"
 #include "beet_ble_guard.h"
+#include "esp_rom_crc.h"
 #include "beet_event_ring.h"
 #include "beet_iface.h"
 #include "beet_maintenance.h"
@@ -774,6 +775,223 @@ static void test_ble_json_formatting(void)
         json);
 }
 
+static void test_ble_maintenance_info_json_max_length(void)
+{
+    /* Fill all string fields to their maximum allowed length and verify
+     * the formatted JSON fits within BEET_BLE_JSON_MAX_LEN. */
+    char json[BEET_BLE_JSON_MAX_LEN];
+    beet_maintenance_info_t info;
+    int written;
+    size_t i;
+
+    memset(&info, 0, sizeof(info));
+
+    memset(info.product_id, 'p', BEET_MAINTENANCE_PRODUCT_ID_MAX_LEN);
+    info.product_id[BEET_MAINTENANCE_PRODUCT_ID_MAX_LEN] = '\0';
+
+    memset(info.hardware_rev, 'h', BEET_MAINTENANCE_HARDWARE_REV_MAX_LEN);
+    info.hardware_rev[BEET_MAINTENANCE_HARDWARE_REV_MAX_LEN] = '\0';
+
+    memset(info.firmware_version, 'f', BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN);
+    info.firmware_version[BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN] = '\0';
+
+    memset(info.build_label, 'b', BEET_MAINTENANCE_BUILD_LABEL_MAX_LEN);
+    info.build_label[BEET_MAINTENANCE_BUILD_LABEL_MAX_LEN] = '\0';
+
+    info.maintenance_protocol_version = 999999999U;
+    info.runtime_protocol_version = 999999999U;
+    info.update_capable = true;
+    info.image_kind = BEET_MAINTENANCE_IMAGE_KIND_BUNDLED;
+
+    memset(json, 0xAA, sizeof(json));
+    written = beet_ble_format_maintenance_info_json(json, sizeof(json), &info);
+
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE((size_t)written < sizeof(json));
+    TEST_ASSERT_TRUE(json[written] == '\0');
+
+    /* Verify the JSON starts with the expected type. */
+    TEST_ASSERT_TRUE(strncmp(json, "{\"type\":\"maintenance_info\"", 26) == 0);
+
+    /* Verify the output is valid JSON (ends with }}). */
+    TEST_ASSERT_TRUE(json[written - 1] == '}');
+    TEST_ASSERT_TRUE(json[written - 2] == '}');
+
+    /* Verify that written bytes do not exceed the buffer. */
+    TEST_ASSERT_TRUE((size_t)written <= sizeof(json));
+
+    /* The bytes after the null terminator should be untouched. */
+    for (i = (size_t)(written + 1); i < sizeof(json); ++i) {
+        TEST_ASSERT_U32_EQ(0xAAU, (unsigned)json[i]);
+    }
+}
+
+static void test_maintenance_metadata_exact_max_firmware_version(void)
+{
+    /* Build a synthetic metadata block with a firmware version exactly at
+     * BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN (32 characters). */
+    uint8_t buf[512];
+    beet_maintenance_image_metadata_t metadata;
+    const char *max_fw = "v3.14.159-rc2-build-20260622-001";
+    uint16_t fw_len = (uint16_t)strlen(max_fw);
+
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN, fw_len);
+
+    /* Manually construct a minimal valid TLV metadata block. */
+    size_t off = 0;
+    /* Header: magic (4) + fmt_ver (2) + total_length (2) + crc placeholder (4) = 12 */
+    uint32_t magic = 0x544D5442UL;
+    uint16_t fmt = 1U;
+
+    memcpy(&buf[off], &magic, 4); off += 4;
+    memcpy(&buf[off], &fmt, 2); off += 2;
+    size_t total_len_pos = off;
+    off += 2; /* total_length, filled later */
+    size_t crc_pos = off;
+    off += 4; /* crc, filled later */
+
+    /* TLV: product_id */
+    memcpy(&buf[off], (uint16_t[]){1}, 2); off += 2;  /* type=PRODUCT_ID */
+    memcpy(&buf[off], (uint16_t[]){11}, 2); off += 2; /* len=11 */
+    memcpy(&buf[off], "beetmeister", 11); off += 11;
+
+    /* TLV: hardware_rev */
+    memcpy(&buf[off], (uint16_t[]){2}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], "rev_a", 5); off += 5;
+
+    /* TLV: firmware_version (long) */
+    memcpy(&buf[off], (uint16_t[]){3}, 2); off += 2;
+    memcpy(&buf[off], &fw_len, 2); off += 2;
+    memcpy(&buf[off], max_fw, fw_len); off += fw_len;
+
+    /* TLV: build_label */
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    memcpy(&buf[off], &fw_len, 2); off += 2;
+    memcpy(&buf[off], max_fw, fw_len); off += fw_len;
+
+    /* TLV: maintenance_protocol_version */
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    uint32_t mpv = 1;
+    memcpy(&buf[off], &mpv, 4); off += 4;
+
+    /* TLV: runtime_protocol_version */
+    memcpy(&buf[off], (uint16_t[]){6}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    uint32_t rpv = 12;
+    memcpy(&buf[off], &rpv, 4); off += 4;
+
+    /* TLV: image_kind */
+    memcpy(&buf[off], (uint16_t[]){7}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){7}, 2); off += 2;
+    memcpy(&buf[off], "bundled", 7); off += 7;
+
+    /* TLV: compatible_hardware_rev */
+    memcpy(&buf[off], (uint16_t[]){8}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], "rev_a", 5); off += 5;
+
+    /* Fill in total_length */
+    uint16_t total = (uint16_t)off;
+    memcpy(&buf[total_len_pos], &total, 2);
+
+    /* Compute and fill in header CRC32 (over header fields before crc). */
+    uint32_t crc = esp_rom_crc32_le(0U, buf, crc_pos);
+    memcpy(&buf[crc_pos], &crc, 4);
+
+    /* Parse the synthetic block. */
+    TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_metadata_parse(buf, total, &metadata));
+    TEST_ASSERT_STR_EQ("beetmeister", metadata.product_id);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.hardware_rev);
+    TEST_ASSERT_STR_EQ(max_fw, metadata.firmware_version);
+    TEST_ASSERT_STR_EQ(max_fw, metadata.build_label);
+    TEST_ASSERT_U32_EQ(1U, metadata.maintenance_protocol_version);
+    TEST_ASSERT_U32_EQ(12U, metadata.runtime_protocol_version);
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, metadata.image_kind);
+    TEST_ASSERT_U32_EQ(1U, metadata.compatible_hardware_rev_count);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.compatible_hardware_revs[0]);
+}
+
+static void test_maintenance_metadata_truncation_on_overflow(void)
+{
+    /* Build a synthetic metadata block with a firmware version longer than
+     * BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN. The parser must truncate it
+     * with a warning and still succeed. */
+    uint8_t buf[512];
+    beet_maintenance_image_metadata_t metadata;
+    const char *overflow_fw = "v0.0.0-ci-verify-20260622-4-14-g0452c52-dirty";
+    uint16_t fw_len = (uint16_t)strlen(overflow_fw);
+    char truncated[BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN + 1U];
+
+    TEST_ASSERT_TRUE(fw_len > BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN);
+    memcpy(truncated, overflow_fw, BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN);
+    truncated[BEET_MAINTENANCE_FIRMWARE_VERSION_MAX_LEN] = '\0';
+
+    /* Manually construct a minimal valid TLV metadata block. */
+    size_t off = 0;
+    uint32_t magic = 0x544D5442UL;
+    uint16_t fmt = 1U;
+
+    memcpy(&buf[off], &magic, 4); off += 4;
+    memcpy(&buf[off], &fmt, 2); off += 2;
+    size_t total_len_pos = off;
+    off += 2;
+    size_t crc_pos = off;
+    off += 4;
+
+    memcpy(&buf[off], (uint16_t[]){1}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){11}, 2); off += 2;
+    memcpy(&buf[off], "beetmeister", 11); off += 11;
+
+    memcpy(&buf[off], (uint16_t[]){2}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], "rev_a", 5); off += 5;
+
+    memcpy(&buf[off], (uint16_t[]){3}, 2); off += 2;
+    memcpy(&buf[off], &fw_len, 2); off += 2;
+    memcpy(&buf[off], overflow_fw, fw_len); off += fw_len;
+
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    memcpy(&buf[off], &fw_len, 2); off += 2;
+    memcpy(&buf[off], overflow_fw, fw_len); off += fw_len;
+
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    uint32_t mpv = 1;
+    memcpy(&buf[off], &mpv, 4); off += 4;
+
+    memcpy(&buf[off], (uint16_t[]){6}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){4}, 2); off += 2;
+    uint32_t rpv = 12;
+    memcpy(&buf[off], &rpv, 4); off += 4;
+
+    memcpy(&buf[off], (uint16_t[]){7}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){7}, 2); off += 2;
+    memcpy(&buf[off], "bundled", 7); off += 7;
+
+    memcpy(&buf[off], (uint16_t[]){8}, 2); off += 2;
+    memcpy(&buf[off], (uint16_t[]){5}, 2); off += 2;
+    memcpy(&buf[off], "rev_a", 5); off += 5;
+
+    uint16_t total = (uint16_t)off;
+    memcpy(&buf[total_len_pos], &total, 2);
+    uint32_t crc = esp_rom_crc32_le(0U, buf, crc_pos);
+    memcpy(&buf[crc_pos], &crc, 4);
+
+    /* Parse — must succeed despite overflow (truncation, not failure). */
+    TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_metadata_parse(buf, total, &metadata));
+    TEST_ASSERT_STR_EQ("beetmeister", metadata.product_id);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.hardware_rev);
+    TEST_ASSERT_STR_EQ(truncated, metadata.firmware_version);
+    TEST_ASSERT_STR_EQ(truncated, metadata.build_label);
+    TEST_ASSERT_U32_EQ(1U, metadata.maintenance_protocol_version);
+    TEST_ASSERT_U32_EQ(12U, metadata.runtime_protocol_version);
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, metadata.image_kind);
+    TEST_ASSERT_U32_EQ(1U, metadata.compatible_hardware_rev_count);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.compatible_hardware_revs[0]);
+}
+
 static void test_maintenance_metadata_and_info(void)
 {
     const uint8_t *block = NULL;
@@ -1028,6 +1246,9 @@ int main(void)
         {"ble_command_lane_split", test_ble_command_lane_split},
         {"ble_rejection_response_builder", test_ble_rejection_response_builder},
         {"ble_json_formatting", test_ble_json_formatting},
+        {"ble_maintenance_info_json_max_length", test_ble_maintenance_info_json_max_length},
+        {"maintenance_metadata_exact_max_firmware_version", test_maintenance_metadata_exact_max_firmware_version},
+        {"maintenance_metadata_truncation_on_overflow", test_maintenance_metadata_truncation_on_overflow},
         {"maintenance_metadata_and_info", test_maintenance_metadata_and_info},
         {"maintenance_codec_and_request_parsing", test_maintenance_codec_and_request_parsing},
         {"ble_system_event_data_consistency", test_ble_system_event_data_consistency},

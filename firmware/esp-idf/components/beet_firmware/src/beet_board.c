@@ -506,7 +506,12 @@ esp_err_t beet_board_init(void)
     ESP_RETURN_ON_ERROR(beet_board_init_valve_servo(), TAG, "valve servo init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_adc(), TAG, "adc init failed");
     ESP_RETURN_ON_ERROR(beet_board_init_led(), TAG, "led init failed");
-    ESP_RETURN_ON_ERROR(beet_board_init_oled(), TAG, "oled init failed");
+    {
+        esp_err_t oled_err = beet_board_init_oled();
+        if (oled_err != ESP_OK) {
+            ESP_LOGW(TAG, "oled init failed, continuing without display");
+        }
+    }
 
     gpio_config_t button_cfg = {
         .pin_bit_mask = 1ULL << GPIO_NUM_13,

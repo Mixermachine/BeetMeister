@@ -158,6 +158,12 @@ uint16_t ble_att_mtu(uint16_t conn_handle)
     return s_att_mtu;
 }
 
+int ble_att_set_preferred_mtu(uint16_t mtu)
+{
+    s_att_mtu = mtu;
+    return 0;
+}
+
 int ble_gap_conn_find(uint16_t conn_handle, struct ble_gap_conn_desc *desc)
 {
     if (conn_handle != s_conn_handle || desc == NULL) {

@@ -20,12 +20,45 @@ if(NOT DEFINED BEET_SHARED_RUNTIME_PROTOCOL_VERSION)
     message(FATAL_ERROR "Missing runtime_protocol_version in ${BEET_PROTOCOL_VERSIONS_FILE}")
 endif()
 
-if(NOT DEFINED BEET_FIRMWARE_VERSION)
-    set(BEET_FIRMWARE_VERSION "${PROJECT_VER}")
+execute_process(COMMAND git diff-index --quiet HEAD --
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    RESULT_VARIABLE GIT_IS_DIRTY
+    ERROR_QUIET
+)
+
+if(GIT_IS_DIRTY EQUAL 0)
+    execute_process(COMMAND git describe --tags --abbrev=0
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE GIT_TAG
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(GIT_TAG)
+        set(BEET_FIRMWARE_VERSION "${GIT_TAG}")
+    else()
+        execute_process(COMMAND git rev-parse --short=7 HEAD
+            WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+            OUTPUT_VARIABLE GIT_HASH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        set(BEET_FIRMWARE_VERSION "v0.0.0-${GIT_HASH}")
+    endif()
+else()
+    execute_process(COMMAND git rev-parse --short=7 HEAD
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE GIT_HASH
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(GIT_HASH)
+        set(BEET_FIRMWARE_VERSION "dev-${GIT_HASH}")
+    else()
+        set(BEET_FIRMWARE_VERSION "v0.0.0-unknown")
+    endif()
 endif()
-if(NOT DEFINED BEET_BUILD_LABEL)
-    set(BEET_BUILD_LABEL "${PROJECT_VER}")
-endif()
+
+set(BEET_BUILD_LABEL "${BEET_FIRMWARE_VERSION}")
+
+message(STATUS "Firmware version: ${BEET_FIRMWARE_VERSION}")
 
 execute_process(
     COMMAND
@@ -73,6 +106,7 @@ idf_component_register(
 )
 
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
+    BEET_BLE_FORCE_ENABLE_DIAGNOSTICS=1
     BEET_MAINTENANCE_PROTOCOL_VERSION=${BEET_SHARED_MAINTENANCE_PROTOCOL_VERSION}
     BEET_RUNTIME_PROTOCOL_VERSION=${BEET_SHARED_RUNTIME_PROTOCOL_VERSION}
 )

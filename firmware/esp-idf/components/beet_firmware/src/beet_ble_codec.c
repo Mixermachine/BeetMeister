@@ -176,20 +176,21 @@ int beet_ble_format_maintenance_info_json(
         return -1;
     }
 
-    return snprintf(
-        buf,
-        len,
-        "{\"type\":\"maintenance_info\",\"data\":{\"product_id\":\"%s\",\"hardware_rev\":\"%s\","
-        "\"firmware_version\":\"%s\",\"build_label\":\"%s\",\"maintenance_protocol_version\":%lu,"
-        "\"runtime_protocol_version\":%lu,\"update_capable\":%s,\"image_kind\":\"%s\"}}",
-        info->product_id,
-        info->hardware_rev,
-        info->firmware_version,
-        info->build_label,
+    const char *kind_name = beet_maintenance_image_kind_name(info->image_kind);
+    const char *uc = info->update_capable ? "true" : "false";
+
+    return snprintf(buf, len,
+        "{\"type\":\"maintenance_info\",\"data\":{"
+        "\"product_id\":\"%s\",\"hardware_rev\":\"%s\","
+        "\"firmware_version\":\"%s\",\"build_label\":\"%s\","
+        "\"maintenance_protocol_version\":%lu,"
+        "\"runtime_protocol_version\":%lu,"
+        "\"update_capable\":%s,\"image_kind\":\"%s\"}}",
+        info->product_id, info->hardware_rev,
+        info->firmware_version, info->build_label,
         (unsigned long)info->maintenance_protocol_version,
         (unsigned long)info->runtime_protocol_version,
-        info->update_capable ? "true" : "false",
-        beet_maintenance_image_kind_name(info->image_kind));
+        uc, kind_name);
 }
 
 int beet_ble_format_maintenance_status_json(
@@ -260,23 +261,64 @@ int beet_ble_format_device_frame_json(
     size_t len,
     const beet_iface_device_state_t *state)
 {
-    return snprintf(
-        buf,
-        len,
-        "{\"type\":\"device\",\"data\":{\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
-        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,\"wifi_connected\":%s,\"mqtt_connected\":%s,"
+    if (buf == NULL || state == NULL) {
+        return -1;
+    }
+
+    const char *bs = beet_battery_state_name(state->battery_state);
+    const char *tv = state->time_valid ? "true" : "false";
+    const char *wf = state->wifi_connected ? "true" : "false";
+    const char *mq = state->mqtt_connected ? "true" : "false";
+    const char *ve = state->valve_enabled ? "true" : "false";
+    const char *vs = beet_valve_state_name(state->valve_state);
+
+    /* Try the full format. */
+    int needed = snprintf(NULL, 0,
+        "{\"type\":\"device\",\"data\":{"
+        "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
+        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
+        "\"wifi_connected\":%s,\"mqtt_connected\":%s,"
         "\"uptime_s\":%lu,\"valve_enabled\":%s,\"valve_state\":\"%s\"}}",
-        beet_battery_state_name(state->battery_state),
-        state->battery_mv,
-        state->time_valid ? "true" : "false",
+        bs, state->battery_mv, tv,
         (unsigned long)state->boot_id,
         (unsigned long)state->next_check_in_s,
-        state->active_pumps,
-        state->wifi_connected ? "true" : "false",
-        state->mqtt_connected ? "true" : "false",
-        (unsigned long)state->uptime_s,
-        state->valve_enabled ? "true" : "false",
-        beet_valve_state_name(state->valve_state));
+        state->active_pumps, wf, mq,
+        (unsigned long)state->uptime_s, ve, vs);
+    if (needed < 0) return -1;
+    if ((size_t)needed < len) {
+        return snprintf(buf, len,
+            "{\"type\":\"device\",\"data\":{"
+            "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
+            "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
+            "\"wifi_connected\":%s,\"mqtt_connected\":%s,"
+            "\"uptime_s\":%lu,\"valve_enabled\":%s,\"valve_state\":\"%s\"}}",
+            bs, state->battery_mv, tv,
+            (unsigned long)state->boot_id,
+            (unsigned long)state->next_check_in_s,
+            state->active_pumps, wf, mq,
+            (unsigned long)state->uptime_s, ve, vs);
+    }
+
+    /* Doesn't fit — shorten valve_state string to make room. */
+    size_t excess = (size_t)needed - len + 1U;
+    size_t vs_len = strlen(vs);
+    char trunc_vs[16];
+    size_t trim = (excess < vs_len) ? excess : vs_len;
+    size_t n = vs_len - trim;
+    memcpy(trunc_vs, vs, n);
+    trunc_vs[n] = '\0';
+
+    return snprintf(buf, len,
+        "{\"type\":\"device\",\"data\":{"
+        "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
+        "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
+        "\"wifi_connected\":%s,\"mqtt_connected\":%s,"
+        "\"uptime_s\":%lu,\"valve_enabled\":%s,\"valve_state\":\"%s\"}}",
+        bs, state->battery_mv, tv,
+        (unsigned long)state->boot_id,
+        (unsigned long)state->next_check_in_s,
+        state->active_pumps, wf, mq,
+        (unsigned long)state->uptime_s, ve, trunc_vs);
 }
 
 int beet_ble_format_pair_frame_json(

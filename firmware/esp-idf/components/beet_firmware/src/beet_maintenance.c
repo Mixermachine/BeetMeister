@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <string.h>
 
+#include "esp_log.h"
 #include "esp_rom_crc.h"
 #include "beet_maintenance_tlv.h"
 #include "beet_types.h"
@@ -42,8 +43,14 @@ static bool beet_copy_tlv_string(
     char *out,
     size_t out_len)
 {
-    if (value == NULL || out == NULL || out_len == 0U || value_len == 0U || value_len >= out_len) {
+    if (value == NULL || out == NULL || out_len == 0U || value_len == 0U) {
         return false;
+    }
+
+    if (value_len >= out_len) {
+        ESP_LOGW("beet_maint", "string truncated from %u to %u bytes",
+                 (unsigned)value_len, (unsigned)(out_len - 1));
+        value_len = (uint16_t)(out_len - 1U);
     }
 
     memcpy(out, value, value_len);
@@ -89,14 +96,19 @@ esp_err_t beet_maintenance_metadata_parse(
     bool have_image_kind = false;
 
     if (block == NULL || metadata == NULL || block_len < sizeof(beet_maintenance_metadata_header_t)) {
+        ESP_LOGD("beet_maint", "metadata parse: bad args block=%p len=%u", (void*)block, (unsigned)block_len);
         return ESP_ERR_INVALID_ARG;
     }
 
     header = (const beet_maintenance_metadata_header_t *)block;
+    ESP_LOGI("beet_maint", "metadata magic=0x%08lx fmt=%u total_len=%u block_len=%u",
+        (unsigned long)header->magic, (unsigned)header->metadata_format_version,
+        (unsigned)header->total_length, (unsigned)block_len);
     if (header->magic != BEET_MAINTENANCE_METADATA_MAGIC ||
         header->metadata_format_version != BEET_MAINTENANCE_METADATA_FORMAT_VERSION ||
         header->total_length > block_len ||
         header->total_length < sizeof(beet_maintenance_metadata_header_t)) {
+        ESP_LOGD("beet_maint", "metadata parse: header invalid");
         return ESP_ERR_INVALID_SIZE;
     }
 
@@ -105,6 +117,8 @@ esp_err_t beet_maintenance_metadata_parse(
         (const uint8_t *)header,
         offsetof(beet_maintenance_metadata_header_t, header_crc32));
     if (header_crc != header->header_crc32) {
+        ESP_LOGD("beet_maint", "metadata parse: CRC mismatch computed=0x%08lx stored=0x%08lx",
+            (unsigned long)header_crc, (unsigned long)header->header_crc32);
         return ESP_ERR_INVALID_CRC;
     }
 
@@ -116,13 +130,16 @@ esp_err_t beet_maintenance_metadata_parse(
         size_t next_offset;
 
         if ((header->total_length - offset) < sizeof(beet_maintenance_tlv_entry_header_t)) {
+            ESP_LOGD("beet_maint", "TLV truncated at offset=%u remaining=%u", (unsigned)offset, (unsigned)(header->total_length - offset));
             return ESP_ERR_INVALID_SIZE;
         }
 
         entry = (const beet_maintenance_tlv_entry_header_t *)(block + offset);
+        ESP_LOGD("beet_maint", "TLV type=%u len=%u at offset=%u", (unsigned)entry->type, (unsigned)entry->length, (unsigned)offset);
         offset += sizeof(*entry);
         next_offset = offset + entry->length;
         if (next_offset > header->total_length) {
+            ESP_LOGD("beet_maint", "TLV overflow type=%u len=%u next=%u total=%u", (unsigned)entry->type, (unsigned)entry->length, (unsigned)next_offset, (unsigned)header->total_length);
             return ESP_ERR_INVALID_SIZE;
         }
 
@@ -218,6 +235,11 @@ esp_err_t beet_maintenance_metadata_parse(
         !have_runtime_protocol_version ||
         !have_image_kind ||
         metadata->compatible_hardware_rev_count == 0U) {
+        ESP_LOGW("beet_maint", "metadata parse: fields missing offset=%u!=%u prod=%d hw=%d fw=%d build=%d maint=%d runtime=%d kind=%d compat=%u",
+            (unsigned)offset, (unsigned)header->total_length,
+            have_product_id, have_hardware_rev, have_firmware_version, have_build_label,
+            have_maintenance_protocol_version, have_runtime_protocol_version, have_image_kind,
+            (unsigned)metadata->compatible_hardware_rev_count);
         return ESP_ERR_NOT_FOUND;
     }
 

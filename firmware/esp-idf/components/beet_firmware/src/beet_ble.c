@@ -38,7 +38,7 @@
 static const char *TAG = "beet_ble";
 
 #define BEET_BLE_COMMAND_QUEUE_LEN 4U
-#define BEET_BLE_JSON_MAX_LEN 320U
+// BEET_BLE_JSON_MAX_LEN defined in beet_ble_codec.h
 #define BEET_BLE_MAINTENANCE_CONTROL_JSON_MAX_LEN 512U
 #define BEET_BLE_RESULT_STAGE_MAX_LEN 1024U
 #define BEET_BLE_RESULT_STAGE_BASE64_MAX_LEN ((((BEET_BLE_RESULT_STAGE_MAX_LEN) + 2U) / 3U) * 4U + 1U)
@@ -51,6 +51,12 @@ static const char *TAG = "beet_ble";
 #define BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US (30LL * 1000000LL)
 #define BEET_BLE_PAIRING_CODE_MAX 1000000U
 #define BEET_BLE_BOND_SCAN_CAPACITY 16U
+
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+#define BEET_BLE_DIAGNOSTIC_VERBOSE 1
+#else
+#define BEET_BLE_DIAGNOSTIC_VERBOSE 0
+#endif
 #define BEET_BLE_MAINTENANCE_SESSION_RESUME_TIMEOUT_US (15LL * 60LL * 1000000LL)
 #define BEET_BLE_MAINTENANCE_REBOOT_CONFIRM_GRACE_US (100000LL)
 #define BEET_BLE_MAINTENANCE_REBOOT_FALLBACK_US (2000000LL)
@@ -314,25 +320,41 @@ static const struct ble_gatt_svc_def beet_ble_svcs[] = {
             {
                 .uuid = &BEET_BLE_CONTROLLER_INFO_UUID.u,
                 .access_cb = beet_ble_gatt_access,
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+                .flags = BLE_GATT_CHR_F_READ,
+#else
                 .flags = BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC,
+#endif
                 .val_handle = &s_controller_info_handle,
             },
             {
                 .uuid = &BEET_BLE_STATE_STREAM_UUID.u,
                 .access_cb = beet_ble_gatt_access,
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+                .flags = BLE_GATT_CHR_F_NOTIFY,
+#else
                 .flags = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ_ENC,
+#endif
                 .val_handle = &s_state_stream_handle,
             },
             {
                 .uuid = &BEET_BLE_CONTROL_POINT_UUID.u,
                 .access_cb = beet_ble_gatt_access,
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+                .flags = BLE_GATT_CHR_F_WRITE,
+#else
                 .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
+#endif
                 .val_handle = &s_control_point_handle,
             },
             {
                 .uuid = &BEET_BLE_COMMAND_RESULT_UUID.u,
                 .access_cb = beet_ble_gatt_access,
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+                .flags = BLE_GATT_CHR_F_INDICATE,
+#else
                 .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_READ_ENC,
+#endif
                 .val_handle = &s_command_result_handle,
             },
             { 0 },
@@ -436,6 +458,10 @@ static bool beet_ble_is_bonded_conn(uint16_t conn_handle)
 
 static int beet_ble_require_encrypted(uint16_t conn_handle)
 {
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    (void)conn_handle;
+    return 0;
+#else
     struct ble_gap_conn_desc desc;
 
     if (conn_handle == BLE_HS_CONN_HANDLE_NONE) {
@@ -447,6 +473,7 @@ static int beet_ble_require_encrypted(uint16_t conn_handle)
     }
 
     return desc.sec_state.encrypted ? 0 : BLE_ATT_ERR_INSUFFICIENT_ENC;
+#endif
 }
 
 static struct os_mbuf *beet_ble_json_mbuf(const char *json)
@@ -568,11 +595,13 @@ static int beet_ble_read_maintenance_info(struct ble_gatt_access_ctxt *ctxt)
     int written;
 
     written = beet_ble_format_maintenance_info(json, sizeof(json));
-    if (written < 0 || (size_t)written >= sizeof(json)) {
+    if (written < 0) {
+        ESP_LOGW(TAG, "maintenance_info format failed written=%d", written);
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
     if (os_mbuf_append(ctxt->om, json, (uint16_t)written) != 0) {
+        ESP_LOGW(TAG, "maintenance_info mbuf append fail written=%d", written);
         return BLE_ATT_ERR_INSUFFICIENT_RES;
     }
 
@@ -645,10 +674,14 @@ static int beet_ble_write_maintenance_control(
     uint16_t copied = 0U;
     beet_maintenance_request_t request;
 
+    ESP_LOGI(TAG, "maintenance control write: starting conn=%u", (unsigned)conn_handle);
+
+#if !BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
     if (beet_ble_require_encrypted(conn_handle) != 0) {
         ESP_LOGW(TAG, "maintenance control rejected: conn_handle=%u not encrypted", conn_handle);
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
+#endif
     if (OS_MBUF_PKTLEN(ctxt->om) >= sizeof(json)) {
         ESP_LOGW(
             TAG,
@@ -2360,9 +2393,144 @@ static void beet_ble_disconnect(void)
     }
 }
 
+#if BEET_BLE_DIAGNOSTIC_VERBOSE
+static const char *beet_ble_gap_event_name(uint8_t type)
+{
+    switch (type) {
+    case BLE_GAP_EVENT_CONNECT:         return "CONNECT";
+    case BLE_GAP_EVENT_DISCONNECT:      return "DISCONNECT";
+    case BLE_GAP_EVENT_CONN_UPDATE:     return "CONN_UPDATE";
+    case BLE_GAP_EVENT_ADV_COMPLETE:    return "ADV_COMPLETE";
+    case BLE_GAP_EVENT_ENC_CHANGE:      return "ENC_CHANGE";
+    case BLE_GAP_EVENT_PASSKEY_ACTION:  return "PASSKEY_ACTION";
+    case BLE_GAP_EVENT_NOTIFY_TX:       return "NOTIFY_TX";
+    case BLE_GAP_EVENT_SUBSCRIBE:       return "SUBSCRIBE";
+    case BLE_GAP_EVENT_MTU:             return "MTU";
+    case BLE_GAP_EVENT_REPEAT_PAIRING:  return "REPEAT_PAIRING";
+    case BLE_GAP_EVENT_PARING_COMPLETE:return "PARING_COMPLETE";
+    default:                            return "?";
+    }
+}
+
+static const char *beet_ble_passkey_action_name(uint8_t action)
+{
+    switch (action) {
+    case BLE_SM_IOACT_NONE:   return "NONE";
+    case BLE_SM_IOACT_OOB:    return "OOB";
+    case BLE_SM_IOACT_INPUT:  return "INPUT";
+    case BLE_SM_IOACT_DISP:   return "DISP";
+    case BLE_SM_IOACT_NUMCMP: return "NUMCMP";
+    case BLE_SM_IOACT_OOB_SC: return "OOB_SC";
+    case BLE_SM_IOACT_STATIC: return "STATIC";
+    default:                  return "?";
+    }
+}
+#endif
+
+static void beet_ble_log_bond_store_on_init(void)
+{
+#if BEET_BLE_DIAGNOSTIC_VERBOSE
+    ble_addr_t bonded_peers[BEET_BLE_BOND_SCAN_CAPACITY];
+    int peer_count = 0;
+
+    int rc = ble_store_util_bonded_peers(bonded_peers, &peer_count, (int)BEET_BLE_BOND_SCAN_CAPACITY);
+    if (rc == 0 || rc == BLE_HS_ENOMEM) {
+        ESP_LOGI(TAG, "bond store on init count=%d (capacity=%u)", peer_count, (unsigned)BEET_BLE_BOND_SCAN_CAPACITY);
+        for (int i = 0; i < peer_count; ++i) {
+            ESP_LOGI(TAG, "  bond[%d] addr=%02x:%02x:%02x:%02x:%02x:%02x type=%u",
+                i,
+                bonded_peers[i].val[5], bonded_peers[i].val[4], bonded_peers[i].val[3],
+                bonded_peers[i].val[2], bonded_peers[i].val[1], bonded_peers[i].val[0],
+                (unsigned)bonded_peers[i].type);
+        }
+    } else {
+        ESP_LOGW(TAG, "bond store enum failed rc=%d", rc);
+    }
+#else
+    (void)0;
+#endif
+}
+
+#if BEET_BLE_DIAGNOSTIC_VERBOSE
+static void beet_ble_log_gap_event_verbose(const char *event_name, struct ble_gap_event *event)
+{
+    struct ble_gap_conn_desc desc;
+    uint16_t conn_handle = BLE_HS_CONN_HANDLE_NONE;
+    bool have_conn = false;
+
+    switch (event->type) {
+    case BLE_GAP_EVENT_CONNECT:
+        conn_handle = event->connect.conn_handle;
+        break;
+    case BLE_GAP_EVENT_DISCONNECT:
+        conn_handle = event->disconnect.conn.conn_handle;
+        break;
+    case BLE_GAP_EVENT_ENC_CHANGE:
+        conn_handle = event->enc_change.conn_handle;
+        break;
+    case BLE_GAP_EVENT_PASSKEY_ACTION:
+        conn_handle = event->passkey.conn_handle;
+        break;
+    case BLE_GAP_EVENT_REPEAT_PAIRING:
+        conn_handle = event->repeat_pairing.conn_handle;
+        break;
+    case BLE_GAP_EVENT_MTU:
+        conn_handle = event->mtu.conn_handle;
+        break;
+    case BLE_GAP_EVENT_PARING_COMPLETE:
+        conn_handle = event->pairing_complete.conn_handle;
+        break;
+    default:
+        break;
+    }
+    have_conn = (conn_handle != BLE_HS_CONN_HANDLE_NONE && ble_gap_conn_find(conn_handle, &desc) == 0);
+
+    switch (event->type) {
+    case BLE_GAP_EVENT_CONNECT:
+        ESP_LOGI(TAG, "gap_event %s status=%d handle=%u", event_name, event->connect.status, event->connect.conn_handle);
+        break;
+    case BLE_GAP_EVENT_DISCONNECT:
+        ESP_LOGI(TAG, "gap_event %s reason=%d handle=%u bonded=%d encrypted=%d",
+            event_name, event->disconnect.reason, event->disconnect.conn.conn_handle,
+            event->disconnect.conn.sec_state.bonded, event->disconnect.conn.sec_state.encrypted);
+        break;
+    case BLE_GAP_EVENT_ENC_CHANGE:
+        ESP_LOGI(TAG, "gap_event %s status=%d handle=%u bonded=%d encrypted=%d",
+            event_name, event->enc_change.status, event->enc_change.conn_handle,
+            have_conn ? desc.sec_state.bonded : false, have_conn ? desc.sec_state.encrypted : false);
+        break;
+    case BLE_GAP_EVENT_PASSKEY_ACTION:
+        ESP_LOGI(TAG, "gap_event %s action=%s(%u) handle=%u numcmp=%" PRIu32,
+            event_name, beet_ble_passkey_action_name(event->passkey.params.action),
+            (unsigned)event->passkey.params.action, event->passkey.conn_handle,
+            event->passkey.params.numcmp);
+        break;
+    case BLE_GAP_EVENT_REPEAT_PAIRING:
+        ESP_LOGI(TAG, "gap_event %s handle=%u", event_name, event->repeat_pairing.conn_handle);
+        break;
+    case BLE_GAP_EVENT_MTU:
+        ESP_LOGI(TAG, "gap_event %s handle=%u mtu=%u", event_name, event->mtu.conn_handle, event->mtu.value);
+        break;
+    case BLE_GAP_EVENT_PARING_COMPLETE:
+        ESP_LOGI(TAG, "gap_event %s handle=%u status=%d bonded=%d",
+            event_name, event->pairing_complete.conn_handle, event->pairing_complete.status,
+            have_conn ? desc.sec_state.bonded : false);
+        break;
+    default:
+        ESP_LOGI(TAG, "gap_event %s type=%u", event_name, (unsigned)event->type);
+        break;
+    }
+}
+#endif
+
 static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
 {
     (void)arg;
+
+#if BEET_BLE_DIAGNOSTIC_VERBOSE
+    const char *event_name = beet_ble_gap_event_name(event->type);
+    beet_ble_log_gap_event_verbose(event_name, event);
+#endif
 
     switch (event->type) {
     case BLE_GAP_EVENT_CONNECT:
@@ -2429,6 +2597,29 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         return 0;
 
     case BLE_GAP_EVENT_SUBSCRIBE:
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+        if (event->subscribe.attr_handle == s_state_stream_handle) {
+            s_ble.state_stream_subscribed = event->subscribe.cur_notify;
+            if (s_ble.state_stream_subscribed) {
+                beet_ble_start_initial_state_stream_sync();
+            } else {
+                beet_ble_reset_state_stream_sync();
+            }
+            beet_ble_mark_activity();
+            ESP_LOGI(TAG, "state stream subscribe notify=%d bonded=%d", event->subscribe.cur_notify, s_ble.state_stream_subscribed);
+        } else if (event->subscribe.attr_handle == s_command_result_handle) {
+            s_ble.command_result_subscribed = event->subscribe.cur_indicate;
+            if (!s_ble.command_result_subscribed) {
+                beet_ble_clear_result_send_state();
+            }
+            beet_ble_mark_activity();
+            ESP_LOGI(TAG, "command result subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.command_result_subscribed);
+        } else if (event->subscribe.attr_handle == s_maintenance_status_handle) {
+            s_ble.maintenance_status_subscribed = event->subscribe.cur_indicate;
+            beet_ble_mark_activity();
+            ESP_LOGI(TAG, "maintenance status subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.maintenance_status_subscribed);
+        }
+#else
         if (event->subscribe.attr_handle == s_state_stream_handle) {
             s_ble.state_stream_subscribed = event->subscribe.cur_notify && beet_ble_is_bonded_conn(event->subscribe.conn_handle);
             if (s_ble.state_stream_subscribed) {
@@ -2450,6 +2641,7 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             beet_ble_mark_activity();
             ESP_LOGI(TAG, "maintenance status subscribe indicate=%d bonded=%d", event->subscribe.cur_indicate, s_ble.maintenance_status_subscribed);
         }
+#endif
         return 0;
 
     case BLE_GAP_EVENT_NOTIFY_TX:
@@ -2539,6 +2731,16 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         }
         return BLE_GAP_REPEAT_PAIRING_RETRY;
     }
+
+    case BLE_GAP_EVENT_MTU:
+#if BEET_BLE_DIAGNOSTIC_VERBOSE
+        ESP_LOGI(TAG, "mtu negotiated handle=%u mtu=%u", event->mtu.conn_handle, event->mtu.value);
+#endif
+        return 0;
+
+    case BLE_GAP_EVENT_PARING_COMPLETE:
+        ESP_LOGI(TAG, "pairing complete handle=%u status=%d", event->pairing_complete.conn_handle, event->pairing_complete.status);
+        return 0;
 
     default:
         return 0;
@@ -2736,22 +2938,18 @@ static bool beet_ble_stream_device_state(void)
         return false;
     }
 
-    written = beet_ble_format_device_frame(json, sizeof(json), &device_state);
-    if (written < 0 || (size_t)written >= sizeof(json)) {
-        ESP_LOGW(TAG, "device frame too large");
+    payload_budget = beet_ble_att_payload_budget();
+    if (payload_budget == 0U) {
         return false;
     }
-    payload_budget = beet_ble_att_payload_budget();
-    if (payload_budget == 0U || (size_t)written > payload_budget) {
+    written = beet_ble_format_device_frame_json(json, payload_budget < sizeof(json) ? payload_budget : sizeof(json), &device_state);
+    if (written < 0 || (size_t)written > payload_budget) {
         ESP_LOGW(
             TAG,
-            "device frame exceeds mtu payload frame_len=%u mtu_payload=%u battery_state=%s maintenance_active=%d",
+            "device frame exceeds mtu payload frame_len=%u mtu_payload=%u battery_state=%s",
             (unsigned)written,
             (unsigned)payload_budget,
-            beet_battery_state_name(device_state.battery_state),
-            (int)s_ble.maintenance_session.active);
-        s_ble.last_device_state = device_state;
-        s_ble.have_last_device_state = true;
+            beet_battery_state_name(device_state.battery_state));
         return false;
     }
 
@@ -2926,8 +3124,16 @@ esp_err_t beet_ble_init(const char *device_name)
     ble_hs_cfg.sm_bonding = 1;
     ble_hs_cfg.sm_mitm = 0;
     ble_hs_cfg.sm_sc = 1;
-    ble_hs_cfg.sm_our_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
-    ble_hs_cfg.sm_their_key_dist |= BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+
+    /*
+     * MTU is FROZEN at 247. DO NOT INCREASE.
+     * The device frame JSON fits within the 244-byte ATT payload budget
+     * only at this MTU. Larger MTU on new firmware breaks backward
+     * compatibility with older Android apps that request 247.
+     */
+    ble_att_set_preferred_mtu(247);
 
     ble_svc_gap_init();
     ble_svc_gatt_init();
@@ -2940,6 +3146,9 @@ esp_err_t beet_ble_init(const char *device_name)
     ESP_RETURN_ON_FALSE(rc == 0, ESP_FAIL, TAG, "gatt add failed");
 
     ble_store_config_init();
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    beet_ble_log_bond_store_on_init();
+#endif
     nimble_port_freertos_init(beet_ble_host_task);
 
     s_ble.initialized = true;
@@ -3050,9 +3259,14 @@ void beet_ble_publish_system_event(const beet_system_event_record_t *event, uint
     char json[BEET_BLE_JSON_MAX_LEN];
     int written;
 
-    if (event == NULL || !s_ble.enabled || !s_ble.connected || !s_ble.bonded || !s_ble.state_stream_subscribed) {
+    if (event == NULL || !s_ble.enabled || !s_ble.connected || !s_ble.state_stream_subscribed) {
         return;
     }
+#if !BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    if (!s_ble.bonded) {
+        return;
+    }
+#endif
 
     written = beet_ble_format_system_event_frame_json(json, sizeof(json), event, unix_s);
     if (written < 0 || (size_t)written >= sizeof(json)) {
@@ -3085,9 +3299,14 @@ void beet_ble_service(void)
     beet_ble_send_pending_result();
     beet_ble_service_maintenance_session();
 
-    if (!s_ble.enabled || !s_ble.connected || !s_ble.bonded || !s_ble.state_stream_subscribed) {
+    if (!s_ble.enabled || !s_ble.connected || !s_ble.state_stream_subscribed) {
         return;
     }
+#if !BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    if (!s_ble.bonded) {
+        return;
+    }
+#endif
 
     if (beet_ble_maintenance_runtime_blocking()) {
         return;

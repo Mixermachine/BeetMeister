@@ -22,6 +22,9 @@ $env:ESP_ROM_ELF_DIR = "C:\Espressif\tools\esp-rom-elfs\20241011"
 $env:PYTHONIOENCODING = "utf-8"
 $env:PYTHONUTF8 = "1"
 
+# Remove MSYSTEM to prevent idf.py from skipping main() when invoked from MSys/MinGW
+Remove-Item Env:MSYSTEM -ErrorAction SilentlyContinue
+
 $toolPaths = @(
     "C:\Espressif\tools\python\v6.0\venv\Scripts",
     "C:\Espressif\tools\cmake\4.0.3\bin",
