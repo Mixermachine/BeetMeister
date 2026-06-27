@@ -40,15 +40,6 @@ import de.aarondietz.beetmeister.model.update.BeetMaintenanceStatus
 import java.nio.charset.StandardCharsets
 
 object BeetJsonCodec {
-    private val maintenanceMoshi: Moshi = Moshi.Builder()
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
-
-    private val runtimeMoshi: Moshi = Moshi.Builder()
-        .add(BooleanZeroOneAdapter)
-        .addLast(KotlinJsonAdapterFactory())
-        .build()
-
     private val BooleanZeroOneAdapter = object : JsonAdapter.Factory {
         override fun create(type: java.lang.reflect.Type, annotations: Set<out Annotation>, moshi: Moshi): JsonAdapter<*>? {
             if (type != Boolean::class.java && type != Boolean::class.javaObjectType) {
@@ -75,6 +66,15 @@ object BeetJsonCodec {
             }
         }
     }
+
+    private val maintenanceMoshi: Moshi = Moshi.Builder()
+        .addLast(KotlinJsonAdapterFactory())
+        .build()
+
+    private val runtimeMoshi: Moshi = Moshi.Builder()
+        .add(BooleanZeroOneAdapter)
+        .addLast(KotlinJsonAdapterFactory())
+        .build()
 
     private const val DATA_FIELD = "data"
     data class MaintenanceBeginUpdatePayload(

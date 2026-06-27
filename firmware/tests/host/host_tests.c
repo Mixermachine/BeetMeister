@@ -441,7 +441,7 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_VALVE_CONFIG, request.command);
 
     TEST_ASSERT_TRUE(beet_ble_parse_command_json(
-        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true,\"servo_min_pulse_us\":700,"
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1,\"servo_min_pulse_us\":700,"
         "\"servo_max_pulse_us\":2400,\"open_pulse_us\":850,\"shut_pulse_us\":2050,\"move_duration_ms\":700,"
         "\"settle_delay_ms\":200,\"open_hold_ms\":1500}}", &request));
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_VALVE_CONFIG, request.command);
@@ -649,12 +649,12 @@ static void test_ble_json_formatting(void)
 
     TEST_ASSERT_TRUE(beet_ble_format_device_frame_json(json, sizeof(json), &device) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":false,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":false,\"mqtt_connected\":false,\"uptime_s\":0,\"valve_enabled\":false,\"valve_state\":\"CLOSED\"}}",
+        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":0,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":0,\"mqtt_connected\":0,\"uptime_s\":0,\"valve_enabled\":0,\"valve_state\":\"CLOSED\"}}",
         json);
 
     TEST_ASSERT_TRUE(beet_ble_format_pair_frame_json(json, sizeof(json), &pair) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"pair\",\"data\":{\"pair\":1,\"state\":\"IDLE\",\"moisture_pct\":1,\"sensor_mv\":2745,\"blocked\":false,\"block_reason\":\"NONE\",\"remaining_s\":0,\"source\":\"NONE\",\"enabled\":false,\"sensor_valid\":true}}",
+        "{\"type\":\"pair\",\"data\":{\"pair\":1,\"state\":\"IDLE\",\"moisture_pct\":1,\"sensor_mv\":2745,\"blocked\":0,\"block_reason\":\"NONE\",\"remaining_s\":0,\"source\":\"NONE\",\"enabled\":0,\"sensor_valid\":1}}",
         json);
 
     memset(&response, 0, sizeof(response));
@@ -720,13 +720,13 @@ static void test_ble_json_formatting(void)
         "{\"cmd\":\"get_system_event\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":"
         "{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,"
         "\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,"
-        "\"known_peer\":true,\"detail\":0}}",
+        "\"known_peer\":1,\"detail\":0}}",
         json);
 
     beet_system_event_record_t system = beet_make_system_event(9U, BEET_SYSTEM_EVENT_BLE_CONNECT);
     TEST_ASSERT_TRUE(beet_ble_format_system_event_frame_json(json, sizeof(json), &system, 0U) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":true,\"detail\":0}}",
+        "{\"type\":\"system_event\",\"data\":{\"seq\":9,\"event_type\":\"BLE_CONNECT\",\"reason\":22,\"boot_id\":9,\"uptime_s\":123,\"unix_s\":0,\"battery_mv\":3340,\"peer_addr\":\"AA:BB:CC:DD:EE:FF\",\"peer_addr_type\":1,\"known_peer\":1,\"detail\":0}}",
         json);
 
     memset(&response, 0, sizeof(response));
@@ -745,7 +745,7 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"get_valve_config\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":"
-        "{\"valve_enabled\":true,\"servo_min_pulse_us\":700,\"servo_max_pulse_us\":2400,"
+        "{\"valve_enabled\":1,\"servo_min_pulse_us\":700,\"servo_max_pulse_us\":2400,"
         "\"open_pulse_us\":880,\"shut_pulse_us\":2010,\"move_duration_ms\":700,"
         "\"settle_delay_ms\":200,\"open_hold_ms\":1500}}",
         json);
@@ -824,6 +824,125 @@ static void test_ble_maintenance_info_json_max_length(void)
     for (i = (size_t)(written + 1); i < sizeof(json); ++i) {
         TEST_ASSERT_U32_EQ(0xAAU, (unsigned)json[i]);
     }
+}
+
+static void test_ble_runtime_booleans_encoded_as_01(void)
+{
+    char json[BEET_BLE_JSON_MAX_LEN];
+    int written;
+
+    beet_iface_device_state_t ds;
+    memset(&ds, 0, sizeof(ds));
+    ds.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    ds.time_valid = true;
+    ds.wifi_connected = true;
+    ds.mqtt_connected = true;
+    ds.valve_enabled = true;
+    ds.valve_state = BEET_VALVE_STATE_CLOSED;
+
+    written = beet_ble_format_device_frame_json(json, sizeof(json), &ds);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"time_valid\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"wifi_connected\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"mqtt_connected\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"valve_enabled\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+    TEST_ASSERT_TRUE(strstr(json, "false") == NULL);
+
+    ds.time_valid = false;
+    ds.wifi_connected = false;
+    ds.mqtt_connected = false;
+    ds.valve_enabled = false;
+
+    written = beet_ble_format_device_frame_json(json, sizeof(json), &ds);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"time_valid\":0") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"wifi_connected\":0") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"mqtt_connected\":0") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"valve_enabled\":0") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+
+    beet_iface_pair_state_t ps;
+    memset(&ps, 0, sizeof(ps));
+    ps.pair_index = 1U;
+    ps.blocked = true;
+    ps.enabled = true;
+    ps.sensor_valid = true;
+
+    written = beet_ble_format_pair_frame_json(json, sizeof(json), &ps);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"blocked\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"enabled\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"sensor_valid\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+
+    beet_system_event_record_t se;
+    memset(&se, 0, sizeof(se));
+    se.known_peer = true;
+
+    written = beet_ble_format_system_event_frame_json(json, sizeof(json), &se, 0U);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"known_peer\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+
+    beet_iface_command_response_t resp;
+    memset(&resp, 0, sizeof(resp));
+    resp.command = BEET_IFACE_COMMAND_GET_VALVE_CONFIG;
+    resp.status = BEET_IFACE_STATUS_ACCEPTED;
+    resp.has_valve_config = true;
+    resp.valve_enabled = true;
+
+    written = beet_ble_format_command_result_json(json, sizeof(json), &resp);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "\"valve_enabled\":1") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "true") == NULL);
+
+    /* maintenance_info must still use true/false. */
+    beet_maintenance_info_t mi;
+    memset(&mi, 0, sizeof(mi));
+    mi.image_kind = BEET_MAINTENANCE_IMAGE_KIND_BUNDLED;
+    mi.update_capable = true;
+
+    written = beet_ble_format_maintenance_info_json(json, sizeof(json), &mi);
+    TEST_ASSERT_TRUE(written > 0);
+    TEST_ASSERT_TRUE(strstr(json, "true") != NULL);
+    TEST_ASSERT_TRUE(strstr(json, "\"update_capable\":true") != NULL);
+}
+
+static void test_ble_parse_bool_strict_01(void)
+{
+    beet_iface_command_request_t request;
+    bool ok;
+
+    memset(&request, 0, sizeof(request));
+    ok = beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1}}",
+        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1}}"),
+        &request);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_TRUE(request.valve_enabled);
+
+    memset(&request, 0, sizeof(request));
+    ok = beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":0}}",
+        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":0}}"),
+        &request);
+    TEST_ASSERT_TRUE(ok);
+    TEST_ASSERT_FALSE(request.valve_enabled);
+
+    memset(&request, 0, sizeof(request));
+    ok = beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true}}",
+        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true}}"),
+        &request);
+    TEST_ASSERT_FALSE(ok);
+
+    memset(&request, 0, sizeof(request));
+    ok = beet_ble_parse_command_json(
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":false}}",
+        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":false}}"),
+        &request);
+    TEST_ASSERT_FALSE(ok);
 }
 
 static void test_maintenance_metadata_exact_max_firmware_version(void)
@@ -1247,6 +1366,8 @@ int main(void)
         {"ble_rejection_response_builder", test_ble_rejection_response_builder},
         {"ble_json_formatting", test_ble_json_formatting},
         {"ble_maintenance_info_json_max_length", test_ble_maintenance_info_json_max_length},
+        {"ble_runtime_booleans_encoded_as_01", test_ble_runtime_booleans_encoded_as_01},
+        {"ble_parse_bool_strict_01", test_ble_parse_bool_strict_01},
         {"maintenance_metadata_exact_max_firmware_version", test_maintenance_metadata_exact_max_firmware_version},
         {"maintenance_metadata_truncation_on_overflow", test_maintenance_metadata_truncation_on_overflow},
         {"maintenance_metadata_and_info", test_maintenance_metadata_and_info},

@@ -266,37 +266,35 @@ int beet_ble_format_device_frame_json(
     }
 
     const char *bs = beet_battery_state_name(state->battery_state);
-    const char *tv = state->time_valid ? "true" : "false";
-    const char *wf = state->wifi_connected ? "true" : "false";
-    const char *mq = state->mqtt_connected ? "true" : "false";
-    const char *ve = state->valve_enabled ? "true" : "false";
     const char *vs = beet_valve_state_name(state->valve_state);
 
     /* Try the full format. */
     int needed = snprintf(NULL, 0,
         "{\"type\":\"device\",\"data\":{"
-        "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
+        "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%d,"
         "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
-        "\"wifi_connected\":%s,\"mqtt_connected\":%s,"
-        "\"uptime_s\":%lu,\"valve_enabled\":%s,\"valve_state\":\"%s\"}}",
-        bs, state->battery_mv, tv,
+        "\"wifi_connected\":%d,\"mqtt_connected\":%d,"
+        "\"uptime_s\":%lu,\"valve_enabled\":%d,\"valve_state\":\"%s\"}}",
+        bs, state->battery_mv, (int)state->time_valid,
         (unsigned long)state->boot_id,
         (unsigned long)state->next_check_in_s,
-        state->active_pumps, wf, mq,
-        (unsigned long)state->uptime_s, ve, vs);
+        state->active_pumps, (int)state->wifi_connected,
+        (int)state->mqtt_connected,
+        (unsigned long)state->uptime_s, (int)state->valve_enabled, vs);
     if (needed < 0) return -1;
     if ((size_t)needed < len) {
         return snprintf(buf, len,
             "{\"type\":\"device\",\"data\":{"
-            "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
+            "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%d,"
             "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
-            "\"wifi_connected\":%s,\"mqtt_connected\":%s,"
-            "\"uptime_s\":%lu,\"valve_enabled\":%s,\"valve_state\":\"%s\"}}",
-            bs, state->battery_mv, tv,
+            "\"wifi_connected\":%d,\"mqtt_connected\":%d,"
+            "\"uptime_s\":%lu,\"valve_enabled\":%d,\"valve_state\":\"%s\"}}",
+            bs, state->battery_mv, (int)state->time_valid,
             (unsigned long)state->boot_id,
             (unsigned long)state->next_check_in_s,
-            state->active_pumps, wf, mq,
-            (unsigned long)state->uptime_s, ve, vs);
+            state->active_pumps, (int)state->wifi_connected,
+            (int)state->mqtt_connected,
+            (unsigned long)state->uptime_s, (int)state->valve_enabled, vs);
     }
 
     /* Doesn't fit — shorten valve_state string to make room. */
@@ -310,15 +308,16 @@ int beet_ble_format_device_frame_json(
 
     return snprintf(buf, len,
         "{\"type\":\"device\",\"data\":{"
-        "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%s,"
+        "\"battery_state\":\"%s\",\"battery_mv\":%u,\"time_valid\":%d,"
         "\"boot_id\":%lu,\"next_check_in_s\":%lu,\"active_pumps\":%u,"
-        "\"wifi_connected\":%s,\"mqtt_connected\":%s,"
-        "\"uptime_s\":%lu,\"valve_enabled\":%s,\"valve_state\":\"%s\"}}",
-        bs, state->battery_mv, tv,
+        "\"wifi_connected\":%d,\"mqtt_connected\":%d,"
+        "\"uptime_s\":%lu,\"valve_enabled\":%d,\"valve_state\":\"%s\"}}",
+        bs, state->battery_mv, (int)state->time_valid,
         (unsigned long)state->boot_id,
         (unsigned long)state->next_check_in_s,
-        state->active_pumps, wf, mq,
-        (unsigned long)state->uptime_s, ve, trunc_vs);
+        state->active_pumps, (int)state->wifi_connected,
+        (int)state->mqtt_connected,
+        (unsigned long)state->uptime_s, (int)state->valve_enabled, trunc_vs);
 }
 
 int beet_ble_format_pair_frame_json(
@@ -330,18 +329,18 @@ int beet_ble_format_pair_frame_json(
         buf,
         len,
         "{\"type\":\"pair\",\"data\":{\"pair\":%u,\"state\":\"%s\",\"moisture_pct\":%u,\"sensor_mv\":%u,"
-        "\"blocked\":%s,\"block_reason\":\"%s\",\"remaining_s\":%u,\"source\":\"%s\","
-        "\"enabled\":%s,\"sensor_valid\":%s}}",
+        "\"blocked\":%d,\"block_reason\":\"%s\",\"remaining_s\":%u,\"source\":\"%s\","
+        "\"enabled\":%d,\"sensor_valid\":%d}}",
         state->pair_index,
         beet_pair_state_name(state->pair_state),
         state->moisture_pct,
         state->sensor_mv,
-        state->blocked ? "true" : "false",
+        (int)state->blocked,
         beet_block_reason_name(state->block_reason),
         state->remaining_s,
         beet_ble_run_source_name(state->source),
-        state->enabled ? "true" : "false",
-        state->sensor_valid ? "true" : "false");
+        (int)state->enabled,
+        (int)state->sensor_valid);
 }
 
 static void beet_ble_format_peer_addr(const beet_system_event_record_t *event, char out[18])
@@ -378,7 +377,7 @@ static int beet_ble_format_system_event_json(
         len,
         "%s{\"seq\":%llu,\"event_type\":\"%s\",\"reason\":%u,"
         "\"boot_id\":%lu,\"uptime_s\":%lu,\"unix_s\":%lu,\"battery_mv\":%u,"
-        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%s,\"detail\":%lu}%s",
+        "\"peer_addr\":\"%s\",\"peer_addr_type\":%u,\"known_peer\":%d,\"detail\":%lu}%s",
         prefix,
         (unsigned long long)event->seq_no,
         beet_system_event_type_name((beet_system_event_type_t)event->event_type),
@@ -389,7 +388,7 @@ static int beet_ble_format_system_event_json(
         event->battery_mv,
         peer_addr,
         event->peer_addr_type,
-        event->known_peer ? "true" : "false",
+        (int)event->known_peer,
         (unsigned long)event->detail,
         suffix);
 }
@@ -562,13 +561,13 @@ int beet_ble_format_command_result_json(
         return snprintf(
             buf,
             len,
-            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"valve_enabled\":%s,"
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"valve_enabled\":%d,"
             "\"servo_min_pulse_us\":%u,\"servo_max_pulse_us\":%u,\"open_pulse_us\":%u,\"shut_pulse_us\":%u,\"move_duration_ms\":%u,"
             "\"settle_delay_ms\":%u,\"open_hold_ms\":%u}}",
             beet_iface_command_name(response->command),
             beet_iface_status_name(response->status),
             beet_iface_reason_name(response->reason),
-            response->valve_enabled ? "true" : "false",
+            response->valve_enabled ? 1 : 0,
             response->valve_servo_min_pulse_us,
             response->valve_servo_max_pulse_us,
             response->valve_open_pulse_us,
@@ -883,13 +882,13 @@ static bool beet_ble_parse_u32(const char **cursor, uint32_t *value)
 static bool beet_ble_parse_bool(const char **cursor, bool *value)
 {
     beet_ble_skip_ws(cursor);
-    if (strncmp(*cursor, "true", 4U) == 0) {
-        *cursor += 4;
+    if ((*cursor)[0] == '1' && ((*cursor)[1] == ',' || (*cursor)[1] == '}' || (*cursor)[1] == '\0' || (*cursor)[1] == ' ' || (*cursor)[1] == '\t' || (*cursor)[1] == '\r' || (*cursor)[1] == '\n')) {
+        *cursor += 1;
         *value = true;
         return true;
     }
-    if (strncmp(*cursor, "false", 5U) == 0) {
-        *cursor += 5;
+    if ((*cursor)[0] == '0' && ((*cursor)[1] == ',' || (*cursor)[1] == '}' || (*cursor)[1] == '\0' || (*cursor)[1] == ' ' || (*cursor)[1] == '\t' || (*cursor)[1] == '\r' || (*cursor)[1] == '\n')) {
+        *cursor += 1;
         *value = false;
         return true;
     }
