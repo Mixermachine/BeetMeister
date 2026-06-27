@@ -220,6 +220,41 @@ static void test_sensor_refresh_policy(void)
     TEST_ASSERT_U32_EQ(1000U, beet_sensor_refresh_interval_ms(true, true));
 }
 
+static void test_default_snapshot_is_disabled(void)
+{
+    beet_pair_runtime_snapshot_t snapshot;
+
+    memset(&snapshot, 0xFFU, sizeof(snapshot));
+    beet_default_snapshot(1U, &snapshot);
+    TEST_ASSERT_U32_EQ(1U, snapshot.pair_index);
+    TEST_ASSERT_FALSE(snapshot.enabled);
+    TEST_ASSERT_U32_EQ(BEET_PAIR_STATE_DISABLED, snapshot.pair_state);
+    TEST_ASSERT_U32_EQ(BEET_BLOCK_REASON_NONE, snapshot.block_reason);
+    TEST_ASSERT_U32_EQ(0U, snapshot.active_run_id);
+    TEST_ASSERT_U32_EQ(BEET_RUN_SOURCE_NONE, snapshot.active_run_source);
+
+    memset(&snapshot, 0xFFU, sizeof(snapshot));
+    beet_default_snapshot(8U, &snapshot);
+    TEST_ASSERT_U32_EQ(8U, snapshot.pair_index);
+    TEST_ASSERT_FALSE(snapshot.enabled);
+    TEST_ASSERT_U32_EQ(BEET_PAIR_STATE_DISABLED, snapshot.pair_state);
+    TEST_ASSERT_U32_EQ(BEET_BLOCK_REASON_NONE, snapshot.block_reason);
+    TEST_ASSERT_U32_EQ(0U, snapshot.active_run_id);
+    TEST_ASSERT_U32_EQ(BEET_RUN_SOURCE_NONE, snapshot.active_run_source);
+}
+
+static void test_default_snapshot_avoids_legacy_migration(void)
+{
+    beet_pair_runtime_snapshot_t snapshot;
+
+    beet_default_snapshot(1U, &snapshot);
+    // The migration in beet_restore_snapshots() upgrades legacy snapshots by checking
+    // `!enabled && pair_state != DISABLED`. The new default must set pair_state = DISABLED
+    // so this condition evaluates to false on a fresh device, preventing accidental
+    // re-enabling of pairs after factory reset.
+    TEST_ASSERT_FALSE(!snapshot.enabled && snapshot.pair_state != BEET_PAIR_STATE_DISABLED);
+}
+
 static void test_duration_lookup_boundaries(void)
 {
     const uint8_t moisture_values[] = {100U, 81U, 80U, 79U, 70U, 69U, 60U, 59U, 50U, 49U, 0U};
@@ -1353,6 +1388,8 @@ int main(void)
         {"moisture_conversion_boundaries", test_moisture_conversion_boundaries},
         {"sensor_plausibility_and_supply_compensation", test_sensor_plausibility_and_supply_compensation},
         {"sensor_refresh_policy", test_sensor_refresh_policy},
+        {"default_snapshot_is_disabled", test_default_snapshot_is_disabled},
+        {"default_snapshot_avoids_legacy_migration", test_default_snapshot_avoids_legacy_migration},
         {"duration_lookup_boundaries", test_duration_lookup_boundaries},
         {"schema_defaults", test_schema_defaults},
         {"sanity_threshold_and_battery_classification", test_sanity_threshold_and_battery_classification},
