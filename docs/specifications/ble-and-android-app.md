@@ -71,6 +71,8 @@ All four characteristics shall require a bonded link before use.
 - `command_result` messages shall be sent as one ATT indication when they fit, or as chunk frames when they do not fit.
 - If MTU negotiation fails, the controller shall still support commands whose payload fits in 100 bytes or less.
 - `state_stream` notifications shall send one compact object per frame rather than a large full-state blob.
+- **Boolean encoding**: runtime protocol booleans use JSON integers `1`/`0` (not `true`/`false`).
+  The maintenance protocol uses JSON booleans `true`/`false` (frozen).
 
 ## `controller_info` payload
 
@@ -101,14 +103,14 @@ The controller shall emit three frame types:
   "data": {
     "battery_state": "ACTIVE",
     "battery_mv": 3340,
-    "time_valid": true,
+    "time_valid": 1,
     "boot_id": 42,
     "next_check_in_s": 4812,
     "active_pumps": 1,
-    "wifi_connected": true,
-    "mqtt_connected": true,
+    "wifi_connected": 1,
+    "mqtt_connected": 1,
     "uptime_s": 12345,
-    "valve_enabled": true,
+    "valve_enabled": 1,
     "valve_state": "OPEN"
   }
 }
@@ -123,10 +125,12 @@ The controller shall emit three frame types:
   "state": "WATERING",
   "moisture_pct": 47,
   "sensor_mv": 1420,
-  "blocked": false,
+  "blocked": 0,
   "block_reason": "NONE",
   "remaining_s": 92,
-  "source": "AUTOMATIC"
+  "source": "AUTOMATIC",
+  "enabled": 1,
+  "sensor_valid": 1
 }
 ```
 
@@ -146,11 +150,11 @@ New system events may also be notified on `state_stream` as `type = "system_even
     "boot_id": 42,
     "uptime_s": 123,
     "unix_s": 0,
-    "time_valid": false,
+    "time_valid": 0,
     "battery_mv": 3340,
     "peer_addr": "AA:BB:CC:DD:EE:FF",
     "peer_addr_type": 1,
-    "known_peer": true,
+    "known_peer": 1,
     "detail": 0
   }
 }
@@ -328,7 +332,7 @@ Calibration preview moves are not reported as system events.
 {
   "cmd": "store_valve_config",
   "data": {
-    "valve_enabled": true,
+    "valve_enabled": 1,
     "servo_min_pulse_us": 500,
     "servo_max_pulse_us": 2500,
     "open_pulse_us": 850,
@@ -378,7 +382,7 @@ Valve config results shall return:
   "status": "accepted",
   "reason": "none",
   "data": {
-    "valve_enabled": true,
+    "valve_enabled": 1,
     "servo_min_pulse_us": 500,
     "servo_max_pulse_us": 2500,
     "open_pulse_us": 850,

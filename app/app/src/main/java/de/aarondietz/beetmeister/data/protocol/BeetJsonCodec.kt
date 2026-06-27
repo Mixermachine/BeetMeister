@@ -1,6 +1,9 @@
 package de.aarondietz.beetmeister.data.protocol
 
 import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.JsonDataException
+import com.squareup.moshi.JsonReader
+import com.squareup.moshi.JsonWriter
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -37,9 +40,41 @@ import de.aarondietz.beetmeister.model.update.BeetMaintenanceStatus
 import java.nio.charset.StandardCharsets
 
 object BeetJsonCodec {
-    private val moshi: Moshi = Moshi.Builder()
+    private val maintenanceMoshi: Moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()
+
+    private val runtimeMoshi: Moshi = Moshi.Builder()
+        .add(BooleanZeroOneAdapter)
+        .addLast(KotlinJsonAdapterFactory())
+        .build()
+
+    private val BooleanZeroOneAdapter = object : JsonAdapter.Factory {
+        override fun create(type: java.lang.reflect.Type, annotations: Set<out Annotation>, moshi: Moshi): JsonAdapter<*>? {
+            if (type != Boolean::class.java && type != Boolean::class.javaObjectType) {
+                return null
+            }
+            return object : JsonAdapter<Boolean?>() {
+                override fun fromJson(reader: JsonReader): Boolean? {
+                    return when (reader.peek()) {
+                        JsonReader.Token.NUMBER -> {
+                            val n = reader.nextInt()
+                            when (n) {
+                                1 -> true
+                                0 -> false
+                                else -> throw JsonDataException("Expected 0/1 got $n")
+                            }
+                        }
+                        else -> throw JsonDataException("Expected 0/1 got ${reader.peek()}")
+                    }
+                }
+
+                override fun toJson(writer: JsonWriter, value: Boolean?) {
+                    writer.value(if (value == true) 1 else 0)
+                }
+            }
+        }
+    }
 
     private const val DATA_FIELD = "data"
     data class MaintenanceBeginUpdatePayload(
@@ -49,40 +84,40 @@ object BeetJsonCodec {
     )
 
     private val stateEnvelopeHeaderAdapter: JsonAdapter<StateEnvelopeHeaderDto> =
-        moshi.adapter(StateEnvelopeHeaderDto::class.java)
+        runtimeMoshi.adapter(StateEnvelopeHeaderDto::class.java)
     private val commandEnvelopeHeaderAdapter: JsonAdapter<CommandEnvelopeHeaderDto> =
-        moshi.adapter(CommandEnvelopeHeaderDto::class.java)
+        runtimeMoshi.adapter(CommandEnvelopeHeaderDto::class.java)
     private val commandChunkEnvelopeAdapter: JsonAdapter<CommandChunkEnvelopeDto> =
-        moshi.adapter(CommandChunkEnvelopeDto::class.java)
+        runtimeMoshi.adapter(CommandChunkEnvelopeDto::class.java)
 
     private val controllerInfoPayloadAdapter: JsonAdapter<BeetControllerInfo> =
-        moshi.adapter(BeetControllerInfo::class.java)
+        runtimeMoshi.adapter(BeetControllerInfo::class.java)
     private val maintenanceInfoPayloadAdapter: JsonAdapter<BeetMaintenanceInfo> =
-        moshi.adapter(BeetMaintenanceInfo::class.java)
+        maintenanceMoshi.adapter(BeetMaintenanceInfo::class.java)
     private val maintenanceStatusPayloadAdapter: JsonAdapter<BeetMaintenanceStatus> =
-        moshi.adapter(BeetMaintenanceStatus::class.java)
+        maintenanceMoshi.adapter(BeetMaintenanceStatus::class.java)
     private val deviceStatePayloadAdapter: JsonAdapter<BeetDeviceState> =
-        moshi.adapter(BeetDeviceState::class.java)
+        runtimeMoshi.adapter(BeetDeviceState::class.java)
     private val pairStatePayloadAdapter: JsonAdapter<BeetPairState> =
-        moshi.adapter(BeetPairState::class.java)
+        runtimeMoshi.adapter(BeetPairState::class.java)
     private val systemEventPayloadAdapter: JsonAdapter<BeetSystemEvent> =
-        moshi.adapter(BeetSystemEvent::class.java)
+        runtimeMoshi.adapter(BeetSystemEvent::class.java)
     private val commandAckPayloadAdapter: JsonAdapter<BeetCommandAckData> =
-        moshi.adapter(BeetCommandAckData::class.java)
+        runtimeMoshi.adapter(BeetCommandAckData::class.java)
     private val calibrationPayloadAdapter: JsonAdapter<BeetCalibration> =
-        moshi.adapter(BeetCalibration::class.java)
+        runtimeMoshi.adapter(BeetCalibration::class.java)
     private val pairWiringPayloadAdapter: JsonAdapter<BeetPairWiring> =
-        moshi.adapter(BeetPairWiring::class.java)
+        runtimeMoshi.adapter(BeetPairWiring::class.java)
     private val valveConfigPayloadAdapter: JsonAdapter<BeetValveConfig> =
-        moshi.adapter(BeetValveConfig::class.java)
+        runtimeMoshi.adapter(BeetValveConfig::class.java)
     private val wateringIntervalPayloadAdapter: JsonAdapter<BeetWateringInterval> =
-        moshi.adapter(BeetWateringInterval::class.java)
+        runtimeMoshi.adapter(BeetWateringInterval::class.java)
     private val historySummaryPayloadAdapter: JsonAdapter<BeetHistorySummary> =
-        moshi.adapter(BeetHistorySummary::class.java)
+        runtimeMoshi.adapter(BeetHistorySummary::class.java)
     private val systemHistorySummaryPayloadAdapter: JsonAdapter<BeetSystemHistorySummary> =
-        moshi.adapter(BeetSystemHistorySummary::class.java)
+        runtimeMoshi.adapter(BeetSystemHistorySummary::class.java)
     private val wateringEventPayloadAdapter: JsonAdapter<BeetWateringEvent> =
-        moshi.adapter(BeetWateringEvent::class.java)
+        runtimeMoshi.adapter(BeetWateringEvent::class.java)
 
     private val manualStartEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetManualStartCommandData::class.java)
     private val pairRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairCommandData::class.java)
@@ -519,7 +554,7 @@ object BeetJsonCodec {
     private fun <T> commandRequestEnvelopeAdapter(payloadClass: Class<T>): JsonAdapter<CommandRequestEnvelopeDto<T>> {
         val type = Types.newParameterizedType(CommandRequestEnvelopeDto::class.java, payloadClass)
         @Suppress("UNCHECKED_CAST")
-        return moshi.adapter<CommandRequestEnvelopeDto<T>>(type)
+        return runtimeMoshi.adapter<CommandRequestEnvelopeDto<T>>(type)
     }
 
     private fun extractRequiredObjectField(payload: String, fieldName: String): String =
