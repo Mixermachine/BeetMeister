@@ -5,7 +5,9 @@ import de.aarondietz.beetmeister.model.connection.BeetDiscoveredDevice
 import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
+import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
 import de.aarondietz.beetmeister.model.controller.BeetPairState
+import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
@@ -13,11 +15,13 @@ import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
+import de.aarondietz.beetmeister.model.update.BeetMaintenanceUpdateState
 
 data class BeetRepositoryState(
     val connection: BeetConnectionState = BeetConnectionState(),
     val discoveredDevices: List<BeetDiscoveredDevice> = emptyList(),
     val controllerInfo: BeetControllerInfo? = null,
+    val maintenanceInfo: BeetMaintenanceInfo? = null,
     val deviceState: BeetDeviceState? = null,
     val valveConfig: BeetValveConfig? = null,
     val wateringInterval: BeetWateringInterval? = null,
@@ -36,6 +40,9 @@ data class BeetRepositoryState(
         )
     },
     val calibrations: Map<Int, BeetCalibration> = emptyMap(),
+    val pairWirings: Map<Int, BeetPairWiring> = emptyMap(),
+    val pairWiringLoading: Set<Int> = emptySet(),
+    val pairWiringErrors: Map<Int, String> = emptyMap(),
     val calibrationsRefreshing: Boolean = false,
     val historySummary: BeetHistorySummary? = null,
     val systemHistorySummary: BeetSystemHistorySummary? = null,
@@ -49,4 +56,5 @@ data class BeetRepositoryState(
     val connectedAtControllerUptimeSeconds: Long = 0L,
     val lastCommandMessage: String? = null,
     val selectedAddress: String? = null,
+    val maintenanceUpdate: BeetMaintenanceUpdateState = BeetMaintenanceUpdateState(),
 )

@@ -33,7 +33,7 @@ The first app slice should implement only the commands already live in firmware:
 
 `manual_start` supports an optional `duration_s` field with valid values `1..1200`.
 
-Do not implement app UI for `start_ota` or `clear_ble_bonds` yet.
+Do not implement app UI for `clear_ble_bonds` yet. Runtime `start_ota` is removed in favor of the maintenance update flow.
 Those commands are not ready as a meaningful end-to-end user flow.
 
 ## Android Architecture

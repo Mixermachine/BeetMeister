@@ -1,8 +1,13 @@
 package de.aarondietz.beetmeister
 
 import de.aarondietz.beetmeister.data.protocol.BeetJsonCodec
+import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
+import de.aarondietz.beetmeister.model.update.BeetFirmwareMetadata
+import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
+import de.aarondietz.beetmeister.model.update.BeetFirmwareSource
+import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -307,6 +312,37 @@ class BeetJsonCodecTest {
     }
 
     @Test
+    fun parsesAndBuildsPairWiringCommands() {
+        val payload = """
+            {
+              "cmd":"get_pair_wiring",
+              "status":"accepted",
+              "reason":"none",
+              "data":{
+                "pair":4,
+                "moisture_gpio":7,
+                "relay_gpio":38
+              }
+            }
+        """.trimIndent()
+
+        val result = BeetJsonCodec.parseCommandResult(payload)
+
+        assertEquals(
+            BeetPairWiring(pairIndex = 4, moistureGpio = 7, relayGpio = 38),
+            result.pairWiring,
+        )
+        assertEquals(4, result.pairIndex)
+        assertEquals("""{"cmd":"get_pair_wiring","data":{"pair":4}}""", BeetJsonCodec.getPairWiring(4))
+    }
+
+    @Test
+    fun buildsRebootAndFactoryResetCommands() {
+        assertEquals("""{"cmd":"reboot_controller","data":{}}""", BeetJsonCodec.rebootController())
+        assertEquals("""{"cmd":"factory_reset","data":{}}""", BeetJsonCodec.factoryResetController())
+    }
+
+    @Test
     fun parsesValveConfigResult() {
         val payload = """
             {
@@ -382,5 +418,158 @@ class BeetJsonCodecTest {
             """{"cmd":"store_watering_interval","data":{"watering_interval_s":21600}}""",
             BeetJsonCodec.storeWateringInterval(21600),
         )
+    }
+
+    @Test
+    fun parsesMaintenanceInfoFrame() {
+        val payload = """
+            {
+              "type":"maintenance_info",
+              "data":{
+                "product_id":"beetmeister",
+                "hardware_rev":"rev_a",
+                "firmware_version":"0.2.0",
+                "build_label":"v0.2.0",
+                "maintenance_protocol_version":1,
+            "runtime_protocol_version":${BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION},
+                "update_capable":true,
+                "image_kind":"bundled"
+              }
+            }
+        """.trimIndent()
+
+        val info = BeetJsonCodec.parseMaintenanceInfo(payload)
+
+        assertEquals("beetmeister", info.productId)
+        assertEquals("rev_a", info.hardwareRev)
+        assertEquals("0.2.0", info.firmwareVersion)
+        assertEquals("v0.2.0", info.buildLabel)
+        assertEquals(1, info.maintenanceProtocolVersion)
+        assertEquals(BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION, info.runtimeProtocolVersion)
+        assertTrue(info.updateCapable)
+        assertEquals("bundled", info.imageKind)
+    }
+
+    @Test
+    fun parsesMaintenanceStatusFrame() {
+        val payload = """
+            {
+              "type":"maintenance_status",
+              "data":{
+                "state":"transferring",
+                "session_id":42,
+                "next_offset":1024,
+                "bytes_received":1024,
+                "total_bytes":4096
+              }
+            }
+        """.trimIndent()
+
+        val status = BeetJsonCodec.parseMaintenanceStatus(payload)
+
+        assertEquals("transferring", status.state)
+        assertEquals(42, status.sessionId)
+        assertEquals(1024, status.nextOffset)
+        assertEquals(1024, status.bytesReceived)
+        assertEquals(4096, status.totalBytes)
+    }
+
+    @Test
+    fun buildsMaintenanceBeginUpdateCommand() {
+        val payload = BeetJsonCodec.maintenanceBeginUpdate(
+            firmware = BeetFirmwarePackageSummary(
+                source = BeetFirmwareSource.Bundled,
+                sourceLabel = "Bundled",
+                assetId = "bundled-dev",
+                metadata = BeetFirmwareMetadata(
+                    productId = "beetmeister",
+                    hardwareRev = "rev_a",
+                    firmwareVersion = "0.2.0",
+                    buildLabel = "v0.2.0",
+                    maintenanceProtocolVersion = 1,
+                    runtimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
+                    imageKind = "bundled",
+                    compatibleHardwareRevs = listOf("rev_a", "rev_b"),
+                ),
+                imageSize = 4096,
+                sha256Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                isDowngrade = false,
+                runtimeProtocolWarning = false,
+            ),
+            maxPayloadBytes = 512,
+        )
+
+        assertFalse(payload.compact)
+        assertTrue(payload.json.contains("\"cmd\":\"begin_update\""))
+        assertTrue(payload.json.contains("\"firmware_version\":\"0.2.0\""))
+        assertTrue(payload.json.contains("\"build_label\":\"v0.2.0\""))
+        assertTrue(payload.json.contains("\"image_size\":4096"))
+        assertTrue(payload.json.contains("\"hardware_revs\":[\"rev_a\",\"rev_b\"]"))
+        assertTrue(payload.json.contains("\"runtime_protocol_version\":${BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION}"))
+        assertTrue(payload.json.contains("\"asset_id\":\"bundled-dev\""))
+        assertTrue(payload.json.contains("\"image_kind\":\"bundled\""))
+        assertTrue(payload.sizeBytes <= 512)
+    }
+
+    @Test
+    fun buildsMaintenanceBeginUpdateCommandForCustomImage() {
+        val payload = BeetJsonCodec.maintenanceBeginUpdate(
+            firmware = BeetFirmwarePackageSummary(
+                source = BeetFirmwareSource.Custom,
+                sourceLabel = "my-build.bin",
+                assetId = "c",
+                metadata = BeetFirmwareMetadata(
+                    productId = "beetmeister",
+                    hardwareRev = "rev_a",
+                    firmwareVersion = "0.2.0",
+                    buildLabel = "custom-abc1234",
+                    maintenanceProtocolVersion = 1,
+                    runtimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
+                    imageKind = "custom",
+                    compatibleHardwareRevs = listOf("rev_a"),
+                ),
+                imageSize = 4096,
+                sha256Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                isDowngrade = false,
+                runtimeProtocolWarning = true,
+            ),
+            maxPayloadBytes = 220,
+        )
+
+        assertTrue(payload.compact)
+        assertTrue(payload.json.contains("\"ai\":\"c\""))
+        assertFalse(payload.json.contains("\"rp\":"))
+        assertTrue(payload.json.contains("\"ik\":\"custom\""))
+        assertTrue(payload.sizeBytes <= 220)
+    }
+
+    @Test
+    fun buildsCompactMaintenanceBeginUpdateThatFits253BytesForCurrentBundledStyleMetadata() {
+        val payload = BeetJsonCodec.maintenanceBeginUpdate(
+            firmware = BeetFirmwarePackageSummary(
+                source = BeetFirmwareSource.Bundled,
+                sourceLabel = "Bundled",
+                assetId = "b",
+                metadata = BeetFirmwareMetadata(
+                    productId = "beetmeister",
+                    hardwareRev = "rev_a",
+                    firmwareVersion = "dev-ccd0e07-dirty",
+                    buildLabel = "v0.0.0-ci-verify-20260622-4-3-gccd0e07-dirty",
+                    maintenanceProtocolVersion = 1,
+                    runtimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
+                    imageKind = "bundled",
+                    compatibleHardwareRevs = listOf("rev_a"),
+                ),
+                imageSize = 724448,
+                sha256Hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                isDowngrade = false,
+                runtimeProtocolWarning = false,
+            ),
+            maxPayloadBytes = 253,
+        )
+
+        assertTrue(payload.compact)
+        assertTrue(payload.sizeBytes <= 253)
+        assertFalse(payload.json.contains("\"rp\":"))
     }
 }

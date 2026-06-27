@@ -11,7 +11,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
@@ -34,6 +36,8 @@ import de.aarondietz.beetmeister.data.repository.BeetRepository
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.model.update.BeetMaintenanceUpdatePhase
+import de.aarondietz.beetmeister.model.update.isActiveMaintenancePhase
 import de.aarondietz.beetmeister.ui.core.app.AppMainContentRouter
 import de.aarondietz.beetmeister.ui.core.app.TopLevelScreen
 import de.aarondietz.beetmeister.ui.core.app.findActivity
@@ -41,6 +45,7 @@ import de.aarondietz.beetmeister.ui.core.component.Header
 import de.aarondietz.beetmeister.ui.core.component.UnsavedChangesDialog
 import de.aarondietz.beetmeister.ui.feature.calibration.CalibrationSaveDraft
 import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGate
+import de.aarondietz.beetmeister.ui.feature.connection.MaintenanceScreen
 import de.aarondietz.beetmeister.ui.feature.settings.SettingsSaveDraft
 import kotlinx.coroutines.delay
 
@@ -58,6 +63,12 @@ private enum class PendingActionKind {
     TopLevel,
     OpenValveCalibration,
     CloseValveCalibration,
+    OpenMaintenance,
+}
+
+private enum class MaintenanceScreenOrigin {
+    Optional,
+    Forced,
 }
 
 @Composable
@@ -82,6 +93,10 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
     var settingsSavableDraft by remember { mutableStateOf<SettingsSaveDraft?>(null) }
     var pairCalibrationHasUnsavedChanges by remember { mutableStateOf(false) }
     var pairCalibrationSavableDrafts by remember { mutableStateOf<List<CalibrationSaveDraft>?>(null) }
+    var maintenanceScreenVisible by rememberSaveable { mutableStateOf(false) }
+    var maintenanceScreenOrigin by rememberSaveable { mutableStateOf<MaintenanceScreenOrigin?>(null) }
+    var maintenanceScreenSuppressedDuringActiveUpdate by rememberSaveable { mutableStateOf(false) }
+    var showMaintenanceLeaveDialog by rememberSaveable { mutableStateOf(false) }
 
     val permissionController = rememberPermissionController(
         state = state,
@@ -98,6 +113,18 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         refreshEnvironment = viewModel::refreshEnvironment,
         startScan = viewModel::startScan,
     )
+    val customFirmwareLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            viewModel.prepareCustomFirmware(uri)
+        }
+    }
+    val maintenanceUpdateActive = state.maintenanceUpdate.phase.isActiveMaintenancePhase()
+    val forcedMaintenanceMode = state.connection.phase == BeetConnectionPhase.MaintenanceRequired
+    val maintenanceScreenShouldRender =
+        maintenanceScreenVisible || (forcedMaintenanceMode && !(maintenanceUpdateActive && maintenanceScreenSuppressedDuringActiveUpdate))
+    val showMaintenanceReturnChip = maintenanceUpdateActive && !maintenanceScreenShouldRender
 
     LaunchedEffect(state.lastCommandMessage) {
         if (state.lastCommandMessage != null) {
@@ -117,11 +144,38 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                 connectionGateVisible = false
                 Log.d(UI_TAG, "Leaving connection gate after stable connected window")
             }
+        } else if (state.connection.phase == BeetConnectionPhase.MaintenanceRequired) {
+            connectionGateVisible = false
         } else {
             if (!connectionGateVisible) {
                 Log.d(UI_TAG, "Showing connection gate because phase=${state.connection.phase}")
             }
             connectionGateVisible = true
+        }
+    }
+
+    LaunchedEffect(forcedMaintenanceMode, maintenanceUpdateActive, maintenanceScreenVisible) {
+        if (forcedMaintenanceMode && !(maintenanceUpdateActive && maintenanceScreenSuppressedDuringActiveUpdate) && !maintenanceScreenVisible) {
+            maintenanceScreenOrigin = MaintenanceScreenOrigin.Forced
+            maintenanceScreenVisible = true
+        }
+        if (!maintenanceUpdateActive) {
+            maintenanceScreenSuppressedDuringActiveUpdate = false
+        }
+    }
+
+    LaunchedEffect(state.maintenanceUpdate.phase, state.connection.phase) {
+        if (
+            state.maintenanceUpdate.phase == BeetMaintenanceUpdatePhase.Completed &&
+            state.connection.phase == BeetConnectionPhase.Connected
+        ) {
+            maintenanceScreenVisible = false
+            maintenanceScreenOrigin = null
+            maintenanceScreenSuppressedDuringActiveUpdate = false
+            topLevelScreen = TopLevelScreen.Overview
+            selectedPair = 0
+            showEventTable = false
+            showValveCalibration = false
         }
     }
 
@@ -139,6 +193,12 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         unsavedDialogSource = null
         pendingActionKind = PendingActionKind.None
         pendingTopLevelScreen = null
+    }
+
+    fun openMaintenanceScreen(origin: MaintenanceScreenOrigin) {
+        maintenanceScreenOrigin = origin
+        maintenanceScreenSuppressedDuringActiveUpdate = false
+        maintenanceScreenVisible = true
     }
 
     fun applyPendingAction() {
@@ -159,6 +219,9 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
             }
             PendingActionKind.CloseValveCalibration -> {
                 showValveCalibration = false
+            }
+            PendingActionKind.OpenMaintenance -> {
+                openMaintenanceScreen(MaintenanceScreenOrigin.Optional)
             }
             PendingActionKind.None -> {}
         }
@@ -221,6 +284,23 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         showValveCalibrationUnsavedDialog = true
     }
 
+    fun requestOpenMaintenanceScreen() {
+        if (topLevelScreen != TopLevelScreen.Settings || showValveCalibration) {
+            openMaintenanceScreen(MaintenanceScreenOrigin.Optional)
+            return
+        }
+        if (!settingsHasUnsavedChanges) {
+            pendingActionKind = PendingActionKind.OpenMaintenance
+            pendingTopLevelScreen = null
+            applyPendingAction()
+            return
+        }
+        unsavedDialogSource = UnsavedDialogSource.Settings
+        pendingActionKind = PendingActionKind.OpenMaintenance
+        pendingTopLevelScreen = null
+        showValveCalibrationUnsavedDialog = true
+    }
+
     fun requestLeavePairCalibration(destination: TopLevelScreen) {
         if (topLevelScreen != TopLevelScreen.Calibration || showValveCalibration) {
             topLevelScreen = destination
@@ -242,6 +322,59 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
 
     BackHandler(enabled = showValveCalibration) {
         requestLeaveValveCalibration()
+    }
+
+    fun requestCloseMaintenanceScreen() {
+        if (maintenanceUpdateActive) {
+            showMaintenanceLeaveDialog = true
+            return
+        }
+        maintenanceScreenVisible = false
+        maintenanceScreenOrigin = null
+    }
+
+    BackHandler(enabled = maintenanceScreenShouldRender && maintenanceScreenOrigin != MaintenanceScreenOrigin.Forced) {
+        requestCloseMaintenanceScreen()
+    }
+
+    if (showMaintenanceLeaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showMaintenanceLeaveDialog = false },
+            title = { Text(stringResource(de.aarondietz.beetmeister.R.string.maintenance_leave_title)) },
+            text = { Text(stringResource(de.aarondietz.beetmeister.R.string.maintenance_leave_body)) },
+            dismissButton = {
+                TextButton(onClick = { showMaintenanceLeaveDialog = false }) {
+                    Text(stringResource(de.aarondietz.beetmeister.R.string.maintenance_leave_stay))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showMaintenanceLeaveDialog = false
+                        maintenanceScreenSuppressedDuringActiveUpdate = true
+                        maintenanceScreenVisible = false
+                        maintenanceScreenOrigin = null
+                    },
+                ) {
+                    Text(stringResource(de.aarondietz.beetmeister.R.string.maintenance_leave_continue))
+                }
+            },
+        )
+    }
+
+    if (maintenanceScreenShouldRender) {
+        MaintenanceScreen(
+            state = state,
+            forcedMode = forcedMaintenanceMode || maintenanceScreenOrigin == MaintenanceScreenOrigin.Forced,
+            onClose = if (forcedMaintenanceMode || maintenanceScreenOrigin == MaintenanceScreenOrigin.Forced) null else ::requestCloseMaintenanceScreen,
+            onPrepareBundledFirmware = viewModel::prepareBundledFirmware,
+            onPickCustomFirmware = { customFirmwareLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
+            onStartMaintenanceUpdate = viewModel::startMaintenanceUpdate,
+            onAbortMaintenanceUpdate = viewModel::abortMaintenanceUpdate,
+            onDisconnect = viewModel::disconnect,
+            modifier = modifier,
+        )
+        return
     }
 
     if (connectionGateVisible) {
@@ -354,6 +487,13 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
                 }
+                if (showMaintenanceReturnChip) {
+                    AssistChip(
+                        onClick = { openMaintenanceScreen(MaintenanceScreenOrigin.Optional) },
+                        label = { Text(stringResource(de.aarondietz.beetmeister.R.string.maintenance_screen_return_chip)) },
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
+                }
                 AppMainContentRouter(
                     state = state,
                     topLevelScreen = topLevelScreen,
@@ -378,6 +518,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                             showValveCalibration = it
                         }
                     },
+                    onLoadPairWiring = viewModel::loadPairWiring,
                     onToggleEnabled = viewModel::togglePairEnabled,
                     onManualStart = viewModel::manualStart,
                     onManualStop = viewModel::manualStop,
@@ -406,6 +547,9 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     },
                     onOpenValve = viewModel::openValve,
                     onCloseValve = viewModel::closeValve,
+                    onRebootController = viewModel::rebootController,
+                    onFactoryResetController = viewModel::factoryResetController,
+                    onOpenFirmwareUpdate = ::requestOpenMaintenanceScreen,
                     onDisconnect = viewModel::disconnect,
                 )
             }

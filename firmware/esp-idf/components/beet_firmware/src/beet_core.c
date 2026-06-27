@@ -158,6 +158,12 @@ bool beet_is_valid_system_event_type(beet_system_event_type_t type)
     case BEET_SYSTEM_EVENT_OTA_STARTED:
     case BEET_SYSTEM_EVENT_OTA_FAILED:
     case BEET_SYSTEM_EVENT_OTA_READY:
+    case BEET_SYSTEM_EVENT_UPDATE_STARTED:
+    case BEET_SYSTEM_EVENT_UPDATE_RECONNECT:
+    case BEET_SYSTEM_EVENT_UPDATE_INVALIDATED:
+    case BEET_SYSTEM_EVENT_UPDATE_INTERRUPTED:
+    case BEET_SYSTEM_EVENT_UPDATE_FAILED:
+    case BEET_SYSTEM_EVENT_UPDATE_COMPLETED:
         return true;
     default:
         return false;
@@ -549,6 +555,18 @@ const char *beet_system_event_type_name(beet_system_event_type_t type)
         return "OTA_FAILED";
     case BEET_SYSTEM_EVENT_OTA_READY:
         return "OTA_READY";
+    case BEET_SYSTEM_EVENT_UPDATE_STARTED:
+        return "UPDATE_STARTED";
+    case BEET_SYSTEM_EVENT_UPDATE_RECONNECT:
+        return "UPDATE_RECONNECT";
+    case BEET_SYSTEM_EVENT_UPDATE_INVALIDATED:
+        return "UPDATE_INVALIDATED";
+    case BEET_SYSTEM_EVENT_UPDATE_INTERRUPTED:
+        return "UPDATE_INTERRUPTED";
+    case BEET_SYSTEM_EVENT_UPDATE_FAILED:
+        return "UPDATE_FAILED";
+    case BEET_SYSTEM_EVENT_UPDATE_COMPLETED:
+        return "UPDATE_COMPLETED";
     default:
         return "UNKNOWN";
     }

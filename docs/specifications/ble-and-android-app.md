@@ -79,7 +79,7 @@ Example payload:
 ```json
 {
   "device_id": "beetmeister-01",
-  "protocol_version": 9,
+  "protocol_version": 10,
   "firmware_version": "0.1.0",
   "pair_count": 8
 }
@@ -240,14 +240,11 @@ This starts the same 10-second moisture response check that is used before autom
 }
 ```
 
-### Trigger OTA
+### Firmware update routing
 
-```json
-{
-  "cmd": "start_ota",
-  "url": "http://192.168.1.10/fw/beetmeister.bin"
-}
-```
+- The runtime BLE command channel does not expose a `start_ota` command.
+- Firmware update is handled through the separate BLE maintenance service.
+- When the runtime protocol is unsupported, the Android app shall route the user into the maintenance update flow instead of treating the controller as generically broken.
 
 ### Set time
 
@@ -257,6 +254,41 @@ This starts the same 10-second moisture response check that is used before autom
   "unix_s": 1714412345
 }
 ```
+
+### Pair wiring lookup
+
+```json
+{
+  "cmd": "get_pair_wiring",
+  "data": {
+    "pair": 3
+  }
+}
+```
+
+This returns static controller wiring metadata for the selected pair on request.
+It shall not be streamed continuously on `state_stream`.
+
+### Controller management
+
+```json
+{
+  "cmd": "reboot_controller",
+  "data": {}
+}
+```
+
+```json
+{
+  "cmd": "factory_reset",
+  "data": {}
+}
+```
+
+- `reboot_controller` shall only be accepted while the controller is idle.
+- `factory_reset` shall only be accepted while the controller is idle.
+- Accepted `factory_reset` shall erase BeetMeister-owned runtime storage, clear BLE bonds, preserve `device_id`, and reboot.
+- The runtime BLE command channel still does not expose firmware-image transfer itself; firmware update remains on the maintenance service.
 
 ### Watering evaluation interval
 
@@ -371,6 +403,21 @@ Watering interval results shall return:
 }
 ```
 
+Pair wiring results shall return:
+
+```json
+{
+  "cmd": "get_pair_wiring",
+  "status": "accepted",
+  "reason": "none",
+  "data": {
+    "pair": 3,
+    "moisture_gpio": 10,
+    "relay_gpio": 14
+  }
+}
+```
+
 ```json
 {
   "cmd": "manual_start",
@@ -390,6 +437,11 @@ or
   "reason": "pair_blocked"
 }
 ```
+
+Controller-management results shall use these stable accepted reasons:
+
+- `rebooting`
+- `factory_reset_started`
 
 The `reason` field shall use stable machine-readable strings.
 Accepted commands that take time to complete, such as calibration or OTA start, shall later emit a second completion result.
@@ -465,6 +517,7 @@ If a full command-result JSON payload exceeds the negotiated ATT indication payl
 - Device list: discover nearby controllers and show connection state.
 - Device dashboard: show battery state, battery voltage, next scheduler check, and pair summary cards.
 - Pair detail: show current moisture, current state, remaining watering time, block state, and manual start or stop actions.
+- Pair detail: show current moisture, current state, remaining watering time, block state, manual start or stop actions, and on-demand relay or moisture GPIO wiring information for setup.
 - Calibration screen: show live sensor value and allow storing dry and wet calibration references.
 - Settings screen: show firmware version, protocol version, valve state, and valve timing controls.
 - Valve calibration screen: show transient servo preview, pulse range, and saved open or shut markers.

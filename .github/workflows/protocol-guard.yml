@@ -1,0 +1,55 @@
+name: Protocol Guard
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "AGENTS.md"
+      - "config/protocol_versions.properties"
+      - "app/**"
+      - "firmware/**"
+      - "docs/specifications/**"
+      - "scripts/ci/check_protocol_guard.py"
+      - ".github/workflows/protocol-guard.yml"
+  pull_request:
+    paths:
+      - "AGENTS.md"
+      - "config/protocol_versions.properties"
+      - "app/**"
+      - "firmware/**"
+      - "docs/specifications/**"
+      - "scripts/ci/check_protocol_guard.py"
+      - ".github/workflows/protocol-guard.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  protocol-guard:
+    name: Enforce protocol versioning rules
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          fetch-depth: 0
+
+      - name: Run protocol guard
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PROTOCOL_GUARD_CONTEXT: ${{ github.event.pull_request.title || '' }}
+            ${{ github.event.pull_request.body || '' }}
+            ${{ github.event.head_commit.message || '' }}
+        run: |
+          python3 scripts/ci/check_protocol_guard.py \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --context "$PROTOCOL_GUARD_CONTEXT"

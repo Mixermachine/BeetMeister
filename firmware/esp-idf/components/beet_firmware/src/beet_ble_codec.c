@@ -167,6 +167,94 @@ int beet_ble_format_controller_info_json(
         pair_count);
 }
 
+int beet_ble_format_maintenance_info_json(
+    char *buf,
+    size_t len,
+    const beet_maintenance_info_t *info)
+{
+    if (buf == NULL || info == NULL) {
+        return -1;
+    }
+
+    return snprintf(
+        buf,
+        len,
+        "{\"type\":\"maintenance_info\",\"data\":{\"product_id\":\"%s\",\"hardware_rev\":\"%s\","
+        "\"firmware_version\":\"%s\",\"build_label\":\"%s\",\"maintenance_protocol_version\":%lu,"
+        "\"runtime_protocol_version\":%lu,\"update_capable\":%s,\"image_kind\":\"%s\"}}",
+        info->product_id,
+        info->hardware_rev,
+        info->firmware_version,
+        info->build_label,
+        (unsigned long)info->maintenance_protocol_version,
+        (unsigned long)info->runtime_protocol_version,
+        info->update_capable ? "true" : "false",
+        beet_maintenance_image_kind_name(info->image_kind));
+}
+
+int beet_ble_format_maintenance_status_json(
+    char *buf,
+    size_t len,
+    const beet_maintenance_status_t *status)
+{
+    int written;
+
+    if (buf == NULL || status == NULL) {
+        return -1;
+    }
+
+    written = snprintf(
+        buf,
+        len,
+        "{\"type\":\"maintenance_status\",\"data\":{\"state\":\"%s\"",
+        beet_maintenance_state_name(status->state));
+    if (written < 0 || (size_t)written >= len) {
+        return -1;
+    }
+
+    if (status->has_session_id) {
+        int delta = snprintf(buf + written, len - (size_t)written, ",\"session_id\":%lu", (unsigned long)status->session_id);
+        if (delta < 0 || (size_t)delta >= len - (size_t)written) {
+            return -1;
+        }
+        written += delta;
+    }
+
+    {
+        int delta = snprintf(
+            buf + written,
+            len - (size_t)written,
+            ",\"next_offset\":%lu,\"bytes_received\":%lu,\"total_bytes\":%lu",
+            (unsigned long)status->next_offset,
+            (unsigned long)status->bytes_received,
+            (unsigned long)status->total_bytes);
+        if (delta < 0 || (size_t)delta >= len - (size_t)written) {
+            return -1;
+        }
+        written += delta;
+    }
+
+    if (status->has_failure_reason) {
+        int delta = snprintf(
+            buf + written,
+            len - (size_t)written,
+            ",\"failure_reason\":\"%s\"",
+            beet_maintenance_failure_reason_name(status->failure_reason));
+        if (delta < 0 || (size_t)delta >= len - (size_t)written) {
+            return -1;
+        }
+        written += delta;
+    }
+
+    if ((size_t)written + 2U >= len) {
+        return -1;
+    }
+    buf[written++] = '}';
+    buf[written++] = '}';
+    buf[written] = '\0';
+    return written;
+}
+
 int beet_ble_format_device_frame_json(
     char *buf,
     size_t len,
@@ -408,6 +496,21 @@ int beet_ble_format_command_result_json(
             beet_iface_status_name(response->status),
             beet_iface_reason_name(response->reason),
             (unsigned long)response->watering_interval_s);
+    }
+
+    if (response->command == BEET_IFACE_COMMAND_GET_PAIR_WIRING &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_pair_wiring) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"pair\":%u,\"moisture_gpio\":%d,\"relay_gpio\":%d}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            response->pair_index,
+            (int)response->moisture_gpio,
+            (int)response->relay_gpio);
     }
 
     if ((response->command == BEET_IFACE_COMMAND_GET_VALVE_CONFIG ||
@@ -717,6 +820,21 @@ static bool beet_ble_parse_u16(const char **cursor, uint16_t *value)
         return false;
     }
     *value = (uint16_t)parsed;
+    return true;
+}
+
+static bool beet_ble_parse_u32(const char **cursor, uint32_t *value)
+{
+    uint64_t parsed = 0U;
+
+    if (value == NULL) {
+        return false;
+    }
+    if (!beet_ble_parse_u64(cursor, &parsed) || parsed > UINT32_MAX) {
+        return false;
+    }
+
+    *value = (uint32_t)parsed;
     return true;
 }
 
@@ -1086,6 +1204,179 @@ static bool beet_ble_parse_empty_data(const char **cursor)
     return true;
 }
 
+static bool beet_ble_parse_string_array(
+    const char **cursor,
+    char values[][BEET_MAINTENANCE_HARDWARE_REV_MAX_LEN + 1U],
+    uint8_t *count,
+    uint8_t max_count)
+{
+    char parsed[BEET_MAINTENANCE_HARDWARE_REV_MAX_LEN + 1U];
+    uint8_t parsed_count = 0U;
+
+    if (cursor == NULL || *cursor == NULL || values == NULL || count == NULL || max_count == 0U) {
+        return false;
+    }
+    if (!beet_ble_consume_char(cursor, '[')) {
+        return false;
+    }
+
+    while (true) {
+        beet_ble_skip_ws(cursor);
+        if (**cursor == ']') {
+            ++(*cursor);
+            break;
+        }
+
+        if (parsed_count >= max_count ||
+            !beet_ble_parse_string(cursor, parsed, sizeof(parsed))) {
+            return false;
+        }
+        memcpy(values[parsed_count], parsed, sizeof(parsed));
+        parsed_count++;
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == ',') {
+            ++(*cursor);
+            continue;
+        }
+        if (**cursor == ']') {
+            ++(*cursor);
+            break;
+        }
+        return false;
+    }
+
+    *count = parsed_count;
+    return true;
+}
+
+static bool beet_ble_parse_begin_update_data(
+    const char **cursor,
+    beet_maintenance_begin_update_request_t *request)
+{
+    // WARNING: This parser accepts the fixed maintenance begin_update wire
+    // contract, including compact aliases such as fv/bl/sz/sh/pi/hr/ai/ik.
+    // Future changes must remain backward compatible with shipped apps.
+    char key[32];
+    char parsed_string[BEET_MAINTENANCE_ASSET_ID_MAX_LEN + 1U];
+    bool seen_firmware_version = false;
+    bool seen_build_label = false;
+    bool seen_image_size = false;
+    bool seen_image_sha256 = false;
+    bool seen_product_id = false;
+    bool seen_hardware_revs = false;
+    bool seen_asset_id = false;
+    bool seen_image_kind = false;
+
+    if (cursor == NULL || *cursor == NULL || request == NULL) {
+        return false;
+    }
+    if (!beet_ble_consume_char(cursor, '{')) {
+        return false;
+    }
+
+    while (true) {
+        beet_ble_skip_ws(cursor);
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+
+        if (!beet_ble_parse_string(cursor, key, sizeof(key)) ||
+            !beet_ble_consume_char(cursor, ':')) {
+            return false;
+        }
+
+        if (strcmp(key, "firmware_version") == 0 || strcmp(key, "fv") == 0) {
+            if (seen_firmware_version ||
+                !beet_ble_parse_string(cursor, request->firmware_version, sizeof(request->firmware_version))) {
+                return false;
+            }
+            seen_firmware_version = true;
+        } else if (strcmp(key, "build_label") == 0 || strcmp(key, "bl") == 0) {
+            if (seen_build_label ||
+                !beet_ble_parse_string(cursor, request->build_label, sizeof(request->build_label))) {
+                return false;
+            }
+            seen_build_label = true;
+        } else if (strcmp(key, "image_size") == 0 || strcmp(key, "sz") == 0) {
+            if (seen_image_size || !beet_ble_parse_u32(cursor, &request->image_size)) {
+                return false;
+            }
+            seen_image_size = true;
+        } else if (strcmp(key, "image_sha256") == 0 || strcmp(key, "sh") == 0) {
+            if (seen_image_sha256 ||
+                !beet_ble_parse_string(cursor, request->image_sha256, sizeof(request->image_sha256))) {
+                return false;
+            }
+            seen_image_sha256 = true;
+        } else if (strcmp(key, "product_id") == 0 || strcmp(key, "pi") == 0) {
+            if (seen_product_id ||
+                !beet_ble_parse_string(cursor, request->product_id, sizeof(request->product_id))) {
+                return false;
+            }
+            seen_product_id = true;
+        } else if (strcmp(key, "hardware_revs") == 0 || strcmp(key, "hr") == 0) {
+            if (seen_hardware_revs ||
+                !beet_ble_parse_string_array(
+                    cursor,
+                    request->hardware_revs,
+                    &request->hardware_rev_count,
+                    BEET_MAINTENANCE_COMPAT_REV_MAX_COUNT)) {
+                return false;
+            }
+            seen_hardware_revs = true;
+        } else if (strcmp(key, "runtime_protocol_version") == 0 || strcmp(key, "rp") == 0) {
+            if (request->has_runtime_protocol_version ||
+                !beet_ble_parse_u32(cursor, &request->runtime_protocol_version)) {
+                return false;
+            }
+            request->has_runtime_protocol_version = true;
+        } else if (strcmp(key, "asset_id") == 0 || strcmp(key, "ai") == 0) {
+            if (seen_asset_id ||
+                !beet_ble_parse_string(cursor, request->asset_id, sizeof(request->asset_id))) {
+                return false;
+            }
+            seen_asset_id = true;
+        } else if (strcmp(key, "image_kind") == 0 || strcmp(key, "ik") == 0) {
+            if (seen_image_kind ||
+                !beet_ble_parse_string(cursor, parsed_string, sizeof(parsed_string))) {
+                return false;
+            }
+            request->image_kind = beet_maintenance_image_kind_from_name(parsed_string);
+            if (request->image_kind == BEET_MAINTENANCE_IMAGE_KIND_UNKNOWN) {
+                return false;
+            }
+            seen_image_kind = true;
+        } else {
+            if (!beet_ble_skip_json_value(cursor)) {
+                return false;
+            }
+        }
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == ',') {
+            ++(*cursor);
+            continue;
+        }
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+        return false;
+    }
+
+    return seen_firmware_version &&
+        seen_build_label &&
+        seen_image_size &&
+        seen_image_sha256 &&
+        seen_product_id &&
+        seen_hardware_revs &&
+        seen_asset_id &&
+        seen_image_kind &&
+        request->hardware_rev_count > 0U;
+}
+
 static bool beet_ble_parse_valve_config_data(
     const char **cursor,
     beet_iface_command_request_t *request)
@@ -1326,11 +1617,6 @@ bool beet_ble_parse_command_json(
                         &request->wet_mv)) {
                     return false;
                 }
-            } else if (strcmp(cmd, "start_ota") == 0) {
-                request->command = BEET_IFACE_COMMAND_START_OTA;
-                if (!beet_ble_parse_empty_data(&cursor)) {
-                    return false;
-                }
             } else if (strcmp(cmd, "clear_ble_bonds") == 0) {
                 request->command = BEET_IFACE_COMMAND_CLEAR_BLE_BONDS;
                 if (!beet_ble_parse_empty_data(&cursor)) {
@@ -1411,6 +1697,21 @@ bool beet_ble_parse_command_json(
                 if (!beet_ble_parse_watering_interval_data(&cursor, &request->watering_interval_s)) {
                     return false;
                 }
+            } else if (strcmp(cmd, "reboot_controller") == 0) {
+                request->command = BEET_IFACE_COMMAND_REBOOT_CONTROLLER;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "factory_reset") == 0) {
+                request->command = BEET_IFACE_COMMAND_FACTORY_RESET;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "get_pair_wiring") == 0) {
+                request->command = BEET_IFACE_COMMAND_GET_PAIR_WIRING;
+                if (!beet_ble_parse_pair_data(&cursor, &request->pair_index)) {
+                    return false;
+                }
             } else {
                 return false;
             }
@@ -1438,4 +1739,102 @@ bool beet_ble_parse_command_json(
 
     beet_ble_skip_ws(&cursor);
     return seen_cmd && seen_data && *cursor == '\0';
+}
+
+bool beet_ble_parse_maintenance_request_json(
+    const char *json,
+    beet_maintenance_request_t *request)
+{
+    // WARNING: The maintenance JSON protocol is intended to remain stable
+    // across app and firmware releases. Keep accepted command names, required
+    // fields, and field meanings backward compatible for shipped versions.
+    const char *cursor = json;
+    char key[32];
+    char cmd[32];
+    bool seen_cmd = false;
+    bool seen_data = false;
+
+    if (json == NULL || request == NULL) {
+        return false;
+    }
+
+    memset(request, 0, sizeof(*request));
+    if (!beet_ble_consume_char(&cursor, '{')) {
+        return false;
+    }
+
+    while (true) {
+        beet_ble_skip_ws(&cursor);
+        if (*cursor == '}') {
+            ++cursor;
+            break;
+        }
+
+        if (!beet_ble_parse_string(&cursor, key, sizeof(key)) ||
+            !beet_ble_consume_char(&cursor, ':')) {
+            return false;
+        }
+
+        if (strcmp(key, "cmd") == 0) {
+            if (seen_cmd || !beet_ble_parse_string(&cursor, cmd, sizeof(cmd))) {
+                return false;
+            }
+            seen_cmd = true;
+        } else         if (strcmp(key, "data") == 0 || strcmp(key, "d") == 0) {
+            if (seen_data || !seen_cmd) {
+                return false;
+            }
+            if (strcmp(cmd, "query_status") == 0 ||
+                strcmp(cmd, "abort_update") == 0 ||
+                strcmp(cmd, "finish_update") == 0) {
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "begin_update") == 0) {
+                if (!beet_ble_parse_begin_update_data(&cursor, &request->begin_update)) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+            seen_data = true;
+        } else {
+            if (!beet_ble_skip_json_value(&cursor)) {
+                return false;
+            }
+        }
+
+        beet_ble_skip_ws(&cursor);
+        if (*cursor == ',') {
+            ++cursor;
+            continue;
+        }
+        if (*cursor == '}') {
+            ++cursor;
+            break;
+        }
+        return false;
+    }
+
+    beet_ble_skip_ws(&cursor);
+    if (!seen_cmd || *cursor != '\0') {
+        return false;
+    }
+
+    if (strcmp(cmd, "query_status") == 0) {
+        request->command = BEET_MAINTENANCE_COMMAND_QUERY_STATUS;
+    } else if (strcmp(cmd, "begin_update") == 0) {
+        if (!seen_data) {
+            return false;
+        }
+        request->command = BEET_MAINTENANCE_COMMAND_BEGIN_UPDATE;
+    } else if (strcmp(cmd, "abort_update") == 0) {
+        request->command = BEET_MAINTENANCE_COMMAND_ABORT_UPDATE;
+    } else if (strcmp(cmd, "finish_update") == 0) {
+        request->command = BEET_MAINTENANCE_COMMAND_FINISH_UPDATE;
+    } else {
+        return false;
+    }
+
+    return true;
 }

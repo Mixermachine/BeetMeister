@@ -9,6 +9,7 @@ enum class BeetConnectionPhase {
     Connecting,
     DiscoveringServices,
     Syncing,
+    MaintenanceRequired,
     Connected,
     Disconnected,
     Error,

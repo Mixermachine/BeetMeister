@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -27,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.controller.BeetPairState
+import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.PairErrorClearButton
 import de.aarondietz.beetmeister.ui.core.component.PairEnabledToggleButton
@@ -42,7 +44,11 @@ import de.aarondietz.beetmeister.ui.core.formatting.yesNo
 @Composable
 internal fun PairDetailScreen(
     pairState: BeetPairState,
+    pairWiring: BeetPairWiring?,
+    pairWiringLoading: Boolean,
+    pairWiringError: String?,
     onBack: () -> Unit,
+    onLoadPairWiring: (Int) -> Unit,
     onToggleEnabled: (Int) -> Unit,
     onManualStart: (Int, Int?) -> Unit,
     onManualStop: (Int) -> Unit,
@@ -56,6 +62,10 @@ internal fun PairDetailScreen(
         pairState.sensorValid &&
         !pairState.blocked &&
         pairState.state !in setOf("FAULT", "WATERING", "SANITY_CHECK", "MOISTURE_TEST", "WAITING_FOR_SLOT")
+
+    LaunchedEffect(pairState.pairIndex) {
+        onLoadPairWiring(pairState.pairIndex)
+    }
 
     LazyColumn(
         modifier = modifier,
@@ -96,6 +106,28 @@ internal fun PairDetailScreen(
                         strings.get(R.string.pair_detail_label_remaining),
                         formatDuration(pairState.remainingSeconds, strings),
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(strings.get(R.string.pair_detail_wiring_title), style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    when {
+                        pairWiring != null -> {
+                            ValueGridRow(
+                                strings.get(R.string.pair_detail_label_moisture_gpio),
+                                pairWiring.moistureGpio.toString(),
+                                strings.get(R.string.pair_detail_label_relay_gpio),
+                                pairWiring.relayGpio.toString(),
+                            )
+                        }
+                        pairWiringLoading -> {
+                            Text(strings.get(R.string.pair_detail_wiring_loading), color = Color(0xFF545454))
+                        }
+                        pairWiringError != null -> {
+                            Text(pairWiringError, color = Color(0xFF7D4632))
+                            TextButton(onClick = { onLoadPairWiring(pairState.pairIndex) }) {
+                                Text(strings.get(R.string.pair_detail_wiring_retry))
+                            }
+                        }
+                    }
                     if (!pairState.enabled) {
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(strings.get(R.string.pair_detail_disabled_info), color = Color(0xFF545454))

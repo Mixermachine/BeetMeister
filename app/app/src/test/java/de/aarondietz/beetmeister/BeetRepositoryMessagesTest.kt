@@ -45,4 +45,26 @@ class BeetRepositoryMessagesTest {
         assertEquals("Pair 2: Controller is busy.", commandMessageForResult(busy, strings))
         assertEquals("Pair 2: Too many commands; try again.", commandMessageForResult(rateLimited, strings))
     }
+
+    @Test
+    fun rebootAndFactoryResetMessagesUseExplicitText() {
+        val rebooting = BeetCommandResult(
+            command = "reboot_controller",
+            pairIndex = null,
+            status = "accepted",
+            reason = "rebooting",
+        )
+        val factoryReset = BeetCommandResult(
+            command = "factory_reset",
+            pairIndex = null,
+            status = "accepted",
+            reason = "factory_reset_started",
+        )
+
+        assertEquals("Controller is rebooting.", commandMessageForResult(rebooting, strings))
+        assertEquals(
+            "Factory reset started. The controller will reboot and must be paired again.",
+            commandMessageForResult(factoryReset, strings),
+        )
+    }
 }

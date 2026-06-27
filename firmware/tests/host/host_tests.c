@@ -8,6 +8,7 @@
 #include "beet_ble_guard.h"
 #include "beet_event_ring.h"
 #include "beet_iface.h"
+#include "beet_maintenance.h"
 #include "beet_types.h"
 
 static int s_failures = 0;
@@ -39,6 +40,14 @@ static int s_failures = 0;
     if (strcmp(expected_value__, actual_value__) != 0) { \
         printf("FAIL %s:%d expected \"%s\" got \"%s\"\n", __FILE__, __LINE__, \
             expected_value__, actual_value__); \
+        s_failures++; \
+        return; \
+    } \
+} while (0)
+
+#define TEST_ASSERT_STR_CONTAINS(haystack, needle) do { \
+    if (strstr((haystack), (needle)) == NULL) { \
+        printf("FAIL %s:%d expected substring %s in %s\n", __FILE__, __LINE__, (needle), (haystack)); \
         s_failures++; \
         return; \
     } \
@@ -307,8 +316,12 @@ static void test_valve_system_event_types(void)
 {
     TEST_ASSERT_TRUE(beet_is_valid_system_event_type(BEET_SYSTEM_EVENT_VALVE_OPENED));
     TEST_ASSERT_TRUE(beet_is_valid_system_event_type(BEET_SYSTEM_EVENT_VALVE_CLOSED));
+    TEST_ASSERT_TRUE(beet_is_valid_system_event_type(BEET_SYSTEM_EVENT_UPDATE_STARTED));
+    TEST_ASSERT_TRUE(beet_is_valid_system_event_type(BEET_SYSTEM_EVENT_UPDATE_FAILED));
     TEST_ASSERT_STR_EQ("VALVE_OPENED", beet_system_event_type_name(BEET_SYSTEM_EVENT_VALVE_OPENED));
     TEST_ASSERT_STR_EQ("VALVE_CLOSED", beet_system_event_type_name(BEET_SYSTEM_EVENT_VALVE_CLOSED));
+    TEST_ASSERT_STR_EQ("UPDATE_STARTED", beet_system_event_type_name(BEET_SYSTEM_EVENT_UPDATE_STARTED));
+    TEST_ASSERT_STR_EQ("UPDATE_FAILED", beet_system_event_type_name(BEET_SYSTEM_EVENT_UPDATE_FAILED));
 }
 
 static void test_event_ring_reconstruction_and_summary(void)
@@ -454,6 +467,21 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_WATERING_INTERVAL, request.command);
     TEST_ASSERT_U32_EQ(21600U, request.watering_interval_s);
 
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"reboot_controller\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_REBOOT_CONTROLLER, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"factory_reset\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_FACTORY_RESET, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_pair_wiring\",\"data\":{\"pair\":6}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_PAIR_WIRING, request.command);
+    TEST_ASSERT_U32_EQ(6U, request.pair_index);
+
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"start_ota\",\"data\":{}}", &request));
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"manual_start\",\"data\":{\"duration_s\":1200}}", &request));
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
@@ -731,6 +759,108 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"get_watering_interval\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"watering_interval_s\":21600}}",
         json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_PAIR_WIRING;
+    response.pair_index = 6U;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_pair_wiring = true;
+    response.moisture_gpio = 5;
+    response.relay_gpio = 40;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_pair_wiring\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"pair\":6,\"moisture_gpio\":5,\"relay_gpio\":40}}",
+        json);
+}
+
+static void test_maintenance_metadata_and_info(void)
+{
+    const uint8_t *block = NULL;
+    size_t block_len = 0U;
+    beet_maintenance_image_metadata_t metadata;
+    beet_maintenance_info_t info;
+
+    block = beet_maintenance_metadata_block(&block_len);
+    TEST_ASSERT_TRUE(block != NULL);
+    TEST_ASSERT_TRUE(block_len > 0U);
+    TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_metadata_parse(block, block_len, &metadata));
+    TEST_ASSERT_STR_EQ("beetmeister", metadata.product_id);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.hardware_rev);
+    TEST_ASSERT_STR_EQ("f5146cc-dirty", metadata.firmware_version);
+    TEST_ASSERT_STR_EQ("f5146cc-dirty", metadata.build_label);
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_PROTOCOL_VERSION, metadata.maintenance_protocol_version);
+    TEST_ASSERT_U32_EQ(BEET_RUNTIME_PROTOCOL_VERSION, metadata.runtime_protocol_version);
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, metadata.image_kind);
+    TEST_ASSERT_U32_EQ(1U, metadata.compatible_hardware_rev_count);
+    TEST_ASSERT_STR_EQ("rev_a", metadata.compatible_hardware_revs[0]);
+
+    TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_get_info(&info));
+    TEST_ASSERT_STR_EQ(metadata.product_id, info.product_id);
+    TEST_ASSERT_STR_EQ(metadata.hardware_rev, info.hardware_rev);
+    TEST_ASSERT_STR_EQ(metadata.firmware_version, info.firmware_version);
+    TEST_ASSERT_STR_EQ(metadata.build_label, info.build_label);
+    TEST_ASSERT_U32_EQ(metadata.maintenance_protocol_version, info.maintenance_protocol_version);
+    TEST_ASSERT_U32_EQ(metadata.runtime_protocol_version, info.runtime_protocol_version);
+    TEST_ASSERT_TRUE(info.update_capable);
+    TEST_ASSERT_U32_EQ(metadata.image_kind, info.image_kind);
+}
+
+static void test_maintenance_codec_and_request_parsing(void)
+{
+    char json[512];
+    beet_maintenance_info_t info;
+    beet_maintenance_status_t status;
+    beet_maintenance_request_t request;
+
+    TEST_ASSERT_U32_EQ(ESP_OK, beet_maintenance_get_info(&info));
+    TEST_ASSERT_TRUE(beet_ble_format_maintenance_info_json(json, sizeof(json), &info) > 0);
+    TEST_ASSERT_STR_CONTAINS(json, "\"type\":\"maintenance_info\"");
+    TEST_ASSERT_STR_CONTAINS(json, "\"product_id\":\"beetmeister\"");
+    TEST_ASSERT_STR_CONTAINS(json, "\"image_kind\":\"bundled\"");
+
+    beet_maintenance_fill_idle_status(&status);
+    TEST_ASSERT_TRUE(beet_ble_format_maintenance_status_json(json, sizeof(json), &status) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"type\":\"maintenance_status\",\"data\":{\"state\":\"idle\",\"next_offset\":0,\"bytes_received\":0,\"total_bytes\":0}}",
+        json);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_maintenance_request_json("{\"cmd\":\"query_status\"}", &request));
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_COMMAND_QUERY_STATUS, request.command);
+    TEST_ASSERT_TRUE(beet_ble_parse_maintenance_request_json(
+        "{\"cmd\":\"query_status\",\"data\":{},\"future\":1}",
+        &request));
+    TEST_ASSERT_TRUE(beet_ble_parse_maintenance_request_json(
+        "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"v0.2.0\",\"build_label\":\"v0.2.0\","
+        "\"image_size\":1234,\"image_sha256\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\","
+        "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":9,"
+        "\"asset_id\":\"bundled-test\",\"image_kind\":\"bundled\"}}",
+        &request));
+    TEST_ASSERT_TRUE(beet_ble_parse_maintenance_request_json(
+        "{\"cmd\":\"begin_update\",\"d\":{\"fv\":\"bd88ef0-dirty\",\"bl\":\"bd88ef0-dirty\","
+        "\"sz\":721488,\"sh\":\"10ab686331845c30569226472b44c1c8bff7a686f42dbefc9da174f6845a1177\","
+        "\"pi\":\"beetmeister\",\"hr\":[\"rev_a\"],\"rp\":9,\"ai\":\"bundled-dev\",\"ik\":\"bundled\"}}",
+        &request));
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_COMMAND_BEGIN_UPDATE, request.command);
+    TEST_ASSERT_STR_EQ("bd88ef0-dirty", request.begin_update.firmware_version);
+    TEST_ASSERT_STR_EQ("bd88ef0-dirty", request.begin_update.build_label);
+    TEST_ASSERT_U32_EQ(721488U, request.begin_update.image_size);
+    TEST_ASSERT_STR_EQ("beetmeister", request.begin_update.product_id);
+    TEST_ASSERT_U32_EQ(1U, request.begin_update.hardware_rev_count);
+    TEST_ASSERT_STR_EQ("rev_a", request.begin_update.hardware_revs[0]);
+    TEST_ASSERT_TRUE(request.begin_update.has_runtime_protocol_version);
+    TEST_ASSERT_U32_EQ(9U, request.begin_update.runtime_protocol_version);
+    TEST_ASSERT_STR_EQ("bundled-dev", request.begin_update.asset_id);
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_IMAGE_KIND_BUNDLED, request.begin_update.image_kind);
+    TEST_ASSERT_TRUE(beet_ble_parse_maintenance_request_json("{\"cmd\":\"abort_update\"}", &request));
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_COMMAND_ABORT_UPDATE, request.command);
+    TEST_ASSERT_TRUE(beet_ble_parse_maintenance_request_json("{\"cmd\":\"finish_update\"}", &request));
+    TEST_ASSERT_U32_EQ(BEET_MAINTENANCE_COMMAND_FINISH_UPDATE, request.command);
+    TEST_ASSERT_FALSE(beet_ble_parse_maintenance_request_json("{\"cmd\":\"query_status\",\"data\":{\"x\":1}}", &request));
+    TEST_ASSERT_FALSE(beet_ble_parse_maintenance_request_json("{\"cmd\":\"unknown\"}", &request));
+    TEST_ASSERT_FALSE(beet_ble_parse_maintenance_request_json(
+        "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"v0.2.0\"}}",
+        &request));
 }
 
 static void test_ble_system_event_data_consistency(void)
@@ -863,9 +993,16 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ("relay_test_stopped", beet_iface_reason_name(BEET_IFACE_REASON_RELAY_TEST_STOPPED));
     TEST_ASSERT_STR_EQ("moisture_test_started", beet_iface_reason_name(BEET_IFACE_REASON_MOISTURE_TEST_STARTED));
     TEST_ASSERT_STR_EQ("set_time", beet_iface_command_name(BEET_IFACE_COMMAND_SET_TIME));
+    TEST_ASSERT_STR_EQ("reboot_controller", beet_iface_command_name(BEET_IFACE_COMMAND_REBOOT_CONTROLLER));
+    TEST_ASSERT_STR_EQ("factory_reset", beet_iface_command_name(BEET_IFACE_COMMAND_FACTORY_RESET));
+    TEST_ASSERT_STR_EQ("get_pair_wiring", beet_iface_command_name(BEET_IFACE_COMMAND_GET_PAIR_WIRING));
     TEST_ASSERT_STR_EQ("time_updated", beet_iface_reason_name(BEET_IFACE_REASON_TIME_UPDATED));
     TEST_ASSERT_STR_EQ("busy", beet_iface_reason_name(BEET_IFACE_REASON_BUSY));
     TEST_ASSERT_STR_EQ("rate_limited", beet_iface_reason_name(BEET_IFACE_REASON_RATE_LIMITED));
+    TEST_ASSERT_STR_EQ("rebooting", beet_iface_reason_name(BEET_IFACE_REASON_REBOOTING));
+    TEST_ASSERT_STR_EQ(
+        "factory_reset_started",
+        beet_iface_reason_name(BEET_IFACE_REASON_FACTORY_RESET_STARTED));
     TEST_ASSERT_STR_EQ("LOW_BATTERY_ABORT", beet_block_reason_name(BEET_BLOCK_REASON_LOW_BATTERY_ABORT));
     TEST_ASSERT_STR_EQ(
         "MOISTURE_RESPONSE_TEST_FAILED",
@@ -891,6 +1028,8 @@ int main(void)
         {"ble_command_lane_split", test_ble_command_lane_split},
         {"ble_rejection_response_builder", test_ble_rejection_response_builder},
         {"ble_json_formatting", test_ble_json_formatting},
+        {"maintenance_metadata_and_info", test_maintenance_metadata_and_info},
+        {"maintenance_codec_and_request_parsing", test_maintenance_codec_and_request_parsing},
         {"ble_system_event_data_consistency", test_ble_system_event_data_consistency},
         {"ble_base64_helpers", test_ble_base64_helpers},
         {"ble_chunked_command_result_formatting", test_ble_chunked_command_result_formatting},

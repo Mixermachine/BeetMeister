@@ -305,7 +305,7 @@ Current implementation note:
 | `mqtt_username` | `string[32]` | Optional username |
 | `mqtt_password` | `string[64]` | Optional password |
 | `mqtt_base_topic` | `string[48]` | Base topic namespace |
-| `ota_base_url` | `string[96]` | HTTP endpoint or base path |
+| `ota_base_url` | `string[96]` | Legacy reserved field kept only for storage compatibility; inactive in the BLE-maintenance OTA design |
 | `time_valid` | `bool` | Last persisted time-valid flag |
 
 ### Calibration data model per sensor

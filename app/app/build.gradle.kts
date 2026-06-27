@@ -1,3 +1,15 @@
+import org.gradle.api.tasks.Exec
+import org.gradle.internal.os.OperatingSystem
+import java.util.Properties
+
+val protocolVersions = Properties().apply {
+    rootProject.file("../config/protocol_versions.properties").inputStream().use(::load)
+}
+val beetMaintenanceProtocolVersion = protocolVersions.getProperty("maintenance_protocol_version")
+    ?: error("Missing maintenance_protocol_version in config/protocol_versions.properties")
+val beetRuntimeProtocolVersion = protocolVersions.getProperty("runtime_protocol_version")
+    ?: error("Missing runtime_protocol_version in config/protocol_versions.properties")
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -17,6 +29,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("int", "BEET_MAINTENANCE_PROTOCOL_VERSION", beetMaintenanceProtocolVersion)
+        buildConfigField("int", "BEET_RUNTIME_PROTOCOL_VERSION", beetRuntimeProtocolVersion)
     }
 
     signingConfigs {
@@ -50,7 +64,42 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
+
+    sourceSets.named("main") {
+        assets.srcDir(layout.buildDirectory.dir("generated/bundledFirmware/main/assets").get().asFile)
+    }
+}
+
+val bundledFirmwareAssetsDir = layout.buildDirectory.dir("generated/bundledFirmware/main/assets/firmware")
+
+val prepareBundledFirmware by tasks.registering(Exec::class) {
+    group = "build"
+    description = "Builds or stages the bundled BeetMeister firmware asset for the app."
+
+    val output = bundledFirmwareAssetsDir.get().asFile.absolutePath
+    val prebuiltImage = System.getenv("BEET_BUNDLED_FIRMWARE_IMAGE")
+
+    val shell = if (OperatingSystem.current().isWindows) "powershell" else "pwsh"
+    commandLine(
+        shell,
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        rootProject.file("../scripts/release/export-bundled-firmware.ps1").absolutePath,
+        "-OutputDir",
+        output,
+    )
+    if (!prebuiltImage.isNullOrBlank()) {
+        args("-PrebuiltImagePath", prebuiltImage)
+    }
+}
+
+tasks.matching { task ->
+    task.name == "preBuild"
+}.configureEach {
+    dependsOn(prepareBundledFirmware)
 }
 
 dependencies {

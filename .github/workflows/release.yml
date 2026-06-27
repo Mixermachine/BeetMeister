@@ -17,6 +17,7 @@ jobs:
   app-verify:
     name: App verify (tests + debug)
     if: startsWith(github.ref, 'refs/tags/v')
+    needs: firmware-release
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -27,37 +28,40 @@ jobs:
 
     steps:
       - name: Checkout
-        # v4
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
       - name: Set up JDK 17
-        # v4
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        uses: actions/setup-java@ad2b38190b15e4d6bdf0c97fb4fca8412226d287
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle cache
-        # v4
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e
+
+      - name: Download bundled firmware
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: firmware-release-${{ github.ref_name }}
+          path: firmware-release
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
       - name: Run app tests and build debug APK
+        env:
+          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/firmware-release/esp-idf/build/beetmeister.bin
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
       - name: Upload debug APK
-        # v4
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: app-debug-apk-${{ github.ref_name }}
           path: app/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Upload app test reports
-        # v4
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: app-verify-test-reports-${{ github.ref_name }}
           path: |
@@ -66,9 +70,11 @@ jobs:
           if-no-files-found: warn
 
   app-sign-release:
-    name: App release signing
+    name: App release build
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: app-verify
+    needs:
+      - firmware-release
+      - app-verify
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:
@@ -84,42 +90,48 @@ jobs:
 
     steps:
       - name: Checkout
-        # v4
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
-      - name: Validate signing secrets
+      - name: Report signing mode
         run: |
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          test -n "$ANDROID_KEYSTORE_PASSWORD"
-          test -n "$ANDROID_KEY_ALIAS"
-          test -n "$ANDROID_KEY_PASSWORD"
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "Android signing secrets detected. Building signed release APK."
+          else
+            echo "Android signing secrets not configured. Building unsigned release APK."
+          fi
 
       - name: Decode Android release keystore
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' && env.ANDROID_KEY_ALIAS != '' && env.ANDROID_KEY_PASSWORD != '' }}
         run: |
           KEYSTORE_PATH="$RUNNER_TEMP/release.keystore"
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
           echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: Set up JDK 17
-        # v4
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654
+        uses: actions/setup-java@ad2b38190b15e4d6bdf0c97fb4fca8412226d287
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Gradle cache
-        # v4
         uses: gradle/actions/setup-gradle@50e97c2cd7a37755bbfafc9c5b7cafaece252f6e
+
+      - name: Download bundled firmware
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: firmware-release-${{ github.ref_name }}
+          path: firmware-release
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
 
       - name: Build release APK
+        env:
+          BEET_BUNDLED_FIRMWARE_IMAGE: ${{ github.workspace }}/firmware-release/esp-idf/build/beetmeister.bin
         run: ./gradlew :app:assembleRelease --stacktrace
 
       - name: Upload release APK
-        # v4
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: app-release-apk-${{ github.ref_name }}
           path: app/app/build/outputs/apk/release/*.apk
@@ -135,8 +147,7 @@ jobs:
 
     steps:
       - name: Checkout
-        # v4
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
       - name: Install host-test build dependencies
         run: |
@@ -150,7 +161,6 @@ jobs:
           ctest --test-dir firmware/tests/host/build --output-on-failure
 
       - name: Restore ESP-IDF cache
-        # v4
         uses: actions/cache@v5
         with:
           path: |
@@ -161,7 +171,6 @@ jobs:
             ${{ runner.os }}-espidf-v6.0-
 
       - name: Set up ESP-IDF v6.0
-        # v1
         uses: espressif/install-esp-idf-action@8fc05d1470d5591417e7a3707a1f2bec178db4ae
         with:
           version: v6.0
@@ -170,13 +179,20 @@ jobs:
 
       - name: Build firmware
         working-directory: firmware/esp-idf
+        env:
+          SDKCONFIG: build/sdkconfig.release.generated
+          SDKCONFIG_DEFAULTS: sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.release.defaults
         run: |
+          rm -f "$SDKCONFIG"
           idf.py set-target esp32s3
-          idf.py build
+          idf.py -DSDKCONFIG="$SDKCONFIG" -DBEET_FIRMWARE_VERSION="${{ github.ref_name }}" -DBEET_BUILD_LABEL="${{ github.ref_name }}" build
+
+      - name: Validate release firmware config
+        shell: pwsh
+        run: ./scripts/dev/verify-firmware-release-config.ps1 -SdkconfigPath ./firmware/esp-idf/build/sdkconfig.release.generated
 
       - name: Upload firmware artifacts
-        # v4
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: firmware-release-${{ github.ref_name }}
           path: |

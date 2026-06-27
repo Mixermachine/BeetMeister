@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "beet_iface.h"
+#include "beet_maintenance.h"
 
 int beet_ble_format_controller_info_json(
     char *buf,
@@ -14,6 +15,14 @@ int beet_ble_format_controller_info_json(
     const char *firmware_version,
     unsigned protocol_version,
     unsigned pair_count);
+int beet_ble_format_maintenance_info_json(
+    char *buf,
+    size_t len,
+    const beet_maintenance_info_t *info);
+int beet_ble_format_maintenance_status_json(
+    char *buf,
+    size_t len,
+    const beet_maintenance_status_t *status);
 int beet_ble_format_device_frame_json(
     char *buf,
     size_t len,
@@ -54,5 +63,8 @@ int beet_ble_format_command_chunk_frame_json(
 bool beet_ble_parse_command_json(
     const char *json,
     beet_iface_command_request_t *request);
+bool beet_ble_parse_maintenance_request_json(
+    const char *json,
+    beet_maintenance_request_t *request);
 
 #endif

@@ -46,13 +46,14 @@ This document turns the baseline requirements into verifiable activities and rel
 | `RQ-031` | `VT-023` MQTT entity inventory test |
 | `RQ-032` | `VT-024` BLE bonding, connect, state, and command test |
 | `RQ-033` | `VT-024` BLE calibration test, `VT-028` target persistence test |
-| `RQ-034` | `VT-033` OTA functional test |
+| `RQ-034` | `VT-033` BLE maintenance OTA functional test |
 | `RQ-035` | `VT-022` target relay-safe-boot test |
 | `RQ-036` | `VT-023` MQTT state-enum test, `VT-024` BLE state-enum test |
 | `RQ-037` | `VT-005` host invalid-reading tests, `VT-034` bench disconnect-sensor scenario |
 | `RQ-038` | `VT-004` host no-comms test, `VT-032` bench offline autonomy scenario |
 | `RQ-039` | `VT-033` OTA persistence and rollback tests |
 | `RQ-040` | Document review gate before implementation milestone `M2` |
+| Runtime reboot and factory reset management | `VT-045` bonded reboot test, `VT-046` bonded factory-reset test |
 
 ## Scenario-based test cases
 
@@ -98,11 +99,11 @@ This document turns the baseline requirements into verifiable activities and rel
 - Expected result: unbonded GATT access is rejected, bonded access succeeds, controller emits required state frames, command results are returned, multi-phone bonding works over time, and cleared bonds force re-pairing.
 - Pass condition: protocol messages match the BLE specification, unbonded reads and writes are denied, and persisted calibration survives reboot.
 
-### `VT-033` OTA tests
+### `VT-033` BLE maintenance OTA tests
 
-- Input: valid image, wrong-target image, interrupted download, failed first boot, and low-battery OTA attempt.
-- Expected result: valid image boots, wrong-target image is rejected, interrupted download preserves current image, rollback works, low-battery attempt is rejected.
-- Pass condition: device remains bootable and persistent data remains intact in every case.
+- Input: bundled-image update from the Android app, wrong-target image, interrupted BLE upload, failed first boot, low-battery update attempt, unbonded maintenance write attempt, and custom image flow with runtime-protocol warning override.
+- Expected result: the bundled update succeeds without Wi-Fi, wrong-target image is rejected, interrupted upload preserves the current image, rollback works after failed first boot, low-battery attempt is rejected, unbonded maintenance writes are denied, and the custom image flow is clearly labeled and gated by warnings.
+- Pass condition: device remains bootable, persistent data remains intact, bonded maintenance control is required for mutation, and the user-facing app flow matches the maintenance-update specification.
 
 ### `VT-035` Three-pump concurrency bench test
 
@@ -152,6 +153,18 @@ This document turns the baseline requirements into verifiable activities and rel
 - Expected result: a visible clockwise outline-fill progress indicator is present while sync is active in the connected-status chip and clears when sync is complete.
 - Pass condition: the indicator advances with background event download progress, uses the intended gray-to-primary outline-fill treatment, and does not obscure live connection state text.
 
+### `VT-045` Bonded reboot management test
+
+- Input: bonded Android app connected to the controller, no watering active, no maintenance update active, and the user confirms `Reboot controller` from Settings.
+- Expected result: the command is accepted, the app shows reboot-in-progress state instead of a generic disconnect error, the controller reboots without clearing configuration or history, and the app reconnects automatically when the controller comes back.
+- Pass condition: the same controller reconnects successfully, persisted state remains intact, and the user does not need to manually restart scanning for the normal reboot path.
+
+### `VT-046` Bonded factory-reset management test
+
+- Input: bonded Android app connected to the controller, no watering active, no maintenance update active, and the user confirms `Factory reset controller` from Settings.
+- Expected result: the command is accepted, the controller clears BeetMeister-owned storage and BLE bonds, reboots, and the app returns to scan mode with clear guidance that pairing is required again.
+- Pass condition: configuration and cached history are gone after the next successful pair-and-connect, old BLE bonding no longer grants access, and the app does not remain stuck on the previously selected controller address.
+
 ## Entry and exit criteria by milestone
 
 | Milestone | Entry criteria | Exit criteria |
@@ -160,7 +173,7 @@ This document turns the baseline requirements into verifiable activities and rel
 | `M1` Hardware bench bring-up | `M0` complete | Board powers safely, ADC inputs read, relay outputs stay off at boot |
 | `M2` Core firmware logic | `M1` complete | Host tests for scheduler, conversion, blocks, storage, and battery all pass |
 | `M3` Connectivity | `M2` complete | MQTT and BLE tests pass on target hardware |
-| `M4` OTA and release candidate | `M3` complete | OTA tests, persistence tests, and release checklist all pass |
+| `M4` OTA and release candidate | `M3` complete | BLE maintenance OTA tests, persistence tests, and release checklist all pass |
 
 ## Bench setups and external dependencies
 
@@ -170,7 +183,7 @@ This document turns the baseline requirements into verifiable activities and rel
 - sensor test fixture or moisture-sensor substitute with controllable analog output
 - local Wi-Fi network with reachable MQTT broker and Home Assistant instance
 - Android device with BLE support
-- local HTTP server hosting OTA images
+- Android app build containing a bundled firmware image and support for selecting a custom firmware file
 
 ## Release acceptance checklist
 
@@ -179,5 +192,6 @@ This document turns the baseline requirements into verifiable activities and rel
 - Target-based ESP32-S3 tests pass on real hardware.
 - Bench tests pass for battery, pump concurrency, sensor sanity, MQTT, BLE, and persistence.
 - At least one 24-hour soak test passes with no invalid watering, missed scheduled checks, or corrupted persisted data.
-- OTA upgrade from the previous release succeeds and preserves configuration and history.
-- No open blocking defects remain in battery handling, pump scheduling, storage, BLE, MQTT, or OTA.
+- BLE maintenance upgrade from the previous release succeeds and preserves configuration and history.
+- Bonded reboot and bonded factory-reset flows both pass on real hardware.
+- No open blocking defects remain in battery handling, pump scheduling, storage, BLE, MQTT, or the BLE maintenance updater.

@@ -48,6 +48,18 @@ internal class BeetEventCache(
         return kept
     }
 
+    fun clearDevice(deviceId: String) {
+        val wateringIndexKey = wateringIndexKey(deviceId)
+        val systemIndexKey = systemIndexKey(deviceId)
+        val editor = prefs.edit()
+
+        loadKeys(wateringIndexKey).forEach { key -> editor.remove(key) }
+        loadKeys(systemIndexKey).forEach { key -> editor.remove(key) }
+        editor.remove(wateringIndexKey)
+        editor.remove(systemIndexKey)
+        editor.apply()
+    }
+
     fun saveWateringEvent(deviceId: String, event: BeetWateringEvent) {
         val cutoffUnixSeconds = retentionCutoffUnixSeconds()
         if (!shouldRetainWateringEvent(event, cutoffUnixSeconds)) {

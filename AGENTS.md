@@ -28,6 +28,13 @@
 - C firmware: `snake_case` for functions/statics, `BEET_*` for constants/macros, short focused helpers, minimal comments.
 - Keep JSON field names and BLE/MQTT contract strings aligned with the docs.
 
+## Protocol Versioning Rules
+
+- Any runtime BLE command, field, result shape, or wire-behavior change requires a `runtime_protocol_version` bump in `config/protocol_versions.properties`.
+- Any maintenance protocol wire change requires explicit user approval first.
+- Maintenance protocol wire changes include command names, required fields, compact aliases, field meanings, status shapes, and other on-wire behavior.
+- Do not merge or ship protocol-surface changes without updating the shared version source and any affected docs.
+
 ## Testing Guidelines
 
 - Add app unit tests under `app/app/src/test` and firmware host tests under `firmware/tests/host`.
@@ -49,3 +56,21 @@
 
 - If you create a real repo file, add it to git tracking in the same task.
 - Do not commit temporary files, build outputs, caches, or local machine config such as `local.properties`.
+
+## Never block forever on serial/console readers
+
+`artifacts/stage8/serial_reader.py` is a long-lived stream reader. It will
+**not** return on its own while the port stays open. If you invoke it through
+the bash tool without a bound, the tool call will hang and stall the session.
+
+Rules for yourself:
+
+- Always pass `--max-seconds` (or `--idle-exit`) when launching
+  `serial_reader.py` from this agent. Example:
+  `python artifacts/stage8/serial_reader.py COM4 --max-seconds 15`.
+- For one-shot captures prefer `--idle-exit 3` so it stops as soon as the
+  device goes quiet.
+- Prefer the project's own `invoke-idf.ps1 monitor` / `idf.py monitor` path
+  (see `$esp-idf-installation`) over `serial_reader.py` when possible.
+- If a serial call ever does hang, do not keep waiting on it. Stop the call,
+  capture what already streamed to a file, and move on.

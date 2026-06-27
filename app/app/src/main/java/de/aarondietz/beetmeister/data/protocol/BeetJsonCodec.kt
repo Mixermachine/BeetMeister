@@ -22,6 +22,8 @@ import de.aarondietz.beetmeister.model.command.BeetWateringIntervalCommandData
 import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
+import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
+import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
@@ -30,6 +32,9 @@ import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
+import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
+import de.aarondietz.beetmeister.model.update.BeetMaintenanceStatus
+import java.nio.charset.StandardCharsets
 
 object BeetJsonCodec {
     private val moshi: Moshi = Moshi.Builder()
@@ -37,6 +42,11 @@ object BeetJsonCodec {
         .build()
 
     private const val DATA_FIELD = "data"
+    data class MaintenanceBeginUpdatePayload(
+        val json: String,
+        val compact: Boolean,
+        val sizeBytes: Int,
+    )
 
     private val stateEnvelopeHeaderAdapter: JsonAdapter<StateEnvelopeHeaderDto> =
         moshi.adapter(StateEnvelopeHeaderDto::class.java)
@@ -47,6 +57,10 @@ object BeetJsonCodec {
 
     private val controllerInfoPayloadAdapter: JsonAdapter<BeetControllerInfo> =
         moshi.adapter(BeetControllerInfo::class.java)
+    private val maintenanceInfoPayloadAdapter: JsonAdapter<BeetMaintenanceInfo> =
+        moshi.adapter(BeetMaintenanceInfo::class.java)
+    private val maintenanceStatusPayloadAdapter: JsonAdapter<BeetMaintenanceStatus> =
+        moshi.adapter(BeetMaintenanceStatus::class.java)
     private val deviceStatePayloadAdapter: JsonAdapter<BeetDeviceState> =
         moshi.adapter(BeetDeviceState::class.java)
     private val pairStatePayloadAdapter: JsonAdapter<BeetPairState> =
@@ -57,6 +71,8 @@ object BeetJsonCodec {
         moshi.adapter(BeetCommandAckData::class.java)
     private val calibrationPayloadAdapter: JsonAdapter<BeetCalibration> =
         moshi.adapter(BeetCalibration::class.java)
+    private val pairWiringPayloadAdapter: JsonAdapter<BeetPairWiring> =
+        moshi.adapter(BeetPairWiring::class.java)
     private val valveConfigPayloadAdapter: JsonAdapter<BeetValveConfig> =
         moshi.adapter(BeetValveConfig::class.java)
     private val wateringIntervalPayloadAdapter: JsonAdapter<BeetWateringInterval> =
@@ -166,10 +182,15 @@ object BeetJsonCodec {
         } else {
             null
         }
+        val pairWiring = if (header.cmd == "get_pair_wiring" && header.status == "accepted") {
+            pairWiringPayloadAdapter.fromJson(dataJson) ?: error("Invalid pair wiring payload.")
+        } else {
+            null
+        }
         val ack = commandAckPayloadAdapter.fromJson(dataJson)
         return BeetCommandResult(
             command = header.cmd,
-            pairIndex = calibration?.pairIndex ?: event?.pairIndex ?: ack?.pairIndex,
+            pairIndex = calibration?.pairIndex ?: pairWiring?.pairIndex ?: event?.pairIndex ?: ack?.pairIndex,
             status = header.status,
             reason = header.reason,
             acceptedDurationSeconds = ack?.durationSeconds,
@@ -180,6 +201,64 @@ object BeetJsonCodec {
             systemEvent = systemEvent,
             valveConfig = valveConfig,
             wateringInterval = wateringInterval,
+            pairWiring = pairWiring,
+        )
+    }
+
+    fun parseMaintenanceInfo(payload: String): BeetMaintenanceInfo {
+        val header = stateEnvelopeHeaderAdapter.fromJson(payload) ?: error("Invalid maintenance info envelope.")
+        check(header.type == "maintenance_info") { "Unexpected maintenance info type ${header.type}." }
+        return maintenanceInfoPayloadAdapter.fromJson(extractRequiredObjectField(payload, DATA_FIELD))
+            ?: error("Invalid maintenance info payload.")
+    }
+
+    fun parseMaintenanceStatus(payload: String): BeetMaintenanceStatus {
+        val header = stateEnvelopeHeaderAdapter.fromJson(payload) ?: error("Invalid maintenance status envelope.")
+        check(header.type == "maintenance_status") { "Unexpected maintenance status type ${header.type}." }
+        return maintenanceStatusPayloadAdapter.fromJson(extractRequiredObjectField(payload, DATA_FIELD))
+            ?: error("Invalid maintenance status payload.")
+    }
+
+    // WARNING: The maintenance protocol wire contract is effectively frozen.
+    // Keep command names, required fields, compact aliases, and field semantics
+    // backward compatible across shipped controllers. Do not change this JSON
+    // shape without an explicit protocol decision coordinated with firmware.
+    fun maintenanceQueryStatus(): String = """{"cmd":"query_status"}"""
+
+    fun maintenanceAbortUpdate(): String = """{"cmd":"abort_update"}"""
+
+    fun maintenanceFinishUpdate(): String = """{"cmd":"finish_update"}"""
+
+    fun maintenanceBeginUpdate(
+        firmware: BeetFirmwarePackageSummary,
+        maxPayloadBytes: Int,
+    ): MaintenanceBeginUpdatePayload {
+        // WARNING: The verbose and compact begin_update payloads are both part
+        // of the fixed maintenance protocol surface. Future edits must preserve
+        // backward compatibility for shipped controllers, including compact
+        // aliases such as d/fv/bl/sz/sh/pi/hr/ai/ik.
+        val hardwareRevs = firmware.metadata.compatibleHardwareRevs.joinToString(separator = ",") { "\"$it\"" }
+        val imageKind = firmware.metadata.imageKind
+        val verbosePayload =
+            """{"cmd":"begin_update","data":{"firmware_version":"${escapeJson(firmware.metadata.firmwareVersion)}","build_label":"${escapeJson(firmware.metadata.buildLabel)}","image_size":${firmware.imageSize},"image_sha256":"${firmware.sha256Hex}","product_id":"${escapeJson(firmware.metadata.productId)}","hardware_revs":[${hardwareRevs}],"runtime_protocol_version":${firmware.metadata.runtimeProtocolVersion},"asset_id":"${escapeJson(firmware.assetId)}","image_kind":"${escapeJson(imageKind)}"}}""".trimIndent()
+        val verboseSize = verbosePayload.toByteArray(StandardCharsets.UTF_8).size
+        if (verboseSize <= maxPayloadBytes) {
+            return MaintenanceBeginUpdatePayload(
+                json = verbosePayload,
+                compact = false,
+                sizeBytes = verboseSize,
+            )
+        }
+        val compactPayload =
+            """{"cmd":"begin_update","d":{"fv":"${escapeJson(firmware.metadata.firmwareVersion)}","bl":"${escapeJson(firmware.metadata.buildLabel)}","sz":${firmware.imageSize},"sh":"${firmware.sha256Hex}","pi":"${escapeJson(firmware.metadata.productId)}","hr":[${hardwareRevs}],"ai":"${escapeJson(firmware.assetId)}","ik":"${escapeJson(imageKind)}"}}""".trimIndent()
+        val compactSize = compactPayload.toByteArray(StandardCharsets.UTF_8).size
+        require(compactSize <= maxPayloadBytes) {
+            "Maintenance begin_update payload exceeds $maxPayloadBytes bytes for negotiated MTU."
+        }
+        return MaintenanceBeginUpdatePayload(
+            json = compactPayload,
+            compact = true,
+            sizeBytes = compactSize,
         )
     }
 
@@ -198,6 +277,20 @@ object BeetJsonCodec {
             base64Fragment = envelope.base64Fragment,
         )
     }
+
+    private fun escapeJson(value: String): String =
+        buildString(value.length) {
+            value.forEach { ch ->
+                when (ch) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> append(ch)
+                }
+            }
+        }
 
     fun manualStart(pairIndex: Int, durationSeconds: Int?): String =
         manualStartEnvelopeAdapter.toJson(
@@ -254,6 +347,14 @@ object BeetJsonCodec {
             ),
         )
 
+    fun getPairWiring(pairIndex: Int): String =
+        pairRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_pair_wiring",
+                data = BeetPairCommandData(pairIndex = pairIndex),
+            ),
+        )
+
     fun getHistorySummary(): String =
         emptyRequestEnvelopeAdapter.toJson(
             CommandRequestEnvelopeDto(
@@ -298,6 +399,22 @@ object BeetJsonCodec {
         emptyRequestEnvelopeAdapter.toJson(
             CommandRequestEnvelopeDto(
                 cmd = "clear_ble_bonds",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun rebootController(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "reboot_controller",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun factoryResetController(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "factory_reset",
                 data = BeetEmptyCommandData(),
             ),
         )

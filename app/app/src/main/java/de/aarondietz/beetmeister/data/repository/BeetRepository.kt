@@ -3,6 +3,7 @@ package de.aarondietz.beetmeister.data.repository
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
+import android.net.Uri
 import android.content.SharedPreferences
 import android.util.Log
 import de.aarondietz.beetmeister.R
@@ -16,12 +17,15 @@ import de.aarondietz.beetmeister.model.connection.BeetConnectionState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
+import de.aarondietz.beetmeister.service.BeetMaintenanceForegroundService
 import de.aarondietz.beetmeister.strings.AndroidBeetStringResolver
 import de.aarondietz.beetmeister.strings.BeetStringResolver
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +50,11 @@ internal class BeetRepository(
 
     private val scanBondCoordinator = BeetScanBondCoordinator(this)
     private val gattSessionCoordinator = BeetGattSessionCoordinator(this)
+    private val maintenanceServiceJob = scope.launch {
+        state.collectLatest { current ->
+            BeetMaintenanceForegroundService.sync(appContext, current)
+        }
+    }
 
     fun start() = scanBondCoordinator.start()
 
@@ -53,6 +62,8 @@ internal class BeetRepository(
         Log.d(TAG, "close()")
         scanBondCoordinator.close()
         gattSessionCoordinator.close()
+        maintenanceServiceJob.cancel()
+        BeetMaintenanceForegroundService.stop(appContext)
         scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     }
 
@@ -109,6 +120,8 @@ internal class BeetRepository(
     fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) =
         gattSessionCoordinator.saveCalibration(pairIndex, dryMillivolts, wetMillivolts)
 
+    fun loadPairWiring(pairIndex: Int) = gattSessionCoordinator.loadPairWiring(pairIndex)
+
     fun refreshValveConfig() = gattSessionCoordinator.refreshValveConfig()
 
     fun refreshWateringInterval() = gattSessionCoordinator.refreshWateringInterval()
@@ -122,6 +135,26 @@ internal class BeetRepository(
     fun openValve() = gattSessionCoordinator.openValve()
 
     fun closeValve() = gattSessionCoordinator.closeValve()
+
+    fun rebootController() = gattSessionCoordinator.rebootController()
+
+    fun factoryResetController() = gattSessionCoordinator.factoryResetController()
+
+    fun prepareBundledFirmware() = gattSessionCoordinator.prepareBundledFirmware()
+
+    fun prepareCustomFirmware(uri: Uri) = gattSessionCoordinator.prepareCustomFirmware(uri)
+
+    fun startMaintenanceUpdate() {
+        val selected = state.value.maintenanceUpdate.selectedFirmware
+        Log.d(
+            TAG,
+            "startMaintenanceUpdate(selected=${selected?.metadata?.firmwareVersion}/${selected?.sourceLabel}, " +
+                "phase=${state.value.maintenanceUpdate.phase})",
+        )
+        gattSessionCoordinator.startMaintenanceUpdate()
+    }
+
+    fun abortMaintenanceUpdate() = gattSessionCoordinator.abortMaintenanceUpdate()
 
     override fun updateConnection(phase: BeetConnectionPhase, detail: String?) {
         val previous = state.value.connection
@@ -150,10 +183,14 @@ internal class BeetRepository(
         _state.update {
             it.copy(
                 controllerInfo = null,
+                maintenanceInfo = null,
                 deviceState = null,
                 valveConfig = null,
                 wateringInterval = null,
                 calibrations = emptyMap(),
+                pairWirings = emptyMap(),
+                pairWiringLoading = emptySet(),
+                pairWiringErrors = emptyMap(),
                 calibrationsRefreshing = false,
                 historySummary = null,
                 systemHistorySummary = null,

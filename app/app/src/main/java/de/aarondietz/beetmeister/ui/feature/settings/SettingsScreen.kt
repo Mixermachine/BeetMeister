@@ -19,6 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,7 @@ import de.aarondietz.beetmeister.ui.core.component.SettingInfoDialog
 import de.aarondietz.beetmeister.ui.core.component.ValueGridRow
 import de.aarondietz.beetmeister.ui.core.formatting.connectionPhaseLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
+import de.aarondietz.beetmeister.ui.core.formatting.maintenanceImageKindLabel
 import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
 
 internal data class SettingsSaveDraft(
@@ -56,12 +59,16 @@ internal fun SettingsScreen(
     onOpenValveCalibration: () -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
+    onRebootController: () -> Unit,
+    onFactoryResetController: () -> Unit,
+    onOpenFirmwareUpdate: () -> Unit,
     onDisconnect: () -> Unit,
     onUnsavedStateChange: (Boolean, SettingsSaveDraft?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
     val info = state.controllerInfo
+    val maintenanceInfo = state.maintenanceInfo
     val valveConfig = state.valveConfig
     val deviceState = state.deviceState
     var valveEnabled by remember { mutableStateOf(false) }
@@ -71,6 +78,8 @@ internal fun SettingsScreen(
     var intervalHoursText by remember { mutableStateOf("") }
     var intervalMinutesText by remember { mutableStateOf("") }
     var activeInfo by remember { mutableStateOf<ValveSettingInfo?>(null) }
+    var showRebootDialog by remember { mutableStateOf(false) }
+    var showFactoryResetDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.connection.phase) {
         if (state.connection.phase == BeetConnectionPhase.Connected) {
@@ -146,6 +155,52 @@ internal fun SettingsScreen(
         )
     }
 
+    if (showRebootDialog) {
+        AlertDialog(
+            onDismissRequest = { showRebootDialog = false },
+            title = { Text(strings.get(R.string.settings_reboot_dialog_title)) },
+            text = { Text(strings.get(R.string.settings_reboot_dialog_body)) },
+            dismissButton = {
+                TextButton(onClick = { showRebootDialog = false }) {
+                    Text(strings.get(R.string.common_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRebootDialog = false
+                        onRebootController()
+                    },
+                ) {
+                    Text(strings.get(R.string.settings_reboot_action))
+                }
+            },
+        )
+    }
+
+    if (showFactoryResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showFactoryResetDialog = false },
+            title = { Text(strings.get(R.string.settings_factory_reset_dialog_title)) },
+            text = { Text(strings.get(R.string.settings_factory_reset_dialog_body)) },
+            dismissButton = {
+                TextButton(onClick = { showFactoryResetDialog = false }) {
+                    Text(strings.get(R.string.common_cancel))
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showFactoryResetDialog = false
+                        onFactoryResetController()
+                    },
+                ) {
+                    Text(strings.get(R.string.settings_factory_reset_action))
+                }
+            },
+        )
+    }
+
     LaunchedEffect(hasUnsavedChanges, savableDraft) {
         onUnsavedStateChange(hasUnsavedChanges, savableDraft)
     }
@@ -172,16 +227,26 @@ internal fun SettingsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         ValueGridRow(
                             strings.get(R.string.settings_label_device_id),
-                            info?.deviceId ?: strings.get(R.string.placeholder_dash),
+                            info?.deviceId ?: maintenanceInfo?.productId ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.settings_label_protocol),
-                            info?.protocolVersion?.toString() ?: strings.get(R.string.placeholder_dash),
+                            info?.protocolVersion?.toString()
+                                ?: maintenanceInfo?.runtimeProtocolVersion?.toString()
+                                ?: strings.get(R.string.placeholder_dash),
                         )
                         ValueGridRow(
                             strings.get(R.string.settings_label_firmware),
-                            info?.firmwareVersion ?: strings.get(R.string.placeholder_dash),
+                            info?.firmwareVersion ?: maintenanceInfo?.firmwareVersion ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.settings_label_pairs),
                             info?.pairCount?.toString() ?: strings.get(R.string.placeholder_dash),
                         )
+                        if (maintenanceInfo != null) {
+                            ValueGridRow(
+                                strings.get(R.string.settings_label_build),
+                                maintenanceInfo.buildLabel,
+                                strings.get(R.string.settings_label_firmware_source),
+                                maintenanceImageKindLabel(maintenanceInfo.imageKind, strings),
+                            )
+                        }
                         ValueGridRow(
                             strings.get(R.string.settings_label_connection),
                             connectionPhaseLabel(state.connection.phase, strings),
@@ -191,6 +256,50 @@ internal fun SettingsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(onClick = onDisconnect) {
                             Text(strings.get(R.string.common_disconnect))
+                        }
+                    }
+                }
+            }
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F0E5)),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(strings.get(R.string.settings_firmware_update_title), style = MaterialTheme.typography.titleMedium)
+                        Text(strings.get(R.string.settings_firmware_update_subtitle), style = MaterialTheme.typography.bodyMedium)
+                        Button(onClick = onOpenFirmwareUpdate) {
+                            Text(strings.get(R.string.settings_open_firmware_update))
+                        }
+                    }
+                }
+            }
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF5E9E5)),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(strings.get(R.string.settings_controller_management_title), style = MaterialTheme.typography.titleMedium)
+                        Text(strings.get(R.string.settings_controller_management_subtitle), style = MaterialTheme.typography.bodyMedium)
+                        Button(
+                            onClick = { showRebootDialog = true },
+                            enabled = state.connection.phase == BeetConnectionPhase.Connected && !hasUnsavedChanges,
+                        ) {
+                            Text(strings.get(R.string.settings_reboot_action))
+                        }
+                        Button(
+                            onClick = { showFactoryResetDialog = true },
+                            enabled = state.connection.phase == BeetConnectionPhase.Connected && !hasUnsavedChanges,
+                        ) {
+                            Text(strings.get(R.string.settings_factory_reset_action))
+                        }
+                        if (hasUnsavedChanges) {
+                            Text(
+                                text = strings.get(R.string.settings_controller_management_unsaved_hint),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
