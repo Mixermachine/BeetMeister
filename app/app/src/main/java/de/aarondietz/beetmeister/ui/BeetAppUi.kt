@@ -548,6 +548,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     onOpenValve = viewModel::openValve,
                     onCloseValve = viewModel::closeValve,
                     onRebootController = viewModel::rebootController,
+                    onRunScheduler = viewModel::runScheduler,
                     onFactoryResetController = viewModel::factoryResetController,
                     onOpenFirmwareUpdate = ::requestOpenMaintenanceScreen,
                     onDisconnect = viewModel::disconnect,

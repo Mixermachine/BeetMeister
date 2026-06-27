@@ -94,6 +94,7 @@
     <string name="settings_label_interval_minutes">Minutes</string>
     <string name="settings_watering_interval_error">Enter a value from 5 minutes to 24 hours.</string>
     <string name="settings_save_watering_interval">Save interval</string>
+    <string name="settings_run_scheduler">Run scheduler now</string>
     <string name="settings_valve_title">Main valve</string>
     <string name="settings_valve_subtitle">Shared upstream ball valve driven by the servo on the boost rail.</string>
     <string name="settings_label_valve_state">Valve state</string>

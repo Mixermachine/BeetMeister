@@ -60,6 +60,7 @@ internal fun SettingsScreen(
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
     onRebootController: () -> Unit,
+    onRunScheduler: () -> Unit,
     onFactoryResetController: () -> Unit,
     onOpenFirmwareUpdate: () -> Unit,
     onDisconnect: () -> Unit,
@@ -341,11 +342,19 @@ internal fun SettingsScreen(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
-                        Button(
-                            onClick = { wateringIntervalSeconds?.let(onSaveWateringInterval) },
-                            enabled = wateringIntervalChanged,
-                        ) {
-                            Text(strings.get(R.string.settings_save_watering_interval))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(
+                                onClick = { wateringIntervalSeconds?.let(onSaveWateringInterval) },
+                                enabled = wateringIntervalChanged,
+                            ) {
+                                Text(strings.get(R.string.settings_save_watering_interval))
+                            }
+                            Button(
+                                onClick = onRunScheduler,
+                                enabled = state.connection.phase == BeetConnectionPhase.Connected,
+                            ) {
+                                Text(strings.get(R.string.settings_run_scheduler))
+                            }
                         }
                     }
                 }

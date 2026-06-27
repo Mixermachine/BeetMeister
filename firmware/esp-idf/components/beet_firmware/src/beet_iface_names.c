@@ -59,6 +59,8 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "factory_reset";
     case BEET_IFACE_COMMAND_GET_PAIR_WIRING:
         return "get_pair_wiring";
+    case BEET_IFACE_COMMAND_RUN_SCHEDULER:
+        return "run_scheduler";
     default:
         return "unknown";
     }

@@ -132,8 +132,8 @@ static const char *beet_stage4_begin_update_json(void)
 {
     return
     "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
-    "\"image_size\":122,\"image_sha256\":\"9a346f4491334ac9a5d608120b979fd304b6a981fece7663f172a91a0e25c3be\","
-    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":11,"
+    "\"image_size\":122,\"image_sha256\":\"09e762f8ab00b6b6707d64898f454e1a0e7643c716731e5dc029adffd79a56c2\","
+    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":12,"
     "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
 }
 
@@ -651,6 +651,34 @@ static void test_rejected_mutating_command_does_not_trigger_immediate_state(void
     TEST_ASSERT_U32_EQ(0U, ble_host_test_notification_count());
 }
 
+static void test_run_scheduler_triggers_immediate_state(void)
+{
+    beet_iface_device_state_t device = { 0 };
+    beet_iface_command_response_t response;
+
+    beet_prepare_session(247U);
+    beet_ble_host_test_set_state_stream_subscription(true);
+    device.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    device.valve_state = BEET_VALVE_STATE_CLOSED;
+    device.battery_mv = 3348U;
+    device.next_check_in_s = 4812U;
+    strcpy(device.device_id, "beetmeister-01");
+    ble_host_test_set_device_state(&device);
+    beet_flush_state_stream_initial_sync();
+    ble_host_test_clear_captures();
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_RUN_SCHEDULER;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    beet_ble_host_test_set_pending_result(&response);
+
+    ble_host_test_advance_time_us(1000LL);
+    beet_ble_service();
+
+    TEST_ASSERT_TRUE(ble_host_test_notification_count() > 0U);
+}
+
 static void test_maintenance_session_expires_after_disconnect(void)
 {
     beet_iface_device_state_t device = { 0 };
@@ -873,6 +901,7 @@ int main(void)
         {"mutating_command_triggers_immediate_state", test_mutating_command_triggers_immediate_state},
         {"readonly_command_does_not_trigger_immediate_state", test_readonly_command_does_not_trigger_immediate_state},
         {"rejected_mutating_command_does_not_trigger_immediate_state", test_rejected_mutating_command_does_not_trigger_immediate_state},
+        {"run_scheduler_triggers_immediate_state", test_run_scheduler_triggers_immediate_state},
         {"maintenance_session_expires_after_disconnect", test_maintenance_session_expires_after_disconnect},
         {"maintenance_session_resumes_before_expiry", test_maintenance_session_resumes_before_expiry},
         {"maintenance_data_requires_bond", test_maintenance_data_requires_bond},

@@ -150,6 +150,7 @@ static esp_err_t beet_apply_time_update(uint32_t unix_s);
 static bool beet_lookup_boot_epoch(uint32_t boot_id, uint32_t *boot_epoch_unix_s);
 static bool beet_boot_low_voltage_grace_active(int64_t now_us);
 static bool beet_should_run_scheduler_immediately_on_boot(void);
+static void beet_run_scheduler_cycle(int64_t now_us);
 static bool beet_refresh_sensors(void);
 static bool beet_has_active_pump_runtime(void);
 static bool beet_sensor_refresh_due(int64_t now_us);
@@ -2528,6 +2529,21 @@ esp_err_t beet_iface_submit_command(
         beet_schedule_pending_action(BEET_PENDING_ACTION_FACTORY_RESET, now_us);
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_FACTORY_RESET_STARTED;
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_RUN_SCHEDULER:
+        if (beet_ble_maintenance_runtime_blocking()) {
+            response->reason = BEET_IFACE_REASON_OTA_IN_PROGRESS;
+            return ESP_OK;
+        }
+        if (s_state.battery_state == BEET_BATTERY_STATE_DEEP_LOW_BATTERY) {
+            response->reason = BEET_IFACE_REASON_LOW_BATTERY;
+            return ESP_OK;
+        }
+        beet_mark_activity(now_us);
+        beet_run_scheduler_cycle(now_us);
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
         return ESP_OK;
 
     default:
