@@ -1082,6 +1082,11 @@ internal class BeetGattSessionCoordinator(
         }
         refreshValveConfig()
         refreshWateringInterval()
+        host.scope.launch {
+            delay(POST_CONNECT_EVENT_SYNC_DELAY_MS)
+            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) return@launch
+            startBackgroundEventSync()
+        }
     }
 
     private fun handleControllerInfo(payload: ByteArray) {
@@ -2345,6 +2350,7 @@ internal class BeetGattSessionCoordinator(
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
         private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L
         private const val EXPECTED_REBOOT_RECONNECT_DELAY_MS = 1_000L
+        private const val POST_CONNECT_EVENT_SYNC_DELAY_MS = 3_000L
     }
 
     private class MaintenanceAbortRequestedException : IllegalStateException("Maintenance update aborted")
