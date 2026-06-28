@@ -421,6 +421,29 @@ class BeetJsonCodecTest {
     }
 
     @Test
+    fun parsesAndBuildsMaxActivePumpsCommands() {
+        val payload = """
+            {
+              "cmd":"get_max_active_pumps",
+              "status":"accepted",
+              "reason":"none",
+              "data":{
+                "max_active_pumps":3
+              }
+            }
+        """.trimIndent()
+
+        val result = BeetJsonCodec.parseCommandResult(payload)
+
+        assertEquals(3, result.maxActivePumps!!.maxActivePumps)
+        assertEquals("""{"cmd":"get_max_active_pumps","data":{}}""", BeetJsonCodec.getMaxActivePumps())
+        assertEquals(
+            """{"cmd":"store_max_active_pumps","data":{"max":5}}""",
+            BeetJsonCodec.storeMaxActivePumps(5),
+        )
+    }
+
+    @Test
     fun parsesMaintenanceInfoFrame() {
         val payload = """
             {

@@ -2621,7 +2621,7 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         }
 #else
         if (event->subscribe.attr_handle == s_state_stream_handle) {
-            s_ble.state_stream_subscribed = event->subscribe.cur_notify && beet_ble_is_bonded_conn(event->subscribe.conn_handle);
+            s_ble.state_stream_subscribed = event->subscribe.cur_notify;
             if (s_ble.state_stream_subscribed) {
                 beet_ble_start_initial_state_stream_sync();
             } else {
@@ -2630,7 +2630,7 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
             beet_ble_mark_activity();
             ESP_LOGI(TAG, "state stream subscribe notify=%d bonded=%d", event->subscribe.cur_notify, s_ble.state_stream_subscribed);
         } else if (event->subscribe.attr_handle == s_command_result_handle) {
-            s_ble.command_result_subscribed = event->subscribe.cur_indicate && beet_ble_is_bonded_conn(event->subscribe.conn_handle);
+            s_ble.command_result_subscribed = event->subscribe.cur_indicate;
             if (!s_ble.command_result_subscribed) {
                 beet_ble_clear_result_send_state();
             }
@@ -2943,7 +2943,7 @@ static bool beet_ble_stream_device_state(void)
         return false;
     }
     written = beet_ble_format_device_frame_json(json, payload_budget < sizeof(json) ? payload_budget : sizeof(json), &device_state);
-    if (written < 0 || (size_t)written > payload_budget) {
+    if (written < 0) {
         ESP_LOGW(
             TAG,
             "device frame exceeds mtu payload frame_len=%u mtu_payload=%u battery_state=%s",

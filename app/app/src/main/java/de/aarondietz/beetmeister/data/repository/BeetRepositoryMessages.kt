@@ -29,6 +29,8 @@ internal fun commandMessageForResult(result: BeetCommandResult, strings: BeetStr
             base
         result.command == "store_watering_interval" && result.status == "accepted" ->
             strings.get(R.string.command_message_watering_interval_saved)
+        result.command == "store_max_active_pumps" && result.status == "accepted" ->
+            strings.get(R.string.command_message_max_active_pumps_saved)
         result.pairIndex != null ->
             strings.get(R.string.command_message_pair_prefix, result.pairIndex, base)
         else -> base

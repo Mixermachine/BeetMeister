@@ -57,6 +57,33 @@ typedef struct {
     uint16_t flags;
 } beet_app_config_v2_t;
 
+typedef struct {
+    uint16_t schema_version;
+    char device_id[BEET_DEVICE_ID_MAX_LEN + 1U];
+    uint8_t pair_count;
+    uint32_t watering_interval_s;
+    uint16_t idle_sleep_threshold_mv;
+    uint16_t deep_sleep_threshold_mv;
+    uint16_t deep_sleep_resume_mv;
+    uint16_t watering_abort_threshold_mv;
+    uint16_t inactivity_sleep_timeout_s;
+    char mqtt_broker_host[BEET_MQTT_HOST_MAX_LEN + 1U];
+    uint16_t mqtt_broker_port;
+    char mqtt_username[BEET_MQTT_USER_MAX_LEN + 1U];
+    char mqtt_password[BEET_MQTT_PASSWORD_MAX_LEN + 1U];
+    char mqtt_base_topic[BEET_MQTT_BASE_TOPIC_MAX_LEN + 1U];
+    char legacy_ota_base_url[BEET_OTA_URL_MAX_LEN + 1U];
+    bool valve_enabled;
+    uint16_t valve_servo_min_pulse_us;
+    uint16_t valve_servo_max_pulse_us;
+    uint16_t valve_open_pulse_us;
+    uint16_t valve_shut_pulse_us;
+    uint16_t valve_move_duration_ms;
+    uint16_t valve_settle_delay_ms;
+    uint16_t valve_open_hold_ms;
+    uint16_t flags;
+} beet_app_config_v3_t;
+
 static void beet_copy_common_legacy_config_fields(
     beet_app_config_t *config,
     const char *device_id,
@@ -240,6 +267,47 @@ static esp_err_t beet_load_config(beet_app_config_t *config, bool *was_initializ
             config->valve_enabled = legacy.valve_enabled;
             config->valve_open_pulse_us = beet_legacy_angle_to_pulse_us(legacy.valve_open_angle_deg);
             config->valve_shut_pulse_us = beet_legacy_angle_to_pulse_us(legacy.valve_close_angle_deg);
+            config->valve_move_duration_ms = legacy.valve_move_duration_ms;
+            config->valve_settle_delay_ms = legacy.valve_settle_delay_ms;
+            config->valve_open_hold_ms = legacy.valve_open_hold_ms;
+            err = nvs_set_blob(handle, "app", config, sizeof(*config));
+            if (err == ESP_OK) {
+                err = nvs_commit(handle);
+            }
+            *was_initialized = false;
+            nvs_close(handle);
+            return err;
+        }
+    }
+
+    if (err == ESP_OK && required_size == sizeof(beet_app_config_v3_t)) {
+        beet_app_config_v3_t legacy = { 0 };
+        required_size = sizeof(legacy);
+        err = nvs_get_blob(handle, "app", &legacy, &required_size);
+        if (err == ESP_OK && legacy.schema_version == 3U) {
+            beet_default_app_config(config);
+            beet_copy_common_legacy_config_fields(
+                config,
+                legacy.device_id,
+                legacy.pair_count,
+                legacy.watering_interval_s,
+                legacy.idle_sleep_threshold_mv,
+                legacy.deep_sleep_threshold_mv,
+                legacy.deep_sleep_resume_mv,
+                legacy.watering_abort_threshold_mv,
+                legacy.inactivity_sleep_timeout_s,
+                legacy.mqtt_broker_host,
+                legacy.mqtt_broker_port,
+                legacy.mqtt_username,
+                legacy.mqtt_password,
+                legacy.mqtt_base_topic,
+                legacy.legacy_ota_base_url,
+                legacy.flags);
+            config->valve_enabled = legacy.valve_enabled;
+            config->valve_servo_min_pulse_us = legacy.valve_servo_min_pulse_us;
+            config->valve_servo_max_pulse_us = legacy.valve_servo_max_pulse_us;
+            config->valve_open_pulse_us = legacy.valve_open_pulse_us;
+            config->valve_shut_pulse_us = legacy.valve_shut_pulse_us;
             config->valve_move_duration_ms = legacy.valve_move_duration_ms;
             config->valve_settle_delay_ms = legacy.valve_settle_delay_ms;
             config->valve_open_hold_ms = legacy.valve_open_hold_ms;

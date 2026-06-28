@@ -130,6 +130,10 @@ internal class BeetRepository(
 
     fun saveWateringInterval(seconds: Int) = gattSessionCoordinator.saveWateringInterval(seconds)
 
+    fun refreshMaxActivePumps() = gattSessionCoordinator.refreshMaxActivePumps()
+
+    fun storeMaxActivePumps(max: Int) = gattSessionCoordinator.storeMaxActivePumps(max)
+
     fun previewValvePosition(pulseMicros: Int) = gattSessionCoordinator.previewValvePosition(pulseMicros)
 
     fun openValve() = gattSessionCoordinator.openValve()
@@ -189,6 +193,7 @@ internal class BeetRepository(
                 deviceState = null,
                 valveConfig = null,
                 wateringInterval = null,
+                maxActivePumps = null,
                 calibrations = emptyMap(),
                 pairWirings = emptyMap(),
                 pairWiringLoading = emptySet(),

@@ -61,6 +61,10 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "get_pair_wiring";
     case BEET_IFACE_COMMAND_RUN_SCHEDULER:
         return "run_scheduler";
+    case BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS:
+        return "get_max_active_pumps";
+    case BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS:
+        return "store_max_active_pumps";
     default:
         return "unknown";
     }
@@ -163,6 +167,8 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "rebooting";
     case BEET_IFACE_REASON_FACTORY_RESET_STARTED:
         return "factory_reset_started";
+    case BEET_IFACE_REASON_INVALID_MAX_ACTIVE_PUMPS:
+        return "invalid_max_active_pumps";
     default:
         return "unknown";
     }

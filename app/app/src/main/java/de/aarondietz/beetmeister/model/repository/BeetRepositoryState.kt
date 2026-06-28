@@ -25,6 +25,7 @@ data class BeetRepositoryState(
     val deviceState: BeetDeviceState? = null,
     val valveConfig: BeetValveConfig? = null,
     val wateringInterval: BeetWateringInterval? = null,
+    val maxActivePumps: Int? = null,
     val pairStates: List<BeetPairState> = List(8) { index ->
         BeetPairState(
             pairIndex = index + 1,

@@ -69,6 +69,10 @@ internal class BeetAppViewModel(
 
     fun saveWateringInterval(seconds: Int) = repository.saveWateringInterval(seconds)
 
+    fun refreshMaxActivePumps() = repository.refreshMaxActivePumps()
+
+    fun storeMaxActivePumps(max: Int) = repository.storeMaxActivePumps(max)
+
     fun previewValvePosition(pulseMicros: Int) = repository.previewValvePosition(pulseMicros)
 
     fun openValve() = repository.openValve()

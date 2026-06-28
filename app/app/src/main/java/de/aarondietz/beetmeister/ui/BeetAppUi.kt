@@ -430,6 +430,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     UnsavedDialogSource.Settings -> {
                         settingsSavableDraft?.valveConfig?.let(viewModel::saveValveConfig)
                         settingsSavableDraft?.wateringIntervalSeconds?.let(viewModel::saveWateringInterval)
+                        settingsSavableDraft?.maxActivePumps?.let(viewModel::storeMaxActivePumps)
                         applyPendingAction()
                     }
                     UnsavedDialogSource.PairCalibration -> {
@@ -534,8 +535,10 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     },
                     onRefreshValveConfig = viewModel::refreshValveConfig,
                     onRefreshWateringInterval = viewModel::refreshWateringInterval,
+                    onRefreshMaxActivePumps = viewModel::refreshMaxActivePumps,
                     onSaveValveConfig = viewModel::saveValveConfig,
                     onSaveWateringInterval = viewModel::saveWateringInterval,
+                    onStoreMaxActivePumps = viewModel::storeMaxActivePumps,
                     onPreviewValvePosition = viewModel::previewValvePosition,
                     onValveCalibrationUnsavedStateChange = { hasUnsaved, savableConfig ->
                         valveCalibrationHasUnsavedChanges = hasUnsaved
