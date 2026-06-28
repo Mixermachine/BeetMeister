@@ -54,6 +54,87 @@ function Limit-Value {
     return $Value
 }
 
+function Get-FirmwareCacheKey {
+    param([string]$RepoRoot)
+
+    try {
+        $gitHead = Get-GitValue -RepoRoot $RepoRoot -GitArgs @("rev-parse", "HEAD") -Fallback ""
+        if (-not $gitHead) { return $null }
+
+        $srcFiles = @(Get-ChildItem -Path (Join-Path $RepoRoot "firmware\esp-idf\components\beet_firmware\src\*.c") -File -ErrorAction SilentlyContinue | Sort-Object Name | ForEach-Object { $_.FullName })
+        $includeFiles = @(Get-ChildItem -Path (Join-Path $RepoRoot "firmware\esp-idf\components\beet_firmware\include\*.h") -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne "beet_generated_metadata.h" } | Sort-Object Name | ForEach-Object { $_.FullName })
+
+        $explicitFiles = @(
+            (Join-Path $RepoRoot "firmware\esp-idf\main\beetmeister_main.c"),
+            (Join-Path $RepoRoot "firmware\esp-idf\CMakeLists.txt"),
+            (Join-Path $RepoRoot "firmware\esp-idf\components\beet_firmware\CMakeLists.txt"),
+            (Join-Path $RepoRoot "firmware\esp-idf\main\CMakeLists.txt"),
+            (Join-Path $RepoRoot "firmware\esp-idf\sdkconfig.defaults"),
+            (Join-Path $RepoRoot "firmware\esp-idf\sdkconfig.defaults.esp32s3"),
+            (Join-Path $RepoRoot "firmware\esp-idf\sdkconfig.release.defaults"),
+            (Join-Path $RepoRoot "firmware\esp-idf\partitions\beetmeister.csv"),
+            (Join-Path $RepoRoot "config\protocol_versions.properties"),
+            (Join-Path $RepoRoot "firmware\esp-idf\components\beet_firmware\tools\gen_beet_metadata_header.py"),
+            (Join-Path $RepoRoot "firmware\esp-idf\main\idf_component.yml")
+        )
+
+        $allFiles = $srcFiles + $includeFiles + $explicitFiles
+        $hashEntries = [System.Collections.ArrayList]::new()
+        [void]$hashEntries.Add("HEAD:$gitHead")
+
+        foreach ($path in $allFiles) {
+            if (-not (Test-Path -LiteralPath $path)) { return $null }
+            $relativePath = $path.Substring($RepoRoot.Length + 1).Replace('\', '/')
+            $fileHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            [void]$hashEntries.Add("$relativePath`:$fileHash")
+        }
+
+        $concatString = $hashEntries -join "|"
+        $stream = [System.IO.MemoryStream]::new([System.Text.Encoding]::UTF8.GetBytes($concatString))
+        $concatHash = (Get-FileHash -InputStream $stream -Algorithm SHA256).Hash
+        $stream.Dispose()
+        return $concatHash
+    } catch {
+        return $null
+    }
+}
+
+function Read-CachedFirmwareKey {
+    param([string]$CacheKeyPath)
+
+    try {
+        if (-not (Test-Path -LiteralPath $CacheKeyPath)) { return $null }
+        $json = Get-Content -LiteralPath $CacheKeyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        return $json.cache_key
+    } catch {
+        return $null
+    }
+}
+
+function Write-CachedFirmwareKey {
+    param(
+        [string]$CacheKeyPath,
+        [string]$CacheKey,
+        [string]$RepoRoot
+    )
+
+    $gitCommit = Get-GitValue -RepoRoot $RepoRoot -GitArgs @("rev-parse", "HEAD") -Fallback "unknown"
+    $buildLabel = Get-GitValue -RepoRoot $RepoRoot -GitArgs @("describe", "--tags", "--always", "--dirty") -Fallback $gitCommit
+
+    $cacheData = [ordered]@{
+        cache_key = $CacheKey
+        git_commit = $gitCommit
+        build_label = $buildLabel
+        created = (Get-Date -Format "o")
+    }
+
+    $parentDir = Split-Path -Parent $CacheKeyPath
+    if (-not (Test-Path -LiteralPath $parentDir)) {
+        New-Item -ItemType Directory -Force -Path $parentDir | Out-Null
+    }
+    $cacheData | ConvertTo-Json -Depth 2 | Set-Content -LiteralPath $CacheKeyPath -Encoding UTF8
+}
+
 function Get-StampValues {
     param([string]$RepoRoot)
 
@@ -89,40 +170,57 @@ $releaseConfigCheck = Join-Path $repoRoot "scripts\dev\verify-firmware-release-c
 $releaseSdkconfigPath = Join-Path $firmwareBuildPath "sdkconfig.release.generated"
 
 if (-not $PrebuiltImagePath) {
-    Write-BeetPhase "Building bundled firmware image."
-    $stamp = Get-StampValues -RepoRoot $repoRoot
-    $env:SDKCONFIG_DEFAULTS = "sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.release.defaults"
-    $env:SDKCONFIG = $releaseSdkconfigPath
-    if (Test-Path -LiteralPath $firmwareBuildPath) {
-        Remove-Item -LiteralPath $firmwareBuildPath -Recurse -Force
+    $cacheKeyPath = Join-Path $firmwareBuildPath ".beet-firmware-cache-key"
+    $currentKey = Get-FirmwareCacheKey -RepoRoot $repoRoot
+    $cachedKey = Read-CachedFirmwareKey -CacheKeyPath $cacheKeyPath
+    $cachedBinary = Join-Path $firmwareBuildPath "beetmeister.bin"
+
+    if ($currentKey -and $cachedKey -and ($currentKey -eq $cachedKey) -and (Test-Path -LiteralPath $cachedBinary) -and (-not $FullOutput)) {
+        Write-BeetPhase "Using cached firmware build (no firmware inputs changed)."
+        $sourceImagePath = $cachedBinary
     }
-    if (Test-Path -LiteralPath $releaseSdkconfigPath) {
-        Remove-Item -LiteralPath $releaseSdkconfigPath -Force
+    else {
+        Write-BeetPhase "Building bundled firmware image."
+        $stamp = Get-StampValues -RepoRoot $repoRoot
+        $env:SDKCONFIG_DEFAULTS = "sdkconfig.defaults;sdkconfig.defaults.esp32s3;sdkconfig.release.defaults"
+        $env:SDKCONFIG = $releaseSdkconfigPath
+        if (Test-Path -LiteralPath $firmwareBuildPath) {
+            Remove-Item -LiteralPath $firmwareBuildPath -Recurse -Force
+        }
+        if (Test-Path -LiteralPath $releaseSdkconfigPath) {
+            Remove-Item -LiteralPath $releaseSdkconfigPath -Force
+        }
+        $idfBuildArgsPacked = (@(
+            "-B", $firmwareBuildPath,
+            "-D", "SDKCONFIG=$releaseSdkconfigPath",
+            "-D", "BEET_FIRMWARE_VERSION=$($stamp.FirmwareVersion)",
+            "-D", "BEET_BUILD_LABEL=$($stamp.BuildLabel)",
+            "build"
+        ) -join [char]0x1f)
+        $idfArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $invokeIdf
+        )
+        if ($FullOutput) {
+            $idfArgs += "-FullOutput"
+        }
+        $idfArgs += @(
+            "-IdfArgsPacked", $idfBuildArgsPacked
+        )
+        Invoke-BeetProcess `
+            -Context $scriptContext `
+            -Description "build-firmware" `
+            -FilePath "powershell.exe" `
+            -ArgumentList $idfArgs `
+            -WorkingDirectory (Join-Path $repoRoot "firmware\esp-idf") | Out-Null
+
+        $sourceImagePath = Join-Path $firmwareBuildPath "beetmeister.bin"
+
+        if ($currentKey) {
+            Write-CachedFirmwareKey -CacheKeyPath $cacheKeyPath -CacheKey $currentKey -RepoRoot $repoRoot
+        }
     }
-    $idfBuildArgsPacked = (@(
-        "-B", $firmwareBuildPath,
-        "-D", "SDKCONFIG=$releaseSdkconfigPath",
-        "-D", "BEET_FIRMWARE_VERSION=$($stamp.FirmwareVersion)",
-        "-D", "BEET_BUILD_LABEL=$($stamp.BuildLabel)",
-        "build"
-    ) -join [char]0x1f)
-    $idfArgs = @(
-        "-NoProfile",
-        "-ExecutionPolicy", "Bypass",
-        "-File", $invokeIdf
-    )
-    if ($FullOutput) {
-        $idfArgs += "-FullOutput"
-    }
-    $idfArgs += @(
-        "-IdfArgsPacked", $idfBuildArgsPacked
-    )
-    Invoke-BeetProcess `
-        -Context $scriptContext `
-        -Description "build-firmware" `
-        -FilePath "powershell.exe" `
-        -ArgumentList $idfArgs `
-        -WorkingDirectory (Join-Path $repoRoot "firmware\esp-idf") | Out-Null
 
     Write-BeetPhase "Validating release firmware config."
     $configArgs = @(
@@ -140,7 +238,6 @@ if (-not $PrebuiltImagePath) {
         -FilePath "powershell.exe" `
         -ArgumentList $configArgs `
         -WorkingDirectory $repoRoot | Out-Null
-    $sourceImagePath = Join-Path $firmwareBuildPath "beetmeister.bin"
 } else {
     Write-BeetPhase "Using prebuilt firmware image."
     $resolvedPrebuiltImage = Resolve-Path -LiteralPath $PrebuiltImagePath
