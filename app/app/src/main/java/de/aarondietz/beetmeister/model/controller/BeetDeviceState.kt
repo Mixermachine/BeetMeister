@@ -9,7 +9,6 @@ data class BeetDeviceState(
     @param:Json(name = "boot_id") val bootId: Long = 0L,
     @param:Json(name = "next_check_in_s") val nextCheckInSeconds: Int,
     @param:Json(name = "active_pumps") val activePumps: Int,
-    @param:Json(name = "mp") val maxActivePumps: Int = 3,
     @param:Json(name = "wifi_connected") val wifiConnected: Boolean,
     @param:Json(name = "mqtt_connected") val mqttConnected: Boolean,
     @param:Json(name = "uptime_s") val uptimeSeconds: Long = 0L,

@@ -112,8 +112,8 @@ internal fun SettingsScreen(
         intervalMinutesText = ((interval.seconds % 3600) / 60).toString()
     }
 
-    LaunchedEffect(state.deviceState?.maxActivePumps) {
-        val current = state.deviceState?.maxActivePumps ?: return@LaunchedEffect
+    LaunchedEffect(state.maxActivePumps) {
+        val current = state.maxActivePumps ?: return@LaunchedEffect
         maxPumpsDraft = current
     }
 
@@ -142,7 +142,7 @@ internal fun SettingsScreen(
     val wateringIntervalChanged = state.wateringInterval != null && wateringIntervalDirty
     val wateringIntervalError = wateringIntervalValidationMessage(intervalHoursText, intervalMinutesText, strings)
     val showWateringIntervalError = state.wateringInterval != null && wateringIntervalError != null
-    val maxPumpsDirty = maxPumpsDraft != null && maxPumpsDraft != state.deviceState?.maxActivePumps
+    val maxPumpsDirty = maxPumpsDraft != null && maxPumpsDraft != state.maxActivePumps
     val valveMotionActive = deviceState?.valveState == "OPENING" || deviceState?.valveState == "CLOSING"
     val valveManualControlEnabled =
         state.connection.phase == BeetConnectionPhase.Connected &&
@@ -476,14 +476,14 @@ internal fun SettingsScreen(
                         Text(strings.get(R.string.settings_max_active_pumps_subtitle), style = MaterialTheme.typography.bodyMedium)
                         ValueGridRow(
                             strings.get(R.string.settings_label_max_active_pumps_current),
-                            deviceState?.let {
-                                strings.get(R.string.settings_max_active_pumps_value, it.maxActivePumps)
+                            state.maxActivePumps?.let {
+                                strings.get(R.string.settings_max_active_pumps_value, it)
                             } ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.overview_label_active_pumps),
                             deviceState?.let { it.activePumps.toString() } ?: strings.get(R.string.placeholder_dash),
                         )
                         val currentMax = maxPumpsDraft ?: 0
-                        val liveMax = deviceState?.maxActivePumps
+                        val liveMax = state.maxActivePumps
                         Row(
                             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),

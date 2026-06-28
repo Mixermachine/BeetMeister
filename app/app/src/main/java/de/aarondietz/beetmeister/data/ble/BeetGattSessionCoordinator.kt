@@ -1952,16 +1952,7 @@ internal class BeetGattSessionCoordinator(
             }
         }
         result.maxActivePumps?.let { maxPumps ->
-            host.updateState { state ->
-                val currentDeviceState = state.deviceState
-                if (currentDeviceState != null) {
-                    state.copy(
-                        deviceState = currentDeviceState.copy(maxActivePumps = maxPumps.maxActivePumps),
-                    )
-                } else {
-                    state
-                }
-            }
+            host.updateState { it.copy(maxActivePumps = maxPumps.maxActivePumps) }
         }
         host.session.pendingCommand?.complete(result)
     }

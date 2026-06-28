@@ -193,6 +193,7 @@ internal class BeetRepository(
                 deviceState = null,
                 valveConfig = null,
                 wateringInterval = null,
+                maxActivePumps = null,
                 calibrations = emptyMap(),
                 pairWirings = emptyMap(),
                 pairWiringLoading = emptySet(),

@@ -26,7 +26,6 @@ class BeetJsonCodecTest {
                 "boot_id":11,
                 "next_check_in_s":4812,
                 "active_pumps":1,
-                "mp":4,
                 "wifi_connected":true,
                 "mqtt_connected":false,
                 "uptime_s":123,
@@ -46,7 +45,6 @@ class BeetJsonCodecTest {
         assertEquals(11L, state.bootId)
         assertEquals(4812, state.nextCheckInSeconds)
         assertEquals(1, state.activePumps)
-        assertEquals(4, state.maxActivePumps)
         assertTrue(state.wifiConnected)
         assertFalse(state.mqttConnected)
         assertEquals(123L, state.uptimeSeconds)
