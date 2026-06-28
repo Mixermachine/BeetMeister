@@ -600,6 +600,20 @@ int beet_ble_format_command_result_json(
             response->pair_index);
     }
 
+    if ((response->command == BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS ||
+            response->command == BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS) &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_max_active_pumps) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"max_active_pumps\":%u}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            response->max_active_pumps);
+    }
+
     return snprintf(
         buf,
         len,
@@ -1232,6 +1246,58 @@ static bool beet_ble_parse_watering_interval_data(const char **cursor, uint32_t 
     return seen_interval;
 }
 
+static bool beet_ble_parse_max_active_pumps_data(const char **cursor, uint8_t *max_pumps)
+{
+    bool seen_max = false;
+    uint64_t parsed_max = 0U;
+
+    if (!beet_ble_consume_char(cursor, '{')) {
+        return false;
+    }
+
+    while (true) {
+        char key[32];
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+
+        if (!beet_ble_parse_string(cursor, key, sizeof(key)) ||
+            !beet_ble_consume_char(cursor, ':')) {
+            return false;
+        }
+
+        if (strcmp(key, "max") == 0 && !seen_max) {
+            if (!beet_ble_parse_u64(cursor, &parsed_max) || parsed_max > UINT8_MAX) {
+                return false;
+            }
+            *max_pumps = (uint8_t)parsed_max;
+            seen_max = true;
+        } else if (strcmp(key, "max") == 0) {
+            return false;
+        } else {
+            if (!beet_ble_skip_json_value(cursor)) {
+                return false;
+            }
+        }
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == ',') {
+            ++(*cursor);
+            continue;
+        }
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+        return false;
+    }
+
+    return seen_max;
+}
+
 static bool beet_ble_parse_empty_data(const char **cursor)
 {
     if (!beet_ble_consume_char(cursor, '{')) {
@@ -1756,6 +1822,16 @@ bool beet_ble_parse_command_json(
             } else if (strcmp(cmd, "get_pair_wiring") == 0) {
                 request->command = BEET_IFACE_COMMAND_GET_PAIR_WIRING;
                 if (!beet_ble_parse_pair_data(&cursor, &request->pair_index)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "get_max_active_pumps") == 0) {
+                request->command = BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS;
+                if (!beet_ble_parse_empty_data(&cursor)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "store_max_active_pumps") == 0) {
+                request->command = BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS;
+                if (!beet_ble_parse_max_active_pumps_data(&cursor, &request->max_active_pumps)) {
                     return false;
                 }
             } else {

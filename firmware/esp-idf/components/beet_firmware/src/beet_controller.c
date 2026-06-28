@@ -1395,7 +1395,7 @@ static void beet_service_waiting_pairs(int64_t now_us)
         }
     }
 
-    while (s_state.active_pumps < BEET_MAX_ACTIVE_PUMPS) {
+    while (s_state.active_pumps < s_state.config.max_active_pumps) {
         uint8_t selected_pair = 0U;
         int64_t oldest_queue_us = 0;
 
@@ -1924,6 +1924,7 @@ esp_err_t beet_iface_get_device_state(beet_iface_device_state_t *state)
         (uint32_t)((s_state.next_check_due_us - beet_now_us()) / 1000000LL) :
         0U;
     state->active_pumps = s_state.active_pumps;
+    state->max_active_pumps = s_state.config.max_active_pumps;
     state->wifi_connected = false;
     state->mqtt_connected = false;
     state->uptime_s = beet_elapsed_s(s_state.boot_time_us, beet_now_us());
@@ -1992,6 +1993,7 @@ static bool beet_iface_command_is_mutating(beet_iface_command_t command)
     case BEET_IFACE_COMMAND_GET_VALVE_CONFIG:
     case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
     case BEET_IFACE_COMMAND_GET_PAIR_WIRING:
+    case BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS:
         return false;
 
     default:
@@ -2135,7 +2137,7 @@ esp_err_t beet_iface_submit_command(
             response->reason = reject_reason;
             return ESP_OK;
         }
-        if (beet_count_active_pumps() >= BEET_MAX_ACTIVE_PUMPS) {
+        if (beet_count_active_pumps() >= s_state.config.max_active_pumps) {
             response->reason = BEET_IFACE_REASON_SLOT_UNAVAILABLE;
             return ESP_OK;
         }
@@ -2555,6 +2557,27 @@ esp_err_t beet_iface_submit_command(
         beet_run_scheduler_cycle(now_us);
         response->status = BEET_IFACE_STATUS_ACCEPTED;
         response->reason = BEET_IFACE_REASON_NONE;
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS:
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_max_active_pumps = true;
+        response->max_active_pumps = s_state.config.max_active_pumps;
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS:
+        if (request->max_active_pumps < 1U || request->max_active_pumps > 8U) {
+            response->reason = BEET_IFACE_REASON_INVALID_MAX_ACTIVE_PUMPS;
+            return ESP_OK;
+        }
+        beet_mark_activity(now_us);
+        s_state.config.max_active_pumps = request->max_active_pumps;
+        ESP_RETURN_ON_ERROR(beet_storage_save_config(&s_state.config), TAG, "max active pumps save failed");
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_max_active_pumps = true;
+        response->max_active_pumps = s_state.config.max_active_pumps;
         return ESP_OK;
 
     default:

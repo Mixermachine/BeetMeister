@@ -28,6 +28,7 @@ void beet_default_app_config(beet_app_config_t *config)
     config->valve_move_duration_ms = BEET_VALVE_MOVE_DURATION_MS;
     config->valve_settle_delay_ms = BEET_VALVE_SETTLE_DELAY_MS;
     config->valve_open_hold_ms = BEET_VALVE_OPEN_HOLD_MS;
+    config->max_active_pumps = BEET_MAX_ACTIVE_PUMPS;
 }
 
 void beet_default_calibration(uint8_t pair_index, beet_pair_calibration_t *calibration)

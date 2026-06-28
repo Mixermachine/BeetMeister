@@ -117,6 +117,14 @@
     <string name="settings_valve_open_hold_info_title">Open hold</string>
     <string name="settings_valve_open_hold_info_body">How long the controller keeps the valve open after watering stops before closing it again. A longer hold avoids repeated open and close cycles when runs happen close together. A shorter hold saves power and closes the supply sooner.</string>
     <string name="settings_save_valve">Save valve settings</string>
+    <string name="settings_max_active_pumps_title">Max active pumps</string>
+    <string name="settings_max_active_pumps_subtitle">How many pump pairs can water at the same time (1–8).</string>
+    <string name="settings_max_active_pumps_value" localizePipeContext="Current max active pumps value. Keep %1$d as the numeric limit.">%1$d</string>
+    <string name="settings_max_active_pumps_save">Save</string>
+    <string name="settings_max_active_pumps_increment">Increase max active pumps</string>
+    <string name="settings_max_active_pumps_decrement">Decrease max active pumps</string>
+    <string name="settings_label_max_active_pumps_current">Current limit</string>
+    <string name="command_message_max_active_pumps_saved">Max active pumps saved.</string>
     <string name="valve_calibration_title">Valve calibration</string>
     <string name="valve_calibration_subtitle">Jog the servo in small steps, define the safe pulse range, and store the open and shut positions for this valve linkage.</string>
     <string name="valve_calibration_reload_values">Reload values</string>
@@ -373,6 +381,7 @@
     <string name="runtime_calibration_invalid_order">Dry calibration must be greater than wet calibration.</string>
     <string name="runtime_valve_config_invalid">Valve settings are outside the supported range.</string>
     <string name="runtime_watering_interval_invalid">Watering evaluation interval must be between 5 minutes and 24 hours.</string>
+    <string name="runtime_max_active_pumps_invalid">Max active pumps must be between 1 and 8.</string>
     <string name="runtime_connecting_to_controller" localizePipeContext="Connection progress message. Keep %1$s as the Bluetooth MAC address or device address.">Connecting to %1$s.</string>
     <string name="runtime_connection_timed_out">Connection timed out. Searching again.</string>
     <string name="runtime_no_connected_controller">No connected controller.</string>

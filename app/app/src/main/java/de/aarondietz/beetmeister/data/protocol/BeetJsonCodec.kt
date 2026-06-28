@@ -17,6 +17,7 @@ import de.aarondietz.beetmeister.model.command.BeetCommandResult
 import de.aarondietz.beetmeister.model.command.BeetEmptyCommandData
 import de.aarondietz.beetmeister.model.command.BeetEventRequestData
 import de.aarondietz.beetmeister.model.command.BeetManualStartCommandData
+import de.aarondietz.beetmeister.model.command.BeetMaxActivePumpsCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairCommandData
 import de.aarondietz.beetmeister.model.command.BeetSetTimeCommandData
 import de.aarondietz.beetmeister.model.command.BeetValveConfigCommandData
@@ -26,6 +27,7 @@ import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetControllerInfo
 import de.aarondietz.beetmeister.model.controller.BeetDeviceState
 import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
+import de.aarondietz.beetmeister.model.controller.BeetMaxActivePumps
 import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
@@ -113,6 +115,8 @@ object BeetJsonCodec {
         runtimeMoshi.adapter(BeetValveConfig::class.java)
     private val wateringIntervalPayloadAdapter: JsonAdapter<BeetWateringInterval> =
         runtimeMoshi.adapter(BeetWateringInterval::class.java)
+    private val maxActivePumpsPayloadAdapter: JsonAdapter<BeetMaxActivePumps> =
+        runtimeMoshi.adapter(BeetMaxActivePumps::class.java)
     private val historySummaryPayloadAdapter: JsonAdapter<BeetHistorySummary> =
         runtimeMoshi.adapter(BeetHistorySummary::class.java)
     private val systemHistorySummaryPayloadAdapter: JsonAdapter<BeetSystemHistorySummary> =
@@ -128,6 +132,7 @@ object BeetJsonCodec {
     private val valveConfigRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetValveConfigCommandData::class.java)
     private val valvePreviewRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetValvePreviewCommandData::class.java)
     private val wateringIntervalRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetWateringIntervalCommandData::class.java)
+    private val maxActivePumpsRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetMaxActivePumpsCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
 
     data class CommandChunkFrame(
@@ -223,6 +228,14 @@ object BeetJsonCodec {
         } else {
             null
         }
+        val maxActivePumps = if (
+            (header.cmd == "get_max_active_pumps" || header.cmd == "store_max_active_pumps") &&
+            header.status == "accepted"
+        ) {
+            maxActivePumpsPayloadAdapter.fromJson(dataJson) ?: error("Invalid max active pumps payload.")
+        } else {
+            null
+        }
         val ack = commandAckPayloadAdapter.fromJson(dataJson)
         return BeetCommandResult(
             command = header.cmd,
@@ -238,6 +251,7 @@ object BeetJsonCodec {
             valveConfig = valveConfig,
             wateringInterval = wateringInterval,
             pairWiring = pairWiring,
+            maxActivePumps = maxActivePumps,
         )
     }
 
@@ -525,6 +539,22 @@ object BeetJsonCodec {
             CommandRequestEnvelopeDto(
                 cmd = "store_watering_interval",
                 data = BeetWateringIntervalCommandData(seconds = seconds),
+            ),
+        )
+
+    fun getMaxActivePumps(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_max_active_pumps",
+                data = BeetEmptyCommandData(),
+            ),
+        )
+
+    fun storeMaxActivePumps(max: Int): String =
+        maxActivePumpsRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "store_max_active_pumps",
+                data = BeetMaxActivePumpsCommandData(maxActivePumps = max),
             ),
         )
 

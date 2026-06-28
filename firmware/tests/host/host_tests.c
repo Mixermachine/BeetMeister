@@ -516,6 +516,18 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_PAIR_WIRING, request.command);
     TEST_ASSERT_U32_EQ(6U, request.pair_index);
 
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_max_active_pumps\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_max_active_pumps\",\"data\":{\"max\":5}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS, request.command);
+    TEST_ASSERT_U32_EQ(5U, request.max_active_pumps);
+
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_max_active_pumps\",\"data\":{\"max\":999}}", &request));
+
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"start_ota\",\"data\":{}}", &request));
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
@@ -661,6 +673,7 @@ static void test_ble_json_formatting(void)
         .active_pumps = 0U,
         .wifi_connected = false,
         .mqtt_connected = false,
+        .max_active_pumps = 3U,
     };
     beet_iface_pair_state_t pair = {
         .pair_index = 1U,
@@ -684,7 +697,7 @@ static void test_ble_json_formatting(void)
 
     TEST_ASSERT_TRUE(beet_ble_format_device_frame_json(json, sizeof(json), &device) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":0,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":0,\"mqtt_connected\":0,\"uptime_s\":0,\"valve_enabled\":0,\"valve_state\":\"CLOSED\"}}",
+        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":0,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"max_active_pumps\":3,\"wifi_connected\":0,\"mqtt_connected\":0,\"uptime_s\":0,\"valve_enabled\":0,\"valve_state\":\"CLOSED\"}}",
         json);
 
     TEST_ASSERT_TRUE(beet_ble_format_pair_frame_json(json, sizeof(json), &pair) > 0);
@@ -807,6 +820,28 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"get_pair_wiring\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"pair\":6,\"moisture_gpio\":5,\"relay_gpio\":40}}",
+        json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_max_active_pumps = true;
+    response.max_active_pumps = 3U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_max_active_pumps\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"max_active_pumps\":3}}",
+        json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_max_active_pumps = true;
+    response.max_active_pumps = 8U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"store_max_active_pumps\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"max_active_pumps\":8}}",
         json);
 }
 
@@ -1368,6 +1403,9 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ("reboot_controller", beet_iface_command_name(BEET_IFACE_COMMAND_REBOOT_CONTROLLER));
     TEST_ASSERT_STR_EQ("factory_reset", beet_iface_command_name(BEET_IFACE_COMMAND_FACTORY_RESET));
     TEST_ASSERT_STR_EQ("get_pair_wiring", beet_iface_command_name(BEET_IFACE_COMMAND_GET_PAIR_WIRING));
+    TEST_ASSERT_STR_EQ("get_max_active_pumps", beet_iface_command_name(BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS));
+    TEST_ASSERT_STR_EQ("store_max_active_pumps", beet_iface_command_name(BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS));
+    TEST_ASSERT_STR_EQ("invalid_max_active_pumps", beet_iface_reason_name(BEET_IFACE_REASON_INVALID_MAX_ACTIVE_PUMPS));
     TEST_ASSERT_STR_EQ("time_updated", beet_iface_reason_name(BEET_IFACE_REASON_TIME_UPDATED));
     TEST_ASSERT_STR_EQ("busy", beet_iface_reason_name(BEET_IFACE_REASON_BUSY));
     TEST_ASSERT_STR_EQ("rate_limited", beet_iface_reason_name(BEET_IFACE_REASON_RATE_LIMITED));

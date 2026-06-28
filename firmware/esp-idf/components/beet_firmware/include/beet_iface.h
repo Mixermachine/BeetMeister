@@ -37,6 +37,8 @@ typedef enum {
     BEET_IFACE_COMMAND_FACTORY_RESET = 26,
     BEET_IFACE_COMMAND_GET_PAIR_WIRING = 27,
     BEET_IFACE_COMMAND_RUN_SCHEDULER = 28,
+    BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS = 29,
+    BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS = 30,
 } beet_iface_command_t;
 
 typedef enum {
@@ -86,6 +88,7 @@ typedef enum {
     BEET_IFACE_REASON_WATERING_ACTIVE = 38,
     BEET_IFACE_REASON_REBOOTING = 39,
     BEET_IFACE_REASON_FACTORY_RESET_STARTED = 40,
+    BEET_IFACE_REASON_INVALID_MAX_ACTIVE_PUMPS = 41,
 } beet_iface_reason_t;
 
 typedef struct {
@@ -107,6 +110,7 @@ typedef struct {
     uint16_t valve_open_hold_ms;
     uint16_t valve_preview_pulse_us;
     uint32_t watering_interval_s;
+    uint8_t max_active_pumps;
 } beet_iface_command_request_t;
 
 typedef struct {
@@ -145,6 +149,8 @@ typedef struct {
     bool has_pair_wiring;
     int16_t moisture_gpio;
     int16_t relay_gpio;
+    bool has_max_active_pumps;
+    uint8_t max_active_pumps;
 } beet_iface_command_response_t;
 
 typedef struct {
@@ -160,6 +166,7 @@ typedef struct {
     uint32_t uptime_s;
     bool valve_enabled;
     beet_valve_state_t valve_state;
+    uint8_t max_active_pumps;
 } beet_iface_device_state_t;
 
 typedef struct {

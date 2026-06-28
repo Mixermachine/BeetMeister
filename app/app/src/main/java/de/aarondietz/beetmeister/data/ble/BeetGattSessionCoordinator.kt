@@ -405,6 +405,25 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    fun refreshMaxActivePumps() {
+        host.scope.launch {
+            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
+                return@launch
+            }
+            runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getMaxActivePumps()) } }
+        }
+    }
+
+    fun storeMaxActivePumps(max: Int) {
+        host.scope.launch {
+            if (max !in 1..8) {
+                host.setCommandMessage(strings.get(R.string.runtime_max_active_pumps_invalid))
+                return@launch
+            }
+            sendUserCommand(BeetJsonCodec.storeMaxActivePumps(max))
+        }
+    }
+
     fun previewValvePosition(pulseMicros: Int) {
         host.scope.launch {
             runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.previewValvePosition(pulseMicros)) } }
@@ -548,6 +567,7 @@ internal class BeetGattSessionCoordinator(
                     "firmware=${selectedSummary.metadata.firmwareVersion} " +
                     "build=${selectedSummary.metadata.buildLabel} kind=${selectedSummary.metadata.imageKind}",
             )
+            selectedMaintenancePackage = null
             host.updateState { state ->
                 state.copy(
                     maintenanceUpdate = state.maintenanceUpdate.copy(
@@ -559,6 +579,7 @@ internal class BeetGattSessionCoordinator(
                         retryCount = 0,
                         statusDetail = strings.get(R.string.maintenance_selected_already_installed),
                         errorDetail = null,
+                        selectedFirmware = null,
                     ),
                 )
             }
@@ -1082,6 +1103,7 @@ internal class BeetGattSessionCoordinator(
         }
         refreshValveConfig()
         refreshWateringInterval()
+        refreshMaxActivePumps()
         host.scope.launch {
             delay(POST_CONNECT_EVENT_SYNC_DELAY_MS)
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) return@launch
@@ -1407,6 +1429,7 @@ internal class BeetGattSessionCoordinator(
 
                         "completed" -> {
                             maintenanceExpectedRebootDisconnect = false
+                            selectedMaintenancePackage = null
                             host.updateState { state ->
                                 state.copy(
                                     maintenanceUpdate = state.maintenanceUpdate.copy(
@@ -1417,6 +1440,7 @@ internal class BeetGattSessionCoordinator(
                                         estimatedRemainingSeconds = 0,
                                         statusDetail = strings.get(R.string.maintenance_update_completed),
                                         errorDetail = null,
+                                        selectedFirmware = null,
                                     ),
                                 )
                             }
@@ -1508,13 +1532,8 @@ internal class BeetGattSessionCoordinator(
         fullImageAlreadyTransferred: Boolean,
     ): BeetMaintenanceStatus {
         Log.d(TAG, "startOrResumeMaintenanceSession(resumeAllowed=$resumeAllowed)")
-        val initialStatus = if (resumeAllowed) {
-            sendMaintenanceControl(BeetJsonCodec.maintenanceQueryStatus())
-        } else {
-            val status = sendMaintenanceControl(BeetJsonCodec.maintenanceQueryStatus())
-            Log.d(TAG, "startOrResumeMaintenanceSession query_status result state=${status.state}")
-            status
-        }
+        val initialStatus = sendMaintenanceControl(BeetJsonCodec.maintenanceQueryStatus())
+        Log.d(TAG, "startOrResumeMaintenanceSession query_status result state=${initialStatus.state} resumeAllowed=$resumeAllowed")
         Log.d(
             TAG,
             "startOrResumeMaintenanceSession initial state=${initialStatus.state} " +
@@ -1932,6 +1951,18 @@ internal class BeetGattSessionCoordinator(
                 )
             }
         }
+        result.maxActivePumps?.let { maxPumps ->
+            host.updateState { state ->
+                val currentDeviceState = state.deviceState
+                if (currentDeviceState != null) {
+                    state.copy(
+                        deviceState = currentDeviceState.copy(maxActivePumps = maxPumps.maxActivePumps),
+                    )
+                } else {
+                    state
+                }
+            }
+        }
         host.session.pendingCommand?.complete(result)
     }
 
@@ -2322,7 +2353,7 @@ internal class BeetGattSessionCoordinator(
     companion object {
         private const val TAG = "BeetGattSession"
         private const val COMMAND_TIMEOUT_MS = 7_000L
-        private const val MAINTENANCE_CONTROL_TIMEOUT_MS = 10_000L
+        private const val MAINTENANCE_CONTROL_TIMEOUT_MS = 5_000L
         private const val MAINTENANCE_CHUNK_TIMEOUT_MS = 10_000L
         private const val CONNECTION_TIMEOUT_MS = 30_000L
         private const val MAINTENANCE_RECONNECT_TIMEOUT_MS = 30_000L

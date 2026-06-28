@@ -19,7 +19,7 @@
 #define BEET_PACKED __attribute__((packed))
 #endif
 
-#define BEET_APP_CONFIG_SCHEMA_VERSION 3U
+#define BEET_APP_CONFIG_SCHEMA_VERSION 4U
 #define BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION 1U
 #define BEET_EVENT_RECORD_VERSION 3U
 #define BEET_SYSTEM_EVENT_RECORD_VERSION 3U
@@ -174,6 +174,7 @@ typedef struct {
     uint16_t valve_move_duration_ms;
     uint16_t valve_settle_delay_ms;
     uint16_t valve_open_hold_ms;
+    uint8_t max_active_pumps;
     uint16_t flags;
 } beet_app_config_t;
 

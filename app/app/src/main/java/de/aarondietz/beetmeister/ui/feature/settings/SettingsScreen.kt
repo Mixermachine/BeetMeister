@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +50,7 @@ import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
 internal data class SettingsSaveDraft(
     val valveConfig: BeetValveConfig?,
     val wateringIntervalSeconds: Int?,
+    val maxActivePumps: Int?,
 )
 
 @Composable
@@ -54,8 +58,10 @@ internal fun SettingsScreen(
     state: BeetRepositoryState,
     onRefreshValveConfig: () -> Unit,
     onRefreshWateringInterval: () -> Unit,
+    onRefreshMaxActivePumps: () -> Unit,
     onSaveValveConfig: (BeetValveConfig) -> Unit,
     onSaveWateringInterval: (Int) -> Unit,
+    onStoreMaxActivePumps: (Int) -> Unit,
     onOpenValveCalibration: () -> Unit,
     onOpenValve: () -> Unit,
     onCloseValve: () -> Unit,
@@ -78,6 +84,7 @@ internal fun SettingsScreen(
     var openHoldText by remember { mutableStateOf("") }
     var intervalHoursText by remember { mutableStateOf("") }
     var intervalMinutesText by remember { mutableStateOf("") }
+    var maxPumpsDraft by remember { mutableStateOf<Int?>(null) }
     var activeInfo by remember { mutableStateOf<ValveSettingInfo?>(null) }
     var showRebootDialog by remember { mutableStateOf(false) }
     var showFactoryResetDialog by remember { mutableStateOf(false) }
@@ -86,6 +93,7 @@ internal fun SettingsScreen(
         if (state.connection.phase == BeetConnectionPhase.Connected) {
             onRefreshValveConfig()
             onRefreshWateringInterval()
+            onRefreshMaxActivePumps()
         }
     }
 
@@ -102,6 +110,11 @@ internal fun SettingsScreen(
         val interval = state.wateringInterval ?: return@LaunchedEffect
         intervalHoursText = (interval.seconds / 3600).toString()
         intervalMinutesText = ((interval.seconds % 3600) / 60).toString()
+    }
+
+    LaunchedEffect(state.deviceState?.maxActivePumps) {
+        val current = state.deviceState?.maxActivePumps ?: return@LaunchedEffect
+        maxPumpsDraft = current
     }
 
     val editedValveConfig = parseValveConfig(
@@ -129,21 +142,23 @@ internal fun SettingsScreen(
     val wateringIntervalChanged = state.wateringInterval != null && wateringIntervalDirty
     val wateringIntervalError = wateringIntervalValidationMessage(intervalHoursText, intervalMinutesText, strings)
     val showWateringIntervalError = state.wateringInterval != null && wateringIntervalError != null
+    val maxPumpsDirty = maxPumpsDraft != null && maxPumpsDraft != state.deviceState?.maxActivePumps
     val valveMotionActive = deviceState?.valveState == "OPENING" || deviceState?.valveState == "CLOSING"
     val valveManualControlEnabled =
         state.connection.phase == BeetConnectionPhase.Connected &&
             valveConfig?.valveEnabled == true &&
             deviceState?.activePumps == 0 &&
             !valveMotionActive
-    val hasUnsavedChanges = valveConfigDirty || wateringIntervalDirty
+    val hasUnsavedChanges = valveConfigDirty || wateringIntervalDirty || maxPumpsDirty
     val savableDraft = if (!hasUnsavedChanges) {
         null
-    } else if ((valveConfigDirty && editedValveConfig == null) || (wateringIntervalDirty && wateringIntervalSeconds == null)) {
+    } else if ((valveConfigDirty && editedValveConfig == null) || (wateringIntervalDirty && wateringIntervalSeconds == null) || (maxPumpsDirty && maxPumpsDraft == null)) {
         null
     } else {
         SettingsSaveDraft(
             valveConfig = if (valveConfigDirty) editedValveConfig else null,
             wateringIntervalSeconds = if (wateringIntervalDirty) wateringIntervalSeconds else null,
+            maxActivePumps = if (maxPumpsDirty) maxPumpsDraft else null,
         )
     }
 
@@ -447,6 +462,60 @@ internal fun SettingsScreen(
                             enabled = valveConfigChanged,
                         ) {
                             Text(strings.get(R.string.settings_save_valve))
+                        }
+                    }
+                }
+            }
+            item {
+                ElevatedCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEFE6F2)),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(strings.get(R.string.settings_max_active_pumps_title), style = MaterialTheme.typography.titleMedium)
+                        Text(strings.get(R.string.settings_max_active_pumps_subtitle), style = MaterialTheme.typography.bodyMedium)
+                        ValueGridRow(
+                            strings.get(R.string.settings_label_max_active_pumps_current),
+                            deviceState?.let {
+                                strings.get(R.string.settings_max_active_pumps_value, it.maxActivePumps)
+                            } ?: strings.get(R.string.placeholder_dash),
+                            strings.get(R.string.overview_label_active_pumps),
+                            deviceState?.let { it.activePumps.toString() } ?: strings.get(R.string.placeholder_dash),
+                        )
+                        val currentMax = maxPumpsDraft ?: 0
+                        val liveMax = deviceState?.maxActivePumps
+                        Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            FilledIconButton(
+                                onClick = { if (currentMax > 1) maxPumpsDraft = currentMax - 1 },
+                                enabled = currentMax > 1,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Remove,
+                                    contentDescription = strings.get(R.string.settings_max_active_pumps_decrement),
+                                )
+                            }
+                            Text(
+                                text = currentMax.toString(),
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                            FilledIconButton(
+                                onClick = { if (currentMax < 8) maxPumpsDraft = currentMax + 1 },
+                                enabled = currentMax < 8,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = strings.get(R.string.settings_max_active_pumps_increment),
+                                )
+                            }
+                        }
+                        Button(
+                            onClick = { maxPumpsDraft?.let(onStoreMaxActivePumps) },
+                            enabled = maxPumpsDraft != null && liveMax != null && maxPumpsDraft != liveMax,
+                        ) {
+                            Text(strings.get(R.string.settings_max_active_pumps_save))
                         }
                     }
                 }
