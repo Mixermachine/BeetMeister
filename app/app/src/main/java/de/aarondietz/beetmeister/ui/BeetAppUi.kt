@@ -539,6 +539,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                     onSaveValveConfig = viewModel::saveValveConfig,
                     onSaveWateringInterval = viewModel::saveWateringInterval,
                     onStoreMaxActivePumps = viewModel::storeMaxActivePumps,
+                    onStorePairName = viewModel::storePairName,
                     onPreviewValvePosition = viewModel::previewValvePosition,
                     onValveCalibrationUnsavedStateChange = { hasUnsaved, savableConfig ->
                         valveCalibrationHasUnsavedChanges = hasUnsaved

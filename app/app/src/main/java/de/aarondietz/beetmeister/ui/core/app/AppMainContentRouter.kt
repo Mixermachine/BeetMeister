@@ -53,6 +53,7 @@ internal fun AppMainContentRouter(
     onFactoryResetController: () -> Unit,
     onOpenFirmwareUpdate: () -> Unit,
     onDisconnect: () -> Unit,
+    onStorePairName: (Int, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -61,6 +62,8 @@ internal fun AppMainContentRouter(
             pairWiring = state.pairWirings[selectedPair],
             pairWiringLoading = selectedPair in state.pairWiringLoading,
             pairWiringError = state.pairWiringErrors[selectedPair],
+            pairName = state.pairNames[selectedPair],
+            onStorePairName = onStorePairName,
             onBack = onPairDetailBack,
             onLoadPairWiring = onLoadPairWiring,
             onToggleEnabled = onToggleEnabled,

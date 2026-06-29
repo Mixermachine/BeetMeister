@@ -14,6 +14,8 @@ esp_err_t beet_storage_save_config(const beet_app_config_t *config);
 esp_err_t beet_storage_save_calibration(const beet_pair_calibration_t *calibration);
 esp_err_t beet_storage_save_snapshot(const beet_pair_runtime_snapshot_t *snapshot);
 esp_err_t beet_storage_save_power_state(const beet_power_runtime_state_t *state);
+esp_err_t beet_storage_load_pair_names(char names[BEET_PAIR_COUNT][BEET_PAIR_NAME_MAX_LEN + 1U]);
+esp_err_t beet_storage_save_pair_name(uint8_t pair_index, const char *name);
 esp_err_t beet_storage_scan_event_ring(beet_event_ring_state_t *state);
 esp_err_t beet_storage_append_event(beet_event_ring_state_t *state, beet_event_record_t *record);
 esp_err_t beet_storage_read_event_by_seq_no(uint32_t current_boot_id, uint64_t seq_no, beet_event_record_t *record);

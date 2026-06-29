@@ -226,6 +226,70 @@ esp_err_t beet_storage_save_power_state(const beet_power_runtime_state_t *state)
     return beet_save_blob("appcfg", "pwr", "state", state, sizeof(*state));
 }
 
+static const char *PAIR_NAME_NS = "pnam";
+
+esp_err_t beet_storage_load_pair_names(char names[BEET_PAIR_COUNT][BEET_PAIR_NAME_MAX_LEN + 1U])
+{
+    nvs_handle_t handle = 0;
+
+    ESP_RETURN_ON_FALSE(names != NULL, ESP_ERR_INVALID_ARG, TAG, "names is null");
+
+    for (uint8_t pair = 0U; pair < BEET_PAIR_COUNT; ++pair) {
+        names[pair][0] = '\0';
+    }
+
+    esp_err_t open_err = beet_open_namespace("appcfg", PAIR_NAME_NS, NVS_READONLY, &handle);
+    if (open_err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    ESP_RETURN_ON_ERROR(open_err, TAG, "pair name namespace open failed");
+
+    for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
+        char key[8];
+        char buffer[BEET_PAIR_NAME_MAX_LEN + 1U];
+        size_t required_size = sizeof(buffer);
+
+        beet_pair_key(key, sizeof(key), pair);
+        esp_err_t err = nvs_get_str(handle, key, buffer, &required_size);
+        if (err == ESP_OK) {
+            snprintf(names[pair - 1U], BEET_PAIR_NAME_MAX_LEN + 1U, "%s", buffer);
+        } else if (err != ESP_ERR_NVS_NOT_FOUND) {
+            nvs_close(handle);
+            ESP_RETURN_ON_ERROR(err, TAG, "pair name read failed");
+        }
+    }
+
+    nvs_close(handle);
+    return ESP_OK;
+}
+
+esp_err_t beet_storage_save_pair_name(uint8_t pair_index, const char *name)
+{
+    nvs_handle_t handle = 0;
+    char key[8];
+    esp_err_t err;
+
+    ESP_RETURN_ON_FALSE(beet_is_valid_pair_index(pair_index), ESP_ERR_INVALID_ARG, TAG, "invalid pair index");
+    ESP_RETURN_ON_FALSE(name != NULL, ESP_ERR_INVALID_ARG, TAG, "name is null");
+
+    ESP_RETURN_ON_ERROR(beet_open_namespace("appcfg", PAIR_NAME_NS, NVS_READWRITE, &handle), TAG, "pair name namespace open failed");
+
+    beet_pair_key(key, sizeof(key), pair_index);
+    if (name[0] == '\0') {
+        err = nvs_erase_key(handle, key);
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            err = ESP_OK;
+        }
+    } else {
+        err = nvs_set_str(handle, key, name);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err;
+}
+
 static esp_err_t beet_load_config(beet_app_config_t *config, bool *was_initialized)
 {
     nvs_handle_t handle = 0;

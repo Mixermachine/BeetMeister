@@ -41,6 +41,7 @@ data class BeetRepositoryState(
         )
     },
     val calibrations: Map<Int, BeetCalibration> = emptyMap(),
+    val pairNames: Map<Int, String> = emptyMap(),
     val pairWirings: Map<Int, BeetPairWiring> = emptyMap(),
     val pairWiringLoading: Set<Int> = emptySet(),
     val pairWiringErrors: Map<Int, String> = emptyMap(),

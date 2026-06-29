@@ -65,6 +65,7 @@ internal fun OverviewScreen(
         items(state.pairStates, key = { pair -> pair.pairIndex }) { pair ->
             PairOverviewCard(
                 pair = pair,
+                pairName = state.pairNames[pair.pairIndex],
                 onDetails = { onPairSelected(pair.pairIndex) },
                 onClearError = { onClearError(pair.pairIndex) },
                 onToggleEnabled = { onToggleEnabled(pair.pairIndex) },
@@ -143,6 +144,7 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
 @Composable
 private fun PairOverviewCard(
     pair: BeetPairState,
+    pairName: String?,
     onDetails: () -> Unit,
     onClearError: () -> Unit,
     onToggleEnabled: () -> Unit,
@@ -167,7 +169,11 @@ private fun PairOverviewCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(strings.get(R.string.common_pair_number, pair.pairIndex), style = MaterialTheme.typography.titleLarge)
+                Text(
+                    if (pairName != null && pairName.isNotBlank()) pairName
+                    else strings.get(R.string.common_pair_number, pair.pairIndex),
+                    style = MaterialTheme.typography.titleLarge,
+                )
                 AssistChip(onClick = {}, label = { Text(pairStateLabel(pair.state, strings)) })
             }
             Spacer(modifier = Modifier.height(10.dp))

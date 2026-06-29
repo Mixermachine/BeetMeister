@@ -444,6 +444,60 @@ class BeetJsonCodecTest {
     }
 
     @Test
+    fun buildsGetPairNamesCommand() {
+        val json = BeetJsonCodec.getPairNames()
+        assertTrue(json.contains("\"cmd\":\"get_pair_names\""))
+        assertTrue(json.contains("\"data\":{}"))
+    }
+
+    @Test
+    fun buildsStorePairNameCommand() {
+        val json = BeetJsonCodec.storePairName(3, "Tomato Bed")
+        assertTrue(json.contains("\"cmd\":\"store_pair_name\""))
+        assertTrue(json.contains("\"pair\":3"))
+        assertTrue(json.contains("\"name\":\"Tomato Bed\""))
+    }
+
+    @Test
+    fun parsesGetPairNamesResult() {
+        val json = """
+            {"cmd":"get_pair_names","status":"accepted","reason":"none",
+            "data":{"names":["Front Garden","Back Lawn","","","","","","Herb Bed"]}}
+        """.trimIndent()
+        val result = BeetJsonCodec.parseCommandResult(json)
+        assertEquals("accepted", result.status)
+        assertEquals(8, result.pairNames?.names?.size)
+        assertEquals("Front Garden", result.pairNames?.names?.get(0))
+        assertEquals("Back Lawn", result.pairNames?.names?.get(1))
+        assertEquals("", result.pairNames?.names?.get(2))
+        assertEquals("Herb Bed", result.pairNames?.names?.get(7))
+    }
+
+    @Test
+    fun parsesStorePairNameResult() {
+        val json = """
+            {"cmd":"store_pair_name","status":"accepted","reason":"none",
+            "data":{"pair":3,"name":"Tomato Bed"}}
+        """.trimIndent()
+        val result = BeetJsonCodec.parseCommandResult(json)
+        assertEquals("accepted", result.status)
+        assertEquals(3, result.pairIndex)
+    }
+
+    @Test
+    fun parsesEmptyPairNamesResult() {
+        val json = """
+            {"cmd":"get_pair_names","status":"accepted","reason":"none",
+            "data":{"names":["","","","","","","",""]}}
+        """.trimIndent()
+        val result = BeetJsonCodec.parseCommandResult(json)
+        assertEquals("accepted", result.status)
+        assertEquals(8, result.pairNames?.names?.size)
+        assertEquals("", result.pairNames?.names?.get(0))
+        assertEquals("", result.pairNames?.names?.get(7))
+    }
+
+    @Test
     fun parsesMaintenanceInfoFrame() {
         val payload = """
             {

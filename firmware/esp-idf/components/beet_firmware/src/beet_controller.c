@@ -103,6 +103,7 @@ typedef struct {
     beet_valve_runtime_t valve;
     beet_pending_action_t pending_action;
     int64_t pending_action_due_us;
+    char pair_names[BEET_PAIR_COUNT][BEET_PAIR_NAME_MAX_LEN + 1U];
 } beet_controller_state_t;
 
 static beet_controller_state_t s_state;
@@ -307,6 +308,9 @@ static void beet_service_pending_action(int64_t now_us)
         snprintf(preserved_device_id, sizeof(preserved_device_id), "%s", s_state.config.device_id);
         ESP_ERROR_CHECK_WITHOUT_ABORT(beet_ble_clear_bonds(&removed_bonds));
         ESP_ERROR_CHECK_WITHOUT_ABORT(beet_storage_factory_reset(preserved_device_id));
+        for (uint8_t pair = 0U; pair < BEET_PAIR_COUNT; ++pair) {
+            s_state.pair_names[pair][0] = '\0';
+        }
     }
 
     s_state.pending_action = BEET_PENDING_ACTION_NONE;
@@ -2580,6 +2584,46 @@ esp_err_t beet_iface_submit_command(
         response->max_active_pumps = s_state.config.max_active_pumps;
         return ESP_OK;
 
+    case BEET_IFACE_COMMAND_GET_PAIR_NAMES:
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_pair_names = true;
+        memcpy(response->pair_names, s_state.pair_names, sizeof(response->pair_names));
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_STORE_PAIR_NAME: {
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        if (strlen(request->pair_name) > BEET_PAIR_NAME_MAX_LEN) {
+            response->reason = BEET_IFACE_REASON_NAME_TOO_LONG;
+            return ESP_OK;
+        }
+        beet_mark_activity(now_us);
+        snprintf(
+            s_state.pair_names[request->pair_index - 1U],
+            sizeof(s_state.pair_names[0]),
+            "%s",
+            request->pair_name);
+        esp_err_t save_err = beet_storage_save_pair_name(request->pair_index, request->pair_name);
+        if (save_err != ESP_OK) {
+            response->reason = BEET_IFACE_REASON_BUSY;
+            return ESP_OK;
+        }
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_stored_pair_name = true;
+        response->stored_pair_index = request->pair_index;
+        response->pair_index = 0U;
+        snprintf(
+            response->stored_pair_name,
+            sizeof(response->stored_pair_name),
+            "%s",
+            request->pair_name);
+        return ESP_OK;
+    }
+
     default:
         response->reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
         return ESP_OK;
@@ -2961,6 +3005,10 @@ esp_err_t beet_controller_init(void)
         beet_storage_load_boot_epoch_cache(s_state.boot_epoch_cache, &s_state.boot_epoch_cache_count),
         TAG,
         "boot epoch cache load failed");
+    for (uint8_t pair = 0U; pair < BEET_PAIR_COUNT; ++pair) {
+        s_state.pair_names[pair][0] = '\0';
+    }
+    (void)beet_storage_load_pair_names(s_state.pair_names);
     ESP_RETURN_ON_ERROR(beet_board_init(), TAG, "board init failed");
 
     beet_board_all_relays_off();

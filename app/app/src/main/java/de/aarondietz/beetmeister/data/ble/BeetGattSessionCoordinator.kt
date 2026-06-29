@@ -348,6 +348,50 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    fun loadPairNames() {
+        host.scope.launch {
+            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
+                return@launch
+            }
+            try {
+                val result = withSyncPausedForCommand { sendCommand(BeetJsonCodec.getPairNames()) }
+                result.pairNames?.let { names ->
+                    val namesMap = names.names.mapIndexed { index, name ->
+                        (index + 1) to name
+                    }.toMap()
+                    host.updateState { it.copy(pairNames = namesMap) }
+                }
+            } catch (_: Exception) {
+                // names are optional — if the command fails (e.g. unsupported on old firmware),
+                // the UI falls back to "Pair N"
+            }
+        }
+    }
+
+    fun storePairName(pairIndex: Int, name: String) {
+        host.scope.launch {
+            if (!beetIsValidPairIndex(pairIndex)) {
+                return@launch
+            }
+            if (name.length > BEET_PAIR_NAME_MAX_LEN) {
+                return@launch
+            }
+            // Optimistic update
+            host.updateState { it.copy(pairNames = it.pairNames + (pairIndex to name)) }
+            try {
+                val result = withSyncPausedForCommand {
+                    sendCommand(BeetJsonCodec.storePairName(pairIndex, name))
+                }
+                if (result.status != "accepted") {
+                    // Re-fetch authoritative state
+                    loadPairNames()
+                }
+            } catch (_: Exception) {
+                loadPairNames()
+            }
+        }
+    }
+
     fun refreshValveConfig() {
         host.scope.launch {
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
@@ -1104,6 +1148,7 @@ internal class BeetGattSessionCoordinator(
         refreshValveConfig()
         refreshWateringInterval()
         refreshMaxActivePumps()
+        loadPairNames()
         host.scope.launch {
             delay(POST_CONNECT_EVENT_SYNC_DELAY_MS)
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) return@launch
@@ -1954,6 +1999,12 @@ internal class BeetGattSessionCoordinator(
         result.maxActivePumps?.let { maxPumps ->
             host.updateState { it.copy(maxActivePumps = maxPumps.maxActivePumps) }
         }
+        result.pairNames?.let { names ->
+            val namesMap = names.names.mapIndexed { index, name ->
+                (index + 1) to name
+            }.toMap()
+            host.updateState { it.copy(pairNames = namesMap) }
+        }
         host.session.pendingCommand?.complete(result)
     }
 
@@ -2346,6 +2397,7 @@ internal class BeetGattSessionCoordinator(
         private const val COMMAND_TIMEOUT_MS = 7_000L
         private const val MAINTENANCE_CONTROL_TIMEOUT_MS = 5_000L
         private const val MAINTENANCE_CHUNK_TIMEOUT_MS = 10_000L
+        private const val BEET_PAIR_NAME_MAX_LEN = 15
         private const val CONNECTION_TIMEOUT_MS = 30_000L
         private const val MAINTENANCE_RECONNECT_TIMEOUT_MS = 30_000L
         private const val MAINTENANCE_RECONNECT_DELAY_MS = 1_000L

@@ -122,6 +122,10 @@ internal class BeetRepository(
 
     fun loadPairWiring(pairIndex: Int) = gattSessionCoordinator.loadPairWiring(pairIndex)
 
+    fun loadPairNames() = gattSessionCoordinator.loadPairNames()
+
+    fun storePairName(pairIndex: Int, name: String) = gattSessionCoordinator.storePairName(pairIndex, name)
+
     fun refreshValveConfig() = gattSessionCoordinator.refreshValveConfig()
 
     fun refreshWateringInterval() = gattSessionCoordinator.refreshWateringInterval()
@@ -194,6 +198,7 @@ internal class BeetRepository(
                 valveConfig = null,
                 wateringInterval = null,
                 maxActivePumps = null,
+                pairNames = emptyMap(),
                 calibrations = emptyMap(),
                 pairWirings = emptyMap(),
                 pairWiringLoading = emptySet(),

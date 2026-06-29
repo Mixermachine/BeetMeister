@@ -47,6 +47,8 @@ internal fun PairDetailScreen(
     pairWiring: BeetPairWiring?,
     pairWiringLoading: Boolean,
     pairWiringError: String?,
+    pairName: String?,
+    onStorePairName: (Int, String) -> Unit,
     onBack: () -> Unit,
     onLoadPairWiring: (Int) -> Unit,
     onToggleEnabled: (Int) -> Unit,
@@ -58,6 +60,7 @@ internal fun PairDetailScreen(
 ) {
     val strings = rememberBeetStringResolver()
     var durationText by rememberSaveable(pairState.pairIndex) { mutableStateOf("") }
+    var nameText by rememberSaveable(pairState.pairIndex) { mutableStateOf("") }
     val canStartMoistureTest = pairState.enabled &&
         pairState.sensorValid &&
         !pairState.blocked &&
@@ -80,7 +83,37 @@ internal fun PairDetailScreen(
                 colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF9F6EF)),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(strings.get(R.string.common_pair_number, pairState.pairIndex), style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        if (pairName != null && pairName.isNotBlank()) pairName
+                        else strings.get(R.string.common_pair_number, pairState.pairIndex),
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = nameText,
+                            onValueChange = { input ->
+                                nameText = if (input.length > 15) input.take(15) else input
+                            },
+                            label = { Text(strings.get(R.string.pair_detail_rename_label)) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = {
+                                val trimmed = nameText.trim()
+                                if (trimmed.isNotEmpty() || pairName != null) {
+                                    onStorePairName(pairState.pairIndex, trimmed)
+                                }
+                            },
+                        ) {
+                            Text(strings.get(R.string.pair_detail_rename_save))
+                        }
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                     ValueGridRow(
                         strings.get(R.string.pair_detail_label_state),

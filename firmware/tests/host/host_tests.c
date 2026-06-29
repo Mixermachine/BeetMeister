@@ -525,6 +525,43 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS, request.command);
     TEST_ASSERT_U32_EQ(5U, request.max_active_pumps);
 
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_pair_names\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_PAIR_NAMES, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_name\",\"data\":{\"pair\":3,\"name\":\"Front Garden\"}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_PAIR_NAME, request.command);
+    TEST_ASSERT_U32_EQ(3U, request.pair_index);
+    TEST_ASSERT_STR_EQ("Front Garden", request.pair_name);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_name\",\"data\":{\"pair\":7,\"name\":\"\"}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_PAIR_NAME, request.command);
+    TEST_ASSERT_U32_EQ(7U, request.pair_index);
+    TEST_ASSERT_STR_EQ("", request.pair_name);
+
+    /* 15 chars: maximum allowed, must parse */
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_name\",\"data\":{\"pair\":1,\"name\":\"aaaaaaaaaaaaaaa\"}}",
+        &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_PAIR_NAME, request.command);
+    TEST_ASSERT_U32_EQ(1U, request.pair_index);
+    TEST_ASSERT_STR_EQ("aaaaaaaaaaaaaaa", request.pair_name);
+
+    /* 16 chars: parser must reject (exceeds max name length) */
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_name\",\"data\":{\"pair\":1,\"name\":\"aaaaaaaaaaaaaaaa\"}}",
+        &request));
+
+    /* Missing pair must reject */
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_name\",\"data\":{\"name\":\"x\"}}", &request));
+
+    /* Missing name must reject */
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_name\",\"data\":{\"pair\":2}}", &request));
+
     TEST_ASSERT_FALSE(beet_ble_parse_command_json(
         "{\"cmd\":\"store_max_active_pumps\",\"data\":{\"max\":999}}", &request));
 
@@ -592,6 +629,8 @@ static void test_ble_command_lane_split(void)
     TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_SYNC_READ, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY));
     TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_MANUAL_STOP));
     TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_CALIBRATION));
+    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_PAIR_NAMES));
+    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_STORE_PAIR_NAME));
     TEST_ASSERT_STR_EQ("sync_read", beet_ble_command_lane_name(BEET_BLE_COMMAND_LANE_SYNC_READ));
     TEST_ASSERT_STR_EQ("real", beet_ble_command_lane_name(BEET_BLE_COMMAND_LANE_REAL));
 
@@ -842,6 +881,63 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"store_max_active_pumps\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"max_active_pumps\":8}}",
+        json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_PAIR_NAMES;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_pair_names = true;
+    snprintf(response.pair_names[0], sizeof(response.pair_names[0]), "%s", "Front Garden");
+    snprintf(response.pair_names[1], sizeof(response.pair_names[1]), "%s", "Back Lawn");
+    /* slots 2..6 left empty */
+    snprintf(response.pair_names[7], sizeof(response.pair_names[7]), "%s", "Herb Bed");
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_pair_names\",\"status\":\"accepted\",\"reason\":\"none\","
+        "\"data\":{\"names\":[\"Front Garden\",\"Back Lawn\",\"\",\"\",\"\",\"\",\"\",\"Herb Bed\"]}}",
+        json);
+
+    /* 8x15-byte max-length names must still fit within the 1024-byte command result stage. */
+    {
+        char big[1024];
+        memset(&response, 0, sizeof(response));
+        response.command = BEET_IFACE_COMMAND_GET_PAIR_NAMES;
+        response.status = BEET_IFACE_STATUS_ACCEPTED;
+        response.reason = BEET_IFACE_REASON_NONE;
+        response.has_pair_names = true;
+        for (uint8_t i = 0U; i < BEET_PAIR_COUNT; ++i) {
+            memset(response.pair_names[i], 'a' + (char)i, BEET_PAIR_NAME_MAX_LEN);
+            response.pair_names[i][BEET_PAIR_NAME_MAX_LEN] = '\0';
+        }
+        int written = beet_ble_format_command_result_json(big, sizeof(big), &response);
+        TEST_ASSERT_TRUE(written > 0);
+        TEST_ASSERT_TRUE((size_t)written < sizeof(big));
+        TEST_ASSERT_TRUE(big[written] == '\0');
+    }
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_STORE_PAIR_NAME;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_stored_pair_name = true;
+    response.stored_pair_index = 3U;
+    snprintf(response.stored_pair_name, sizeof(response.stored_pair_name), "%s", "Front Garden");
+    /* response.pair_index is intentionally left 0 so the dedicated branch (not the pair_index>0 catch-all) runs. */
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"store_pair_name\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"pair\":3,\"name\":\"Front Garden\"}}",
+        json);
+
+    /* Verify the real rejected store_pair_name shape includes data.pair from the pair_index>0 catch-all. */
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_STORE_PAIR_NAME;
+    response.pair_index = 4U;
+    response.status = BEET_IFACE_STATUS_REJECTED;
+    response.reason = BEET_IFACE_REASON_NAME_TOO_LONG;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"store_pair_name\",\"status\":\"rejected\",\"reason\":\"name_too_long\",\"data\":{\"pair\":4}}",
         json);
 }
 
@@ -1405,7 +1501,10 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ("get_pair_wiring", beet_iface_command_name(BEET_IFACE_COMMAND_GET_PAIR_WIRING));
     TEST_ASSERT_STR_EQ("get_max_active_pumps", beet_iface_command_name(BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS));
     TEST_ASSERT_STR_EQ("store_max_active_pumps", beet_iface_command_name(BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS));
+    TEST_ASSERT_STR_EQ("get_pair_names", beet_iface_command_name(BEET_IFACE_COMMAND_GET_PAIR_NAMES));
+    TEST_ASSERT_STR_EQ("store_pair_name", beet_iface_command_name(BEET_IFACE_COMMAND_STORE_PAIR_NAME));
     TEST_ASSERT_STR_EQ("invalid_max_active_pumps", beet_iface_reason_name(BEET_IFACE_REASON_INVALID_MAX_ACTIVE_PUMPS));
+    TEST_ASSERT_STR_EQ("name_too_long", beet_iface_reason_name(BEET_IFACE_REASON_NAME_TOO_LONG));
     TEST_ASSERT_STR_EQ("time_updated", beet_iface_reason_name(BEET_IFACE_REASON_TIME_UPDATED));
     TEST_ASSERT_STR_EQ("busy", beet_iface_reason_name(BEET_IFACE_REASON_BUSY));
     TEST_ASSERT_STR_EQ("rate_limited", beet_iface_reason_name(BEET_IFACE_REASON_RATE_LIMITED));
