@@ -246,6 +246,7 @@ int ble_gatts_count_cfg(const struct ble_gatt_svc_def *svcs);
 int ble_gatts_add_svcs(const struct ble_gatt_svc_def *svcs);
 int ble_gatts_notify_custom(uint16_t conn_handle, uint16_t attr_handle, struct os_mbuf *om);
 int ble_gatts_indicate_custom(uint16_t conn_handle, uint16_t attr_handle, struct os_mbuf *om);
+int ble_att_set_preferred_mtu(uint16_t mtu);
 int ble_hs_mbuf_to_flat(const struct os_mbuf *om, void *dst, uint16_t max_len, uint16_t *out_len);
 int ble_hs_util_ensure_addr(int prefer_random);
 int ble_hs_id_infer_auto(int privacy, uint8_t *own_addr_type);

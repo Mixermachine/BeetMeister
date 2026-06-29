@@ -547,14 +547,6 @@ static int beet_ble_format_maintenance_status(char *buf, size_t len)
     return beet_ble_format_maintenance_status_json(buf, len, &status);
 }
 
-static int beet_ble_format_device_frame(
-    char *buf,
-    size_t len,
-    const beet_iface_device_state_t *state)
-{
-    return beet_ble_format_device_frame_json(buf, len, state);
-}
-
 static int beet_ble_format_pair_frame(
     char *buf,
     size_t len,
@@ -2428,6 +2420,7 @@ static const char *beet_ble_passkey_action_name(uint8_t action)
 }
 #endif
 
+#ifndef BEET_HOST_TEST
 static void beet_ble_log_bond_store_on_init(void)
 {
 #if BEET_BLE_DIAGNOSTIC_VERBOSE
@@ -2451,6 +2444,7 @@ static void beet_ble_log_bond_store_on_init(void)
     (void)0;
 #endif
 }
+#endif /* BEET_HOST_TEST */
 
 #if BEET_BLE_DIAGNOSTIC_VERBOSE
 static void beet_ble_log_gap_event_verbose(const char *event_name, struct ble_gap_event *event)
