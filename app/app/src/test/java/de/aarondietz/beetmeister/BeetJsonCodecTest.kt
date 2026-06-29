@@ -381,7 +381,7 @@ class BeetJsonCodecTest {
         assertEquals("""{"cmd":"close_valve","data":{}}""", BeetJsonCodec.closeValve())
         assertEquals("""{"cmd":"preview_valve_position","data":{"pulse_us":1600}}""", BeetJsonCodec.previewValvePosition(1600))
         assertEquals(
-            """{"cmd":"store_valve_config","data":{"valve_enabled":true,"servo_min_pulse_us":600,"servo_max_pulse_us":2400,"open_pulse_us":920,"shut_pulse_us":2080,"move_duration_ms":700,"settle_delay_ms":200,"open_hold_ms":1500}}""",
+            """{"cmd":"store_valve_config","data":{"valve_enabled":1,"servo_min_pulse_us":600,"servo_max_pulse_us":2400,"open_pulse_us":920,"shut_pulse_us":2080,"move_duration_ms":700,"settle_delay_ms":200,"open_hold_ms":1500}}""",
             BeetJsonCodec.storeValveConfig(
                 BeetValveConfig(
                     valveEnabled = true,
