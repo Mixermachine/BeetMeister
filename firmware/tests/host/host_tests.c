@@ -1083,7 +1083,6 @@ static void test_ble_parse_bool_strict_01(void)
     memset(&request, 0, sizeof(request));
     ok = beet_ble_parse_command_json(
         "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1}}",
-        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1}}"),
         &request);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_TRUE(request.valve_enabled);
@@ -1091,7 +1090,6 @@ static void test_ble_parse_bool_strict_01(void)
     memset(&request, 0, sizeof(request));
     ok = beet_ble_parse_command_json(
         "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":0}}",
-        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":0}}"),
         &request);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_FALSE(request.valve_enabled);
@@ -1099,14 +1097,12 @@ static void test_ble_parse_bool_strict_01(void)
     memset(&request, 0, sizeof(request));
     ok = beet_ble_parse_command_json(
         "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true}}",
-        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":true}}"),
         &request);
     TEST_ASSERT_FALSE(ok);
 
     memset(&request, 0, sizeof(request));
     ok = beet_ble_parse_command_json(
         "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":false}}",
-        (uint32_t)strlen("{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":false}}"),
         &request);
     TEST_ASSERT_FALSE(ok);
 }
