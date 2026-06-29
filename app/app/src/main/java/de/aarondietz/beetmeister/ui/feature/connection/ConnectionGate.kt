@@ -45,6 +45,10 @@ import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.BeetMeisterLogo
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
 import de.aarondietz.beetmeister.ui.core.formatting.maintenanceImageKindLabel
+import de.aarondietz.beetmeister.ui.core.preview.PreviewData
+import de.aarondietz.beetmeister.ui.core.theme.BeetMeisterTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.ui.tooling.preview.Preview
 
 private const val MAINTENANCE_PANEL_TAG = "MaintenanceUpdatePanel"
 private val MaintenanceActionBreakpoint = 280.dp
@@ -570,4 +574,206 @@ private fun MaintenanceDetailLine(
         modifier = modifier,
     )
 }
+
+// region Previews
+
+private fun gateState(
+    phase: BeetConnectionPhase,
+    detail: String? = null,
+    devices: List<de.aarondietz.beetmeister.model.connection.BeetDiscoveredDevice> = emptyList(),
+    selectedAddress: String? = null,
+): BeetRepositoryState = BeetRepositoryState(
+    connection = PreviewData.connectionState(phase = phase, detail = detail),
+    discoveredDevices = devices,
+    selectedAddress = selectedAddress,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_PermissionsRequired() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(phase = BeetConnectionPhase.PermissionsRequired),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_PermissionsPermanentlyDenied() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(
+                phase = BeetConnectionPhase.PermissionsRequired,
+                detail = "Bluetooth permission was permanently denied.",
+            ),
+            permissionsPermanentlyDenied = true,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_BluetoothDisabled() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(
+                phase = BeetConnectionPhase.BluetoothDisabled,
+                detail = "Bluetooth radio is off.",
+            ),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_Idle() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(phase = BeetConnectionPhase.Idle),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_Scanning() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(
+                phase = BeetConnectionPhase.Scanning,
+                detail = "Looking for nearby controllers...",
+            ),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_Connecting() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(
+                phase = BeetConnectionPhase.Connecting,
+                detail = "Connecting to AA:BB:CC:11:22:33",
+                devices = PreviewData.discoveredDeviceList(),
+                selectedAddress = "AA:BB:CC:11:22:33",
+            ),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_Disconnected() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(
+                phase = BeetConnectionPhase.Disconnected,
+                detail = "Lost link to controller while syncing.",
+            ),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_Error() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(
+                phase = BeetConnectionPhase.Error,
+                detail = "BLE connection error 133. Searching again.",
+            ),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_MaintenanceRequired() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(
+                phase = BeetConnectionPhase.MaintenanceRequired,
+                detail = "Controller firmware is too old to connect.",
+            ).copy(maintenanceInfo = PreviewData.maintenanceInfo()),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun ConnectionGatePreview_DevicesFound() {
+    BeetMeisterTheme {
+        ConnectionGate(
+            state = gateState(
+                phase = BeetConnectionPhase.Idle,
+                detail = "Tap a controller to connect.",
+                devices = PreviewData.discoveredDeviceList(),
+            ),
+            permissionsPermanentlyDenied = false,
+            onRequestPermissions = {},
+            onRequestBluetooth = {},
+            onScan = {},
+            onConnect = {},
+        )
+    }
+}
+
+// endregion
 

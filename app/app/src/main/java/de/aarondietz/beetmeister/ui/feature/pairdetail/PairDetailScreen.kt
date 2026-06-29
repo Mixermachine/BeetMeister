@@ -17,10 +17,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -40,6 +46,10 @@ import de.aarondietz.beetmeister.ui.core.formatting.formatPercent
 import de.aarondietz.beetmeister.ui.core.formatting.pairStateLabel
 import de.aarondietz.beetmeister.ui.core.formatting.runSourceLabel
 import de.aarondietz.beetmeister.ui.core.formatting.yesNo
+import de.aarondietz.beetmeister.ui.core.preview.PreviewData
+import de.aarondietz.beetmeister.ui.core.theme.BeetMeisterTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.ui.tooling.preview.Preview
 
 @Composable
 internal fun PairDetailScreen(
@@ -56,11 +66,13 @@ internal fun PairDetailScreen(
     onManualStop: (Int) -> Unit,
     onMoistureTestStart: (Int) -> Unit,
     onClearError: (Int) -> Unit,
+    showRenameDialogDefault: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
     var durationText by rememberSaveable(pairState.pairIndex) { mutableStateOf("") }
-    var nameText by rememberSaveable(pairState.pairIndex) { mutableStateOf("") }
+    var showRenameDialog by remember { mutableStateOf(showRenameDialogDefault) }
+    var renameText by remember(pairName) { mutableStateOf(pairName ?: "") }
     val canStartMoistureTest = pairState.enabled &&
         pairState.sensorValid &&
         !pairState.blocked &&
@@ -83,36 +95,38 @@ internal fun PairDetailScreen(
                 colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF9F6EF)),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        if (pairName != null && pairName.isNotBlank()) pairName
-                        else strings.get(R.string.common_pair_number, pairState.pairIndex),
-                        style = MaterialTheme.typography.headlineSmall,
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                     ) {
-                        OutlinedTextField(
-                            value = nameText,
-                            onValueChange = { input ->
-                                nameText = if (input.length > 15) input.take(15) else input
-                            },
-                            label = { Text(strings.get(R.string.pair_detail_rename_label)) },
-                            singleLine = true,
+                        Text(
+                            if (pairName != null && pairName.isNotBlank()) pairName
+                            else strings.get(R.string.common_pair_number, pairState.pairIndex),
+                            style = MaterialTheme.typography.headlineSmall,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(
-                            onClick = {
-                                val trimmed = nameText.trim()
-                                if (trimmed.isNotEmpty() || pairName != null) {
-                                    onStorePairName(pairState.pairIndex, trimmed)
-                                }
-                            },
-                        ) {
-                            Text(strings.get(R.string.pair_detail_rename_save))
+                        IconButton(onClick = {
+                            renameText = pairName ?: ""
+                            showRenameDialog = true
+                        }) {
+                            Icon(imageVector = Icons.Default.Create, contentDescription = strings.get(R.string.pair_detail_rename_title))
                         }
+                    }
+                    if (showRenameDialog) {
+                        RenamePairDialog(
+                            renameText = renameText,
+                            onRenameTextChange = { input ->
+                                renameText = if (input.length > 15) input.take(15) else input
+                            },
+                            onSave = {
+                                val trimmed = renameText.trim()
+                                onStorePairName(pairState.pairIndex, trimmed)
+                                showRenameDialog = false
+                            },
+                            onDismiss = { showRenameDialog = false },
+                            strings = strings,
+                        )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     ValueGridRow(
@@ -257,3 +271,232 @@ internal fun PairDetailScreen(
         }
     }
 }
+
+@Composable
+internal fun RenamePairDialog(
+    renameText: String,
+    onRenameTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onDismiss: () -> Unit,
+    strings: de.aarondietz.beetmeister.strings.BeetStringResolver,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.get(R.string.pair_detail_rename_title)) },
+        text = {
+            OutlinedTextField(
+                value = renameText,
+                onValueChange = onRenameTextChange,
+                label = { Text(strings.get(R.string.pair_detail_rename_label)) },
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onSave) {
+                Text(strings.get(R.string.pair_detail_rename_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(strings.get(R.string.common_cancel))
+            }
+        },
+    )
+}
+
+// region Previews
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun PairDetailScreenPreview_Idle() {
+    BeetMeisterTheme {
+        PairDetailScreen(
+            pairState = PreviewData.pairStateIdle(pairIndex = 1, moisturePercent = 58, sensorMillivolts = 1520),
+            pairWiring = PreviewData.pairWiring(1),
+            pairWiringLoading = false,
+            pairWiringError = null,
+            pairName = null,
+            onStorePairName = { _, _ -> },
+            onBack = {},
+            onLoadPairWiring = {},
+            onToggleEnabled = {},
+            onManualStart = { _, _ -> },
+            onManualStop = {},
+            onMoistureTestStart = {},
+            onClearError = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun PairDetailScreenPreview_Watering() {
+    BeetMeisterTheme {
+        PairDetailScreen(
+            pairState = PreviewData.pairStateWatering(
+                pairIndex = 2,
+                moisturePercent = 42,
+                sensorMillivolts = 1280,
+                remainingSeconds = 87,
+            ),
+            pairWiring = PreviewData.pairWiring(2),
+            pairWiringLoading = false,
+            pairWiringError = null,
+            pairName = null,
+            onStorePairName = { _, _ -> },
+            onBack = {},
+            onLoadPairWiring = {},
+            onToggleEnabled = {},
+            onManualStart = { _, _ -> },
+            onManualStop = {},
+            onMoistureTestStart = {},
+            onClearError = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun PairDetailScreenPreview_Fault() {
+    BeetMeisterTheme {
+        PairDetailScreen(
+            pairState = PreviewData.pairStateFault(
+                pairIndex = 3,
+                blockReason = "SENSOR_READING_INVALID",
+            ),
+            pairWiring = PreviewData.pairWiring(3),
+            pairWiringLoading = false,
+            pairWiringError = null,
+            pairName = null,
+            onStorePairName = { _, _ -> },
+            onBack = {},
+            onLoadPairWiring = {},
+            onToggleEnabled = {},
+            onManualStart = { _, _ -> },
+            onManualStop = {},
+            onMoistureTestStart = {},
+            onClearError = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun PairDetailScreenPreview_Disabled() {
+    BeetMeisterTheme {
+        PairDetailScreen(
+            pairState = PreviewData.pairStateDisabled(5),
+            pairWiring = PreviewData.pairWiring(5),
+            pairWiringLoading = false,
+            pairWiringError = null,
+            pairName = null,
+            onStorePairName = { _, _ -> },
+            onBack = {},
+            onLoadPairWiring = {},
+            onToggleEnabled = {},
+            onManualStart = { _, _ -> },
+            onManualStop = {},
+            onMoistureTestStart = {},
+            onClearError = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun PairDetailScreenPreview_WiringLoading() {
+    BeetMeisterTheme {
+        PairDetailScreen(
+            pairState = PreviewData.pairStateIdle(pairIndex = 1),
+            pairWiring = null,
+            pairWiringLoading = true,
+            pairWiringError = null,
+            pairName = null,
+            onStorePairName = { _, _ -> },
+            onBack = {},
+            onLoadPairWiring = {},
+            onToggleEnabled = {},
+            onManualStart = { _, _ -> },
+            onManualStop = {},
+            onMoistureTestStart = {},
+            onClearError = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun PairDetailScreenPreview_WiringError() {
+    BeetMeisterTheme {
+        PairDetailScreen(
+            pairState = PreviewData.pairStateIdle(pairIndex = 1),
+            pairWiring = null,
+            pairWiringLoading = false,
+            pairWiringError = "Wiring info request timed out after 5s.",
+            pairName = null,
+            onStorePairName = { _, _ -> },
+            onBack = {},
+            onLoadPairWiring = {},
+            onToggleEnabled = {},
+            onManualStart = { _, _ -> },
+            onManualStop = {},
+            onMoistureTestStart = {},
+            onClearError = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun PairDetailScreenPreview_WithName() {
+    BeetMeisterTheme {
+        PairDetailScreen(
+            pairState = PreviewData.pairStateIdle(pairIndex = 1, moisturePercent = 64, sensorMillivolts = 1400),
+            pairWiring = PreviewData.pairWiring(1),
+            pairWiringLoading = false,
+            pairWiringError = null,
+            pairName = "Front Garden",
+            onStorePairName = { _, _ -> },
+            onBack = {},
+            onLoadPairWiring = {},
+            onToggleEnabled = {},
+            onManualStart = { _, _ -> },
+            onManualStop = {},
+            onMoistureTestStart = {},
+            onClearError = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun PairDetailScreenPreview_RenameDialogOpen() {
+    BeetMeisterTheme {
+        PairDetailScreen(
+            pairState = PreviewData.pairStateIdle(pairIndex = 1, moisturePercent = 64, sensorMillivolts = 1400),
+            pairWiring = PreviewData.pairWiring(1),
+            pairWiringLoading = false,
+            pairWiringError = null,
+            pairName = "Front Garden",
+            onStorePairName = { _, _ -> },
+            onBack = {},
+            onLoadPairWiring = {},
+            onToggleEnabled = {},
+            onManualStart = { _, _ -> },
+            onManualStop = {},
+            onMoistureTestStart = {},
+            showRenameDialogDefault = true,
+            onClearError = {},
+        )
+    }
+}
+
+// endregion

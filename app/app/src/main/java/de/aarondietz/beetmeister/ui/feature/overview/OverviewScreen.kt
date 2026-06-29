@@ -45,6 +45,10 @@ import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
 import de.aarondietz.beetmeister.ui.core.formatting.yesNo
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import de.aarondietz.beetmeister.ui.core.preview.PreviewData
+import de.aarondietz.beetmeister.ui.core.theme.BeetMeisterTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.ui.tooling.preview.Preview
 
 @Composable
 internal fun OverviewScreen(
@@ -216,3 +220,89 @@ private fun PairOverviewCard(
         }
     }
 }
+
+// region Previews
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun OverviewScreenPreview_AllLoaded() {
+    BeetMeisterTheme {
+        OverviewScreen(
+            state = PreviewData.connectedState(),
+            onPairSelected = {},
+            onClearError = {},
+            onToggleEnabled = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun OverviewScreenPreview_DeviceNull() {
+    val state = PreviewData.connectedState().copy(deviceState = null)
+    BeetMeisterTheme {
+        OverviewScreen(
+            state = state,
+            onPairSelected = {},
+            onClearError = {},
+            onToggleEnabled = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun OverviewScreenPreview_FewPairs() {
+    val state: BeetRepositoryState = PreviewData.connectedState().copy(
+        pairStates = PreviewData.fewPairStates(),
+        pairNames = mapOf(1 to "Front Garden", 2 to "Greenhouse A"),
+    )
+    BeetMeisterTheme {
+        OverviewScreen(
+            state = state,
+            onPairSelected = {},
+            onClearError = {},
+            onToggleEnabled = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun OverviewScreenPreview_AllIdle() {
+    val state: BeetRepositoryState = PreviewData.connectedState().copy(
+        pairStates = PreviewData.allIdlePairStates(),
+        pairNames = emptyMap(),
+    )
+    BeetMeisterTheme {
+        OverviewScreen(
+            state = state,
+            onPairSelected = {},
+            onClearError = {},
+            onToggleEnabled = {},
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun OverviewScreenPreview_AllFaulted() {
+    val state: BeetRepositoryState = PreviewData.connectedState().copy(
+        pairStates = PreviewData.allFaultedPairStates(),
+    )
+    BeetMeisterTheme {
+        OverviewScreen(
+            state = state,
+            onPairSelected = {},
+            onClearError = {},
+            onToggleEnabled = {},
+        )
+    }
+}
+
+// endregion

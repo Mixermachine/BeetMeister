@@ -25,11 +25,15 @@ import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.formatting.connectionPhaseLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatProgress
+import de.aarondietz.beetmeister.ui.core.preview.PreviewData
+import de.aarondietz.beetmeister.ui.core.theme.BeetMeisterTheme
 
 @Composable
 internal fun Header(state: BeetRepositoryState) {
@@ -128,5 +132,36 @@ private fun ConnectedStatusChip(
                 )
             }
         }
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun HeaderPreview_Connected() {
+    BeetMeisterTheme {
+        Header(state = PreviewData.connectedState())
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun HeaderPreview_Disconnected() {
+    val state = BeetRepositoryState(
+        connection = PreviewData.connectionState(BeetConnectionPhase.Disconnected),
+        controllerInfo = null,
+    )
+    BeetMeisterTheme {
+        Header(state = state)
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFFF6F1E4)
+@Composable
+private fun HeaderPreview_Syncing() {
+    val state = PreviewData.connectedState().copy(
+        eventSync = PreviewData.eventSyncActive(downloaded = 128, total = 320),
+    )
+    BeetMeisterTheme {
+        Header(state = state)
     }
 }

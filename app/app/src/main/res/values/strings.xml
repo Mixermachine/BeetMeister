@@ -198,6 +198,7 @@
     <string name="pair_detail_detection_description">Runs the short moisture response check without starting a full watering cycle.</string>
     <string name="pair_detail_testing">Testing...</string>
     <string name="pair_detail_test_detection">Test detection</string>
+    <string name="pair_detail_rename_title">Rename Pair</string>
     <string name="pair_detail_rename_label">Rename pair (max 15 chars)</string>
     <string name="pair_detail_rename_save">Save</string>
 
