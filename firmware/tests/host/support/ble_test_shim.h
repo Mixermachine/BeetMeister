@@ -204,6 +204,7 @@ struct ble_gap_event {
             uint16_t conn_handle;
             int status;
         } pairing_complete;
+    };
 };
 
 typedef struct {
