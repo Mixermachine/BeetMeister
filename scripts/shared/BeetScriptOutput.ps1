@@ -168,7 +168,9 @@ function Invoke-BeetProcess {
         RedirectStandardError = $logPaths.StdErr
         Wait = $true
         PassThru = $true
-        WindowStyle = "Hidden"
+    }
+    if ($IsWindows) {
+        $startInfo.WindowStyle = "Hidden"
     }
     if ($WorkingDirectory) {
         $startInfo.WorkingDirectory = $WorkingDirectory
