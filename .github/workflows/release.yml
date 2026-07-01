@@ -54,14 +54,14 @@ jobs:
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: app-debug-apk-${{ github.ref_name }}
           path: app/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
       - name: Upload app test reports
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: app-verify-test-reports-${{ github.ref_name }}
           path: |
@@ -131,7 +131,7 @@ jobs:
         run: ./gradlew :app:assembleRelease --stacktrace
 
       - name: Upload release APK
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: app-release-apk-${{ github.ref_name }}
           path: app/app/build/outputs/apk/release/*.apk
@@ -192,7 +192,7 @@ jobs:
         run: ./scripts/dev/verify-firmware-release-config.ps1 -SdkconfigPath ./firmware/esp-idf/build/sdkconfig.release.generated
 
       - name: Upload firmware artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: firmware-release-${{ github.ref_name }}
           path: |
