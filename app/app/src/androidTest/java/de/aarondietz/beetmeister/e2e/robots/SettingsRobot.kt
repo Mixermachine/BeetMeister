@@ -114,27 +114,34 @@ internal class SettingsRobot(
      *
      * The Settings screen is a LazyColumn wrapped in a
      * `BeetPullToRefreshBox` (the `SettingsTestTags.Container`).
-     * The `PullToRefreshBox` absorbs upward swipes as
-     * pull-to-refresh gestures, so a direct `swipe` on the
-     * container doesn't reliably scroll the underlying list.
-     * Instead we drive `performScrollToIndex` on a known
-     * LazyColumn child (the always-composed
-     * [SettingsTestTags.ControllerInfoCard]) — the scrollable
-     * state is inherited from the parent LazyColumn, so the
-     * index jump reaches the target card. We sweep a 20-element
-     * index range (the Settings list has ~5-6 cards; 20 covers
-     * any reasonable expansion) and check `onAllNodesWithTag`
-     * after each jump.
+     * The `PullToRefreshBox` breaks the scrollable-ancestor chain
+     * in the semantics tree, so neither `performScrollTo` on the
+     * container nor `performScrollToIndex` on a child finds the
+     * LazyColumn's scrollable state. The fix is to drive a
+     * bottom-to-top `swipe` gesture on a child of the LazyColumn
+     * (the always-composed [SettingsTestTags.ControllerInfoCard]).
+     * The child's swipe event bubbles up through the
+     * `nestedScroll` connection to the LazyColumn, scrolling it
+     * while the `PullToRefreshBox` only intercepts downward
+     * top-of-list swipes. 20 iterations covers the full Settings
+     * list on the A53.
      */
     private fun scrollToTag(tag: String) {
         val anchor = composeRule.onAllNodesWithTag(SettingsTestTags.ControllerInfoCard).onFirst()
-        for (i in 0..20) {
+        val bounds = anchor.fetchSemanticsNode().boundsInRoot
+        val centerX = (bounds.left + bounds.right) / 2f
+        repeat(20) {
             val found = composeRule
                 .onAllNodesWithTag(tag)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
-            if (found) return
-            anchor.performScrollToIndex(i)
+            if (found) return@repeat
+            anchor.performTouchInput {
+                swipe(
+                    start = Offset(centerX, bounds.bottom - 50f),
+                    end = Offset(centerX, bounds.top + 50f),
+                )
+            }
             composeRule.waitForIdle()
         }
     }
