@@ -92,6 +92,13 @@ class DispatchStep:
     # For the am_instrument step. Empty for preconditions.
     extras: dict[str, str] = field(default_factory=dict)
     class_name: str = ""
+    # For the screenshot_pull step (e.g. "freshInstall",
+    # "firmwareUpdate", "settingsUpdate"). Empty for other
+    # steps. Lets _execute_screenshot_pull know which device
+    # subdir to pull from without string-parsing the step
+    # name (P5 finding SUB #R2: the name "pull_in_test_screenshots"
+    # doesn't include the slug, so the old parser raised).
+    screenshot_slug: str = ""
 
 
 @dataclass
@@ -205,7 +212,15 @@ class Orchestrator:
 
         run_dir, manifest = self._begin_run(suite)
         logcat_cap: Optional[capture.Capture] = None
-        serial_cap: Optional[capture.Capture] = None
+        # serial_caps is a list (NOT a single value) because the
+        # dispatch methods may need to start+stop+restart the
+        # serial capture around exclusive port ops. Each capture
+        # the dispatch starts gets appended here so the run()'s
+        # finally block can stop them all as a safety net (P5
+        # finding SUB #R3: serial capture must NOT be running
+        # during esptool erase/flash because the capture holds
+        # COM6 exclusively).
+        serial_caps: list[capture.Capture] = []
         smoke_result: Optional[AmInstrumentResult] = None
         e2e_result: Optional[AmInstrumentResult] = None
         dispatch_plan: Optional[DispatchPlan] = None
@@ -223,11 +238,17 @@ class Orchestrator:
 
             # 2-3. start captures.
             logcat_cap = capture.start_logcat(run_dir, device_serial)
-            serial_cap = capture.start_serial(
-                run_dir,
-                self.config.controller.serial_port,
-                baud=self.config.controller.baud,
-            )
+            # P5 finding SUB #R3: serial capture is started AFTER
+            # the preconditions (below, in the dispatch entry) so
+            # it doesn't conflict with esptool erase_region /
+            # write_flash (the capture subprocess holds COM6
+            # exclusively; the eraser needs the same port). The
+            # trade-off: no serial capture during build + install
+            # + smoke gate. Acceptable because the controller
+            # isn't doing anything interesting in those phases
+            # (no app connected, no BLE), and esptool's own
+            # stdout/stderr is captured by the EraseResult.
+            serial_cap: Optional[capture.Capture] = None
 
             # 4. build + install APKs (unless skipped).
             if not skip_install:
@@ -278,12 +299,23 @@ class Orchestrator:
                     # end-to-end.
                     manifest.pass_ = True
                 else:
+                    # The serial capture is started INSIDE the
+                    # dispatch (each _dispatch_* method does
+                    # it after its preconditions) so the
+                    # preconditions (erase, flash) don't
+                    # conflict with the capture subprocess
+                    # holding COM6. The cap is stopped in
+                    # the dispatch's own try/finally; any
+                    # surviving cap is also stopped by the
+                    # run()'s finally iterating serial_caps
+                    # (safety net for exception paths).
                     e2e_result, passed, fail_reason, dispatch_plan = self._dispatch(
                         suite=suite,
                         class_name=class_name,
                         extras=extras,
                         run_dir=run_dir,
                         dry_run_dispatch=dry_run_dispatch,
+                        serial_caps=serial_caps,
                     )
                     if dispatch_plan is not None:
                         # Always write the dispatch plan so the
@@ -346,9 +378,13 @@ class Orchestrator:
             # Capture.stop(), which is the fix for P3 CRIT #2)
             # + finalize the manifest. Idempotent. Safe on the
             # success path, the early-exit path, and any
-            # exception path including BaseException.
+            # exception path including BaseException. `serial_caps`
+            # is a list (NOT a single value) because the dispatch
+            # may have started+stopped+restarted the capture
+            # around exclusive port ops (P5 SUB #R3); any
+            # surviving caps are stopped here.
             result = self._finish(
-                run_dir, manifest, logcat_cap, serial_cap,
+                run_dir, manifest, logcat_cap, serial_caps,
                 smoke_result, e2e_result,
             )
 
@@ -387,7 +423,7 @@ class Orchestrator:
         run_dir: Path,
         manifest: run_folder.Manifest,
         logcat_cap: Optional[capture.Capture],
-        serial_cap: Optional[capture.Capture],
+        serial_caps: list[capture.Capture],
         smoke: Optional[AmInstrumentResult],
         e2e: Optional[AmInstrumentResult],
     ) -> OrchestratorResult:
@@ -404,10 +440,15 @@ class Orchestrator:
         # Stop captures BEFORE finalize so the run folder's
         # logcat/serial streams are flushed + closed (and the
         # parent-side file handles are released — P3 CRIT #2).
+        # `serial_caps` is a list (P5 SUB #R3) so the dispatch
+        # can start+stop+restart around exclusive port ops.
         if logcat_cap is not None:
             logcat_cap.stop()
-        if serial_cap is not None:
-            serial_cap.stop()
+        for cap in serial_caps:
+            try:
+                cap.stop()
+            except Exception:  # noqa: BLE001 - safety net, never raises
+                pass
         passed = bool(manifest.pass_)
         fail_reason = manifest.fail_reason
         run_folder.finalize(manifest, passed=passed, fail_reason=fail_reason)
@@ -453,6 +494,7 @@ class Orchestrator:
         extras: dict[str, str] | None,
         run_dir: Path,
         dry_run_dispatch: bool,
+        serial_caps: list[capture.Capture],
     ) -> tuple[
         Optional[AmInstrumentResult],
         bool,
@@ -472,6 +514,13 @@ class Orchestrator:
         In a real run: preconditions execute, am instrument
         runs, screenshot pull happens. `e2e_result` carries
         the per-test pass/fail from instrumentation output.
+
+        `serial_caps` is the run()-local list of serial capture
+        subprocesses. The dispatch methods append to it after
+        starting a capture (P5 SUB #R3: capture is started
+        INSIDE the dispatch, after preconditions, so the
+        preconditions don't conflict with the capture holding
+        COM6).
         """
         if suite == "fresh_install":
             return self._dispatch_fresh_install(
@@ -479,6 +528,7 @@ class Orchestrator:
                 extras=extras,
                 run_dir=run_dir,
                 dry_run_dispatch=dry_run_dispatch,
+                serial_caps=serial_caps,
             )
         if suite == "firmware_update":
             return self._dispatch_firmware_update(
@@ -486,6 +536,7 @@ class Orchestrator:
                 extras=extras,
                 run_dir=run_dir,
                 dry_run_dispatch=dry_run_dispatch,
+                serial_caps=serial_caps,
             )
         if suite == "settings_update":
             return self._dispatch_settings_update(
@@ -493,6 +544,7 @@ class Orchestrator:
                 extras=extras,
                 run_dir=run_dir,
                 dry_run_dispatch=dry_run_dispatch,
+                serial_caps=serial_caps,
             )
         # Unreachable — the run() guard rejects unknown suites.
         raise AssertionError(suite)
@@ -506,6 +558,7 @@ class Orchestrator:
         extras: dict[str, str] | None,
         run_dir: Path,
         dry_run_dispatch: bool,
+        serial_caps: list[capture.Capture],
     ) -> tuple[
         Optional[AmInstrumentResult],
         bool,
@@ -607,6 +660,7 @@ class Orchestrator:
             description="adb pull Kotlin in-test screenshots from /sdcard/Android/data/<package>/files/e2e_screenshots/freshInstall/ into the run folder",
             cmd=pull_cmd,
             executed=False,
+            screenshot_slug="freshInstall",
         )
 
         if dry_run_dispatch:
@@ -628,8 +682,23 @@ class Orchestrator:
             self._execute_erase_step(step)
         # Last precondition is install_built_apks.
         self._run_precondition(plan.preconditions[-1], self._do_install_built_apks())
-        e2e_result = self._execute_am_instrument(plan.am_instrument)
-        self._execute_screenshot_pull(plan.screenshot_pull, run_dir)
+        # P5 SUB #R3: start the serial capture ONLY after the
+        # preconditions are done (so erase_region had exclusive
+        # access to COM6). The cap runs through the E2E am
+        # instrument + post-test phase, then is stopped in the
+        # finally below.
+        serial_cap = capture.start_serial(
+            run_dir, self.config.controller.serial_port,
+            baud=self.config.controller.baud,
+        )
+        if serial_cap is not None:
+            serial_caps.append(serial_cap)
+        try:
+            e2e_result = self._execute_am_instrument(plan.am_instrument)
+            self._execute_screenshot_pull(plan.screenshot_pull, run_dir)
+        finally:
+            if serial_cap is not None:
+                serial_cap.stop()
         passed = e2e_result.passed
         fail_reason = None if passed else (
             f"FreshInstallE2ETest failed (rc={e2e_result.returncode}); "
@@ -644,6 +713,7 @@ class Orchestrator:
         extras: dict[str, str] | None,
         run_dir: Path,
         dry_run_dispatch: bool,
+        serial_caps: list[capture.Capture],
     ) -> tuple[
         Optional[AmInstrumentResult],
         bool,
@@ -772,6 +842,7 @@ class Orchestrator:
             description="adb pull Kotlin in-test screenshots from /sdcard/Android/data/<package>/files/e2e_screenshots/firmwareUpdate/ into the run folder",
             cmd=pull_cmd,
             executed=False,
+            screenshot_slug="firmwareUpdate",
         )
 
         if dry_run_dispatch:
@@ -804,8 +875,22 @@ class Orchestrator:
         )
         self._run_precondition(plan.preconditions[1], self._do_uninstall(app_package))
         self._run_precondition(plan.preconditions[2], self._do_install_built_apks())
-        e2e_result = self._execute_am_instrument(plan.am_instrument)
-        self._execute_screenshot_pull(plan.screenshot_pull, run_dir)
+        # P5 SUB #R3: start the serial capture ONLY after the
+        # preconditions (flash + uninstall + install) are done.
+        # The cap then runs through the E2E am instrument (which
+        # drives the BLE-mediated OTA) + post-test phase.
+        serial_cap = capture.start_serial(
+            run_dir, self.config.controller.serial_port,
+            baud=self.config.controller.baud,
+        )
+        if serial_cap is not None:
+            serial_caps.append(serial_cap)
+        try:
+            e2e_result = self._execute_am_instrument(plan.am_instrument)
+            self._execute_screenshot_pull(plan.screenshot_pull, run_dir)
+        finally:
+            if serial_cap is not None:
+                serial_cap.stop()
         passed = e2e_result.passed
         fail_reason = None if passed else (
             f"FirmwareUpdateE2ETest failed (rc={e2e_result.returncode}); "
@@ -820,6 +905,7 @@ class Orchestrator:
         extras: dict[str, str] | None,
         run_dir: Path,
         dry_run_dispatch: bool,
+        serial_caps: list[capture.Capture],
     ) -> tuple[
         Optional[AmInstrumentResult],
         bool,
@@ -877,6 +963,7 @@ class Orchestrator:
             description="adb pull Kotlin in-test screenshots from /sdcard/Android/data/<package>/files/e2e_screenshots/settingsUpdate/ into the run folder",
             cmd=pull_cmd,
             executed=False,
+            screenshot_slug="settingsUpdate",
         )
 
         if dry_run_dispatch:
@@ -884,8 +971,22 @@ class Orchestrator:
 
         # Real run: execute.
         self._run_precondition(plan.preconditions[0], self._do_install_built_apks())
-        e2e_result = self._execute_am_instrument(plan.am_instrument)
-        self._execute_screenshot_pull(plan.screenshot_pull, run_dir)
+        # P5 SUB #R3: start the serial capture ONLY after the
+        # install precondition so it doesn't conflict with the
+        # port. The cap runs through the E2E am instrument +
+        # post-test phase.
+        serial_cap = capture.start_serial(
+            run_dir, self.config.controller.serial_port,
+            baud=self.config.controller.baud,
+        )
+        if serial_cap is not None:
+            serial_caps.append(serial_cap)
+        try:
+            e2e_result = self._execute_am_instrument(plan.am_instrument)
+            self._execute_screenshot_pull(plan.screenshot_pull, run_dir)
+        finally:
+            if serial_cap is not None:
+                serial_cap.stop()
         passed = e2e_result.passed
         fail_reason = None if passed else (
             f"SettingsUpdateE2ETest failed (rc={e2e_result.returncode}); "
@@ -1070,7 +1171,12 @@ class Orchestrator:
         Best-effort: a failed pull is logged on the step but
         does NOT fail the run (screenshots are diagnostic).
         """
-        slug = self._slug_from_step(step)
+        slug = step.screenshot_slug
+        if not slug:
+            raise AssertionError(
+                f"screenshot_pull step {step.name!r} has no screenshot_slug; "
+                f"the dispatch composition is broken."
+            )
         try:
             pulled = self.adb.pull_in_test_screenshots(
                 slug, run_dir / "screenshots" / slug,
@@ -1080,9 +1186,3 @@ class Orchestrator:
                 step.description += f"  (pulled {len(pulled)} files)"
         except Exception as exc:  # noqa: BLE001
             step.description += f"  (pull failed: {exc!r})"
-
-    def _slug_from_step(self, step: DispatchStep) -> str:
-        for candidate in ("freshInstall", "firmwareUpdate", "settingsUpdate"):
-            if candidate in step.name:
-                return candidate
-        raise AssertionError(f"could not infer screenshot slug from: {step.name}")
