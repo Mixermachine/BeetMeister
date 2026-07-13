@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.R
@@ -228,14 +229,16 @@ internal fun SettingsScreen(
             onRefreshWateringInterval()
         },
         enabled = state.connection.phase == BeetConnectionPhase.Connected,
-        modifier = modifier,
+        modifier = modifier.testTag(SettingsTestTags.Container),
     ) {
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(SettingsTestTags.ControllerInfoCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF2EFE8)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -248,12 +251,16 @@ internal fun SettingsScreen(
                             info?.protocolVersion?.toString()
                                 ?: maintenanceInfo?.runtimeProtocolVersion?.toString()
                                 ?: strings.get(R.string.placeholder_dash),
+                            leftValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoDeviceId),
+                            rightValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoProtocolVersion),
                         )
                         ValueGridRow(
                             strings.get(R.string.settings_label_firmware),
                             info?.firmwareVersion ?: maintenanceInfo?.firmwareVersion ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.settings_label_pairs),
                             info?.pairCount?.toString() ?: strings.get(R.string.placeholder_dash),
+                            leftValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoFirmwareVersion),
+                            rightValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoPairCount),
                         )
                         if (maintenanceInfo != null) {
                             ValueGridRow(
@@ -261,6 +268,7 @@ internal fun SettingsScreen(
                                 maintenanceInfo.buildLabel,
                                 strings.get(R.string.settings_label_firmware_source),
                                 maintenanceImageKindLabel(maintenanceInfo.imageKind, strings),
+                                leftValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoBuildLabel),
                             )
                         }
                         ValueGridRow(
@@ -268,9 +276,14 @@ internal fun SettingsScreen(
                             connectionPhaseLabel(state.connection.phase, strings),
                             strings.get(R.string.settings_label_address),
                             state.selectedAddress ?: strings.get(R.string.placeholder_dash),
+                            leftValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoConnectionPhase),
+                            rightValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoAddress),
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        Button(onClick = onDisconnect) {
+                        Button(
+                            onClick = onDisconnect,
+                            modifier = Modifier.testTag(SettingsTestTags.ControllerInfoDisconnect),
+                        ) {
                             Text(strings.get(R.string.common_disconnect))
                         }
                     }
@@ -278,13 +291,18 @@ internal fun SettingsScreen(
             }
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(SettingsTestTags.FirmwareUpdateCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F0E5)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(strings.get(R.string.settings_firmware_update_title), style = MaterialTheme.typography.titleMedium)
                         Text(strings.get(R.string.settings_firmware_update_subtitle), style = MaterialTheme.typography.bodyMedium)
-                        Button(onClick = onOpenFirmwareUpdate) {
+                        Button(
+                            onClick = onOpenFirmwareUpdate,
+                            modifier = Modifier.testTag(SettingsTestTags.FirmwareUpdateOpenButton),
+                        ) {
                             Text(strings.get(R.string.settings_open_firmware_update))
                         }
                     }
@@ -292,7 +310,9 @@ internal fun SettingsScreen(
             }
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(SettingsTestTags.ControllerManagementCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF5E9E5)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -301,12 +321,14 @@ internal fun SettingsScreen(
                         Button(
                             onClick = { showRebootDialog = true },
                             enabled = state.connection.phase == BeetConnectionPhase.Connected && !hasUnsavedChanges,
+                            modifier = Modifier.testTag(SettingsTestTags.ControllerManagementReboot),
                         ) {
                             Text(strings.get(R.string.settings_reboot_action))
                         }
                         Button(
                             onClick = { showFactoryResetDialog = true },
                             enabled = state.connection.phase == BeetConnectionPhase.Connected && !hasUnsavedChanges,
+                            modifier = Modifier.testTag(SettingsTestTags.ControllerManagementFactoryReset),
                         ) {
                             Text(strings.get(R.string.settings_factory_reset_action))
                         }
@@ -322,7 +344,9 @@ internal fun SettingsScreen(
             }
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(SettingsTestTags.WateringIntervalCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEDEFF4)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -333,13 +357,17 @@ internal fun SettingsScreen(
                             state.wateringInterval?.let { formatDuration(it.seconds, strings) } ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.settings_label_next_check),
                             deviceState?.let { formatDuration(it.nextCheckInSeconds, strings) } ?: strings.get(R.string.placeholder_dash),
+                            leftValueModifier = Modifier.testTag(SettingsTestTags.WateringIntervalCurrent),
+                            rightValueModifier = Modifier.testTag(SettingsTestTags.WateringIntervalNextCheck),
                         )
                         OutlinedTextField(
                             value = intervalHoursText,
                             onValueChange = { intervalHoursText = it.filter(Char::isDigit) },
                             label = { Text(strings.get(R.string.settings_label_interval_hours)) },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(SettingsTestTags.WateringIntervalHoursField),
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                         )
                         OutlinedTextField(
@@ -347,7 +375,9 @@ internal fun SettingsScreen(
                             onValueChange = { intervalMinutesText = it.filter(Char::isDigit) },
                             label = { Text(strings.get(R.string.settings_label_interval_minutes)) },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(SettingsTestTags.WateringIntervalMinutesField),
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
                         )
                         if (showWateringIntervalError) {
@@ -361,12 +391,14 @@ internal fun SettingsScreen(
                             Button(
                                 onClick = { wateringIntervalSeconds?.let(onSaveWateringInterval) },
                                 enabled = wateringIntervalChanged,
+                                modifier = Modifier.testTag(SettingsTestTags.WateringIntervalSave),
                             ) {
                                 Text(strings.get(R.string.settings_save_watering_interval))
                             }
                             Button(
                                 onClick = onRunScheduler,
                                 enabled = state.connection.phase == BeetConnectionPhase.Connected,
+                                modifier = Modifier.testTag(SettingsTestTags.WateringIntervalRunScheduler),
                             ) {
                                 Text(strings.get(R.string.settings_run_scheduler))
                             }
@@ -376,7 +408,9 @@ internal fun SettingsScreen(
             }
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(SettingsTestTags.ValveCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFE8EFE8)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -387,12 +421,22 @@ internal fun SettingsScreen(
                             deviceState?.let { valveStateLabel(it.valveState, strings) } ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.settings_label_valve_enabled),
                             if (deviceState?.valveEnabled == true) strings.get(R.string.common_yes) else strings.get(R.string.common_no),
+                            leftValueModifier = Modifier.testTag(SettingsTestTags.ValveStateValue),
+                            rightValueModifier = Modifier.testTag(SettingsTestTags.ValveEnabledValue),
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Button(onClick = onOpenValve, enabled = valveManualControlEnabled) {
+                            Button(
+                                onClick = onOpenValve,
+                                enabled = valveManualControlEnabled,
+                                modifier = Modifier.testTag(SettingsTestTags.ValveOpenButton),
+                            ) {
                                 Text(strings.get(R.string.settings_open_valve))
                             }
-                            Button(onClick = onCloseValve, enabled = valveManualControlEnabled) {
+                            Button(
+                                onClick = onCloseValve,
+                                enabled = valveManualControlEnabled,
+                                modifier = Modifier.testTag(SettingsTestTags.ValveCloseButton),
+                            ) {
                                 Text(strings.get(R.string.settings_close_valve))
                             }
                         }
@@ -400,6 +444,7 @@ internal fun SettingsScreen(
                             Button(
                                 onClick = onOpenValveCalibration,
                                 enabled = state.connection.phase == BeetConnectionPhase.Connected,
+                                modifier = Modifier.testTag(SettingsTestTags.ValveCalibrationButton),
                             ) {
                                 Text(strings.get(R.string.settings_open_valve_calibration))
                             }
@@ -409,7 +454,9 @@ internal fun SettingsScreen(
             }
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(SettingsTestTags.ValveConfigCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F2E9)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -419,7 +466,11 @@ internal fun SettingsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Text(strings.get(R.string.settings_label_valve_enabled))
-                            Switch(checked = valveEnabled, onCheckedChange = { valveEnabled = it })
+                            Switch(
+                                checked = valveEnabled,
+                                onCheckedChange = { valveEnabled = it },
+                                modifier = Modifier.testTag(SettingsTestTags.ValveConfigEnabledSwitch),
+                            )
                         }
                         ValveNumberField(
                             value = moveDurationText,
@@ -429,6 +480,7 @@ internal fun SettingsScreen(
                             supportingText = moveDurationError,
                             onInfoClick = { activeInfo = ValveSettingInfo.MoveDuration },
                             infoContentDescription = strings.get(R.string.settings_info_open_description),
+                            modifier = Modifier.testTag(SettingsTestTags.ValveConfigMoveDurationField),
                         )
                         ValveNumberField(
                             value = settleDelayText,
@@ -438,6 +490,7 @@ internal fun SettingsScreen(
                             supportingText = settleDelayError,
                             onInfoClick = { activeInfo = ValveSettingInfo.SettleDelay },
                             infoContentDescription = strings.get(R.string.settings_info_open_description),
+                            modifier = Modifier.testTag(SettingsTestTags.ValveConfigSettleDelayField),
                         )
                         ValveNumberField(
                             value = openHoldText,
@@ -447,6 +500,7 @@ internal fun SettingsScreen(
                             supportingText = openHoldError,
                             onInfoClick = { activeInfo = ValveSettingInfo.OpenHold },
                             infoContentDescription = strings.get(R.string.settings_info_open_description),
+                            modifier = Modifier.testTag(SettingsTestTags.ValveConfigOpenHoldField),
                         )
                         Button(
                             onClick = {
@@ -460,6 +514,7 @@ internal fun SettingsScreen(
                                 configToSave?.let(onSaveValveConfig)
                             },
                             enabled = valveConfigChanged,
+                            modifier = Modifier.testTag(SettingsTestTags.ValveConfigSave),
                         ) {
                             Text(strings.get(R.string.settings_save_valve))
                         }
@@ -468,7 +523,9 @@ internal fun SettingsScreen(
             }
             item {
                 ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(SettingsTestTags.MaxActivePumpsCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEFE6F2)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -481,6 +538,7 @@ internal fun SettingsScreen(
                             } ?: strings.get(R.string.placeholder_dash),
                             strings.get(R.string.overview_label_active_pumps),
                             deviceState?.let { it.activePumps.toString() } ?: strings.get(R.string.placeholder_dash),
+                            leftValueModifier = Modifier.testTag(SettingsTestTags.MaxActivePumpsCurrent),
                         )
                         val currentMax = maxPumpsDraft ?: 0
                         val liveMax = state.maxActivePumps
@@ -491,6 +549,7 @@ internal fun SettingsScreen(
                             FilledIconButton(
                                 onClick = { if (currentMax > 1) maxPumpsDraft = currentMax - 1 },
                                 enabled = currentMax > 1,
+                                modifier = Modifier.testTag(SettingsTestTags.MaxActivePumpsDecrement),
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Remove,
@@ -500,10 +559,12 @@ internal fun SettingsScreen(
                             Text(
                                 text = currentMax.toString(),
                                 style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.testTag(SettingsTestTags.MaxActivePumpsDraftValue),
                             )
                             FilledIconButton(
                                 onClick = { if (currentMax < 8) maxPumpsDraft = currentMax + 1 },
                                 enabled = currentMax < 8,
+                                modifier = Modifier.testTag(SettingsTestTags.MaxActivePumpsIncrement),
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
@@ -514,6 +575,7 @@ internal fun SettingsScreen(
                         Button(
                             onClick = { maxPumpsDraft?.let(onStoreMaxActivePumps) },
                             enabled = maxPumpsDraft != null && liveMax != null && maxPumpsDraft != liveMax,
+                            modifier = Modifier.testTag(SettingsTestTags.MaxActivePumpsSave),
                         ) {
                             Text(strings.get(R.string.settings_max_active_pumps_save))
                         }
@@ -533,6 +595,7 @@ private fun ValveNumberField(
     supportingText: String?,
     onInfoClick: () -> Unit,
     infoContentDescription: String,
+    modifier: Modifier = Modifier,
 ) {
     OutlinedTextField(
         value = value,
@@ -549,7 +612,7 @@ private fun ValveNumberField(
                 )
             }
         },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
     )
 }

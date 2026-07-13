@@ -1,0 +1,77 @@
+=============================================
+Phase 1 exit evidence - 2026-07-13T12:28:32+02:00
+device: SM-A536B (serial RZCT50CGLKA)
+android: 16 (sdk 36)
+=============================================
+
+=== MaintenanceUpdateInstrumentationTest (P1.9 smoke gate, no @E2e) ===
+  runner: BeetE2eAwareJUnitRunner
+  filter: -e class <FQN>   (no -e beetRunE2e)
+  path:   E2eAwareRunnerBuilder returns null (no @E2e), default AndroidRunnerBuilder handles it
+  expected: 'OK (4 tests)'
+  ----
+
+de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest:....
+
+Time: 6.765
+
+OK (4 tests)
+
+
+
+=== E2eGateSmokeTest: gate filtered (no -e beetRunE2e) ===
+  filter: -e class E2eGateSmokeTest   (no -e beetRunE2e)
+  path:   E2eAwareRunnerBuilder intercepts, E2eSkipFilter removes all tests, JUnit throws NoTestsRemainException
+  expected: 'Tests run: 1, Failures: 1'
+  ----
+
+de.aarondietz.beetmeister.e2e.E2eGateSmokeTest:
+Error in initializationError(de.aarondietz.beetmeister.e2e.E2eGateSmokeTest):
+org.junit.runner.manipulation.NoTestsRemainException
+	at org.junit.runners.ParentRunner.filter(ParentRunner.java:447)
+	at de.aarondietz.beetmeister.e2e.E2eAwareRunnerBuilder.runnerForClass(BeetE2eAwareJUnitRunner.kt:104)
+	at org.junit.runners.model.RunnerBuilder.safeRunnerForClass(RunnerBuilder.java:70)
+	at androidx.test.internal.runner.AndroidRunnerBuilder.runnerForClass(AndroidRunnerBuilder.java:146)
+	at org.junit.runners.model.RunnerBuilder.safeRunnerForClass(RunnerBuilder.java:70)
+	at androidx.test.internal.runner.DirectTestLoader.doCreateRunner(DirectTestLoader.java:45)
+	at androidx.test.internal.runner.TestLoader.getRunnersFor(TestLoader.java:64)
+	at androidx.test.internal.runner.TestRequestBuilder.build(TestRequestBuilder.java:842)
+	at androidx.test.runner.AndroidJUnitRunner.buildRequest(AndroidJUnitRunner.java:672)
+	at androidx.test.runner.AndroidJUnitRunner.onStart(AndroidJUnitRunner.java:453)
+	at android.app.Instrumentation$InstrumentationThread.run(Instrumentation.java:2653)
+
+
+Time: 0.02
+There was 1 failure:
+1) initializationError(de.aarondietz.beetmeister.e2e.E2eGateSmokeTest)
+org.junit.runner.manipulation.NoTestsRemainException
+	at org.junit.runners.ParentRunner.filter(ParentRunner.java:447)
+	at de.aarondietz.beetmeister.e2e.E2eAwareRunnerBuilder.runnerForClass(BeetE2eAwareJUnitRunner.kt:104)
+	at org.junit.runners.model.RunnerBuilder.safeRunnerForClass(RunnerBuilder.java:70)
+	at androidx.test.internal.runner.AndroidRunnerBuilder.runnerForClass(AndroidRunnerBuilder.java:146)
+	at org.junit.runners.model.RunnerBuilder.safeRunnerForClass(RunnerBuilder.java:70)
+	at androidx.test.internal.runner.DirectTestLoader.doCreateRunner(DirectTestLoader.java:45)
+	at androidx.test.internal.runner.TestLoader.getRunnersFor(TestLoader.java:64)
+	at androidx.test.internal.runner.TestRequestBuilder.build(TestRequestBuilder.java:842)
+	at androidx.test.runner.AndroidJUnitRunner.buildRequest(AndroidJUnitRunner.java:672)
+	at androidx.test.runner.AndroidJUnitRunner.onStart(AndroidJUnitRunner.java:453)
+	at android.app.Instrumentation$InstrumentationThread.run(Instrumentation.java:2653)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
+
+=== E2eGateSmokeTest: gate accepted (-e beetRunE2e true) ===
+  filter: -e beetRunE2e true -e class E2eGateSmokeTest
+  path:   BeetE2eAwareJUnitRunner.onCreate passes bundle through, E2eAwareRunnerBuilder NOT in chain, default Android path runs
+  expected: 'OK (1 test)'
+  ----
+
+de.aarondietz.beetmeister.e2e.E2eGateSmokeTest:.
+
+Time: 1.649
+
+OK (1 test)
+
+

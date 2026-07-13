@@ -27,11 +27,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
+import de.aarondietz.beetmeister.BuildConfig
 import de.aarondietz.beetmeister.data.repository.BeetRepository
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
@@ -76,6 +80,15 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // testTagsAsResourceId is debug-only so release builds are not affected.
+    // It surfaces every Modifier.testTag("...") below as an Android resource-id,
+    // which lets uiautomator/UiAutomator2 and python clients find nodes by id
+    // in addition to onNodeWithTag. See the E2E test harness plan, Phase 1.
+    val rootModifier = if (BuildConfig.DEBUG) {
+        modifier.semantics { testTagsAsResourceId = true }
+    } else {
+        modifier
+    }
     var topLevelScreen by rememberSaveable { mutableStateOf(TopLevelScreen.Overview) }
     var selectedPair by rememberSaveable { mutableIntStateOf(0) }
     var pairDetailReturnScreen by rememberSaveable { mutableStateOf(TopLevelScreen.Overview) }
@@ -372,7 +385,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
             onStartMaintenanceUpdate = viewModel::startMaintenanceUpdate,
             onAbortMaintenanceUpdate = viewModel::abortMaintenanceUpdate,
             onDisconnect = viewModel::disconnect,
-            modifier = modifier,
+            modifier = rootModifier,
         )
         return
     }
@@ -385,7 +398,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
             onRequestBluetooth = permissionController.requestBluetoothEnable,
             onScan = viewModel::startScan,
             onConnect = viewModel::connect,
-            modifier = modifier,
+            modifier = rootModifier,
         )
         return
     }
@@ -449,12 +462,17 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
     }
 
     NavigationSuiteScaffold(
-        modifier = modifier.fillMaxSize(),
+        modifier = rootModifier.fillMaxSize(),
         navigationSuiteItems = {
             TopLevelScreen.entries.forEach { destination ->
                 item(
                     icon = destination.icon,
-                    label = { Text(stringResource(destination.labelRes)) },
+                    label = {
+                        Text(
+                            text = stringResource(destination.labelRes),
+                            modifier = Modifier.testTag(NavigationSuiteTestTags.tagFor(destination)),
+                        )
+                    },
                     selected = topLevelScreen == destination,
                     onClick = {
                         if (showValveCalibration) {
