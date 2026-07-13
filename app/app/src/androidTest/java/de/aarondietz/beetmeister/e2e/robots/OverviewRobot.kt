@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.e2e.robots
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -9,6 +10,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import de.aarondietz.beetmeister.ui.feature.overview.OverviewTestTags
 
 /**
@@ -40,14 +43,14 @@ internal class OverviewRobot(
      * sees composed nodes, so the naive `assertCountEquals(count)`
      * fails with "Expected 8 but found 2-3".
      *
-     * The fix scrolls the list repeatedly with a `swipe` gesture
-     * (bottom-to-top drags) until the count of composed pair cards
-     * reaches [count]. We use a swipe instead of
-     * `performScrollToIndex` because the LazyColumn's overscan only
-     * grows the composed window by ~1 card per `performScrollToIndex`
-     * call (the index lands at the edge of the viewport), whereas a
-     * large swipe advances several indices at once. A 30-iteration
-     * cap protects against infinite loops.
+     * `performScrollToIndex(n)` on a LazyColumn scrolls the list so
+     * that item `n` is visible but does NOT guarantee that all
+     * items from 0..n are composed at once (the LazyColumn's
+     * overscan window is small). We therefore drive a sequence of
+     * upward swipes (bottom-to-top drags across the list's center)
+     * until the count of composed pair cards reaches [count]. A
+     * 30-iteration cap with a 200px-per-iteration swipe distance
+     * reliably scrolls the list to the bottom on the A53.
      */
     fun assertPairRowsRendered(count: Int) {
         composeRule.waitUntil(timeoutMillis = 30_000) {
@@ -57,6 +60,8 @@ internal class OverviewRobot(
                 .isNotEmpty()
         }
         val listNode = composeRule.onNodeWithTag(OverviewTestTags.List)
+        val bounds = listNode.fetchSemanticsNode().boundsInRoot
+        val centerX = (bounds.left + bounds.right) / 2f
         var composedCount = 0
         var lastComposedCount = -1
         repeat(30) {
@@ -66,9 +71,16 @@ internal class OverviewRobot(
                 .size
             if (composedCount >= count) return@repeat
             if (composedCount == lastComposedCount) {
-                listNode.performScrollToIndex(composedCount + 3)
+                // Stuck: scroll all the way to the end via
+                // performScrollToIndex on the last possible index.
+                listNode.performScrollToIndex(count - 1)
             } else {
-                listNode.performScrollToIndex(composedCount)
+                listNode.performTouchInput {
+                    swipe(
+                        start = Offset(centerX, bounds.bottom - 100f),
+                        end = Offset(centerX, bounds.top + 100f),
+                    )
+                }
             }
             lastComposedCount = composedCount
         }
