@@ -8,9 +8,11 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -106,40 +108,34 @@ internal class SettingsRobot(
     }
 
     /**
-     * Scrolls the Settings [SettingsTestTags.Container] LazyColumn
-     * until the node tagged [tag] is composed. Returns the
-     * `SemanticsNodeInteraction` for that tag.
+     * Scrolls the Settings LazyColumn until the node tagged [tag]
+     * is composed. Returns the `SemanticsNodeInteraction` for
+     * that tag.
      *
-     * The Settings screen is a LazyColumn with multiple cards
-     * (watering interval, max active pumps, valve config, pair
-     * name, firmware update). The LazyColumn's overscan window
-     * only composes the visible viewport (empirically ~3 cards on
-     * the A53). When a test needs to interact with a card that's
-     * below the fold, `onNodeWithTag` fails with
-     * "could not find any node that satisfies" because the
-     * card isn't composed. `performScrollTo()` on a non-composed
-     * tag also fails for the same reason.
-     *
-     * The fix: drive bottom-to-top swipes on the container until
-     * the tag is composed, then return the node. 20 iterations
-     * is enough to traverse the full Settings list on the A53.
+     * The Settings screen is a LazyColumn wrapped in a
+     * `BeetPullToRefreshBox` (the `SettingsTestTags.Container`).
+     * The `PullToRefreshBox` absorbs upward swipes as
+     * pull-to-refresh gestures, so a direct `swipe` on the
+     * container doesn't reliably scroll the underlying list.
+     * Instead we drive `performScrollToIndex` on a known
+     * LazyColumn child (the always-composed
+     * [SettingsTestTags.ControllerInfoCard]) — the scrollable
+     * state is inherited from the parent LazyColumn, so the
+     * index jump reaches the target card. We sweep a 20-element
+     * index range (the Settings list has ~5-6 cards; 20 covers
+     * any reasonable expansion) and check `onAllNodesWithTag`
+     * after each jump.
      */
     private fun scrollToTag(tag: String) {
-        val container = composeRule.onNodeWithTag(SettingsTestTags.Container)
-        val bounds = container.fetchSemanticsNode().boundsInRoot
-        val centerX = (bounds.left + bounds.right) / 2f
-        repeat(20) {
+        val anchor = composeRule.onAllNodesWithTag(SettingsTestTags.ControllerInfoCard).onFirst()
+        for (i in 0..20) {
             val found = composeRule
                 .onAllNodesWithTag(tag)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
-            if (found) return@repeat
-            container.performTouchInput {
-                swipe(
-                    start = Offset(centerX, bounds.bottom - 100f),
-                    end = Offset(centerX, bounds.top + 100f),
-                )
-            }
+            if (found) return
+            anchor.performScrollToIndex(i)
+            composeRule.waitForIdle()
         }
     }
 
