@@ -74,6 +74,15 @@ idf_py_exe = "C:/esp/v6.0/esp-idf/tools/idf.py"
 # Linux:   "/opt/esp/esp-idf/export.sh"
 idf_env_script = "C:/esp/v6.0/esp-idf/export.bat"
 
+# The IDF venv Python (the one inside C:\Espressif\tools\python\v6.0\venv).
+# The harness invokes this directly instead of `cmd /c "export.bat && python ..."`
+# (P5 finding CRIT #R1: Windows cmd /c quoting is fragile). Required
+# because esptool.py + idf.py need the IDF venv deps (cryptography,
+# reedsolo, esp_idf_monitor, etc.).
+# Windows: C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe
+# Linux:   /opt/esp/python_env/idf6.0_py3.13_env/bin/python
+idf_python_exe = "C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe"
+
 [orchestrator]
 # Default timeouts (seconds). Per-suite overrides live in the
 # Orchestrator.run() kwargs.

@@ -27,9 +27,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -197,8 +199,15 @@ def ensure_old_firmware_built(
                 f"worktree {worktree_dir} has no firmware/esp-idf/ — "
                 f"unexpected pinned_tag {pinned_tag!r}"
             )
-        cmd = _build_idf_command(env_script, idf_py, "build", cwd=idf_workspace)
-        build = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        cmd = _build_idf_command(config, env_script, idf_py, "build", cwd=idf_workspace)
+        build = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=idf_workspace,
+            env=_idf_env(config),
+        )
         if build.returncode != 0:
             raise RuntimeError(
                 f"idf.py build failed (rc={build.returncode}): "
@@ -257,22 +266,76 @@ def ensure_old_firmware_built(
         # loudly — never silently swallow a stuck worktree.
 
 
-def _build_idf_command(env_script: str, idf_py: str, *args: str, cwd: Path) -> list[str]:
-    """Compose the `idf.py` invocation, optionally sourcing export.sh/bat.
+def _build_idf_command(
+    config: HarnessConfig, env_script: str, idf_py: str, *args: str, cwd: Path
+) -> list[str]:
+    """Compose the `idf.py` invocation.
 
-    On Windows we use `cmd /c "<export> && python idf.py <args>"`. On
-    POSIX we use `bash -c "source <export> && python idf.py <args>"`.
-    If no env_script is set, we invoke `idf.py` directly (the user
-    is expected to have the IDF env already on PATH).
+    P5 finding CRIT #R1: the previous `cmd /c "<export> && python
+    idf.py <args>"` approach was fragile (Windows cmd quoting
+    rules break in non-obvious ways). New approach: invoke the
+    IDF venv Python directly and set the env vars the wrapper
+    script (`.agents/skills/esp-idf-installation/scripts/invoke-idf.ps1`)
+    sets. idf.py checks IDF_PATH/IDF_TOOLS_PATH/etc., so we just
+    set them in the subprocess env and skip the `cmd /c` shell
+    entirely.
+
+    Returns `[python_exe, idf_py, *args]`. Caller passes the
+    composed env to `subprocess.run` (via `_idf_env`).
     """
-    if not env_script:
-        return ["python", idf_py, *args]
-    import sys as _sys
-    if _sys.platform.startswith("win"):
-        quoted = f'"{env_script}" && python "{idf_py}" ' + " ".join(args)
-        return ["cmd", "/c", quoted]
-    quoted = f'source "{env_script}" && python "{idf_py}" ' + " ".join(args)
-    return ["bash", "-c", quoted]
+    python_exe = config.env.idf_python_exe or sys.executable
+    if not Path(python_exe).exists():
+        raise RuntimeError(
+            f"IDF Python venv not found at {python_exe}. Set [env].idf_python_exe "
+            f"in config.toml (e.g. C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe)."
+        )
+    return [python_exe, idf_py, *args]
+
+
+def _idf_env(config: HarnessConfig) -> dict[str, str]:
+    """Compose the env vars idf.py + the IDF build need.
+
+    Mirrors `.agents/skills/esp-idf-installation/scripts/invoke-idf.ps1`:
+      IDF_PATH, IDF_TOOLS_PATH, IDF_PYTHON_ENV_PATH, ESP_ROM_ELF_DIR,
+      PYTHONIOENCODING, PYTHONUTF8
+    Plus prepends the tool paths (cmake, ninja, xtensa/riscv
+    toolchains) to PATH so the build can find them.
+
+    `env_script` argument kept for backward compat with the
+    previous signature but unused now (no more cmd /c shell).
+    """
+    env = dict(os.environ)
+    # Derive IDF_PATH from the configured idf_py_exe (e.g. .../esp-idf/tools/idf.py -> .../esp-idf).
+    idf_py = config.env.idf_py_exe
+    if idf_py:
+        # .../esp-idf/tools/idf.py -> .../esp-idf
+        idf_path = str(Path(idf_py).parent.parent)
+        env["IDF_PATH"] = idf_path
+        # Best-effort default for the venv root (Windows convention).
+        if sys.platform.startswith("win"):
+            env.setdefault("IDF_PYTHON_ENV_PATH", r"C:\Espressif\tools\python\v6.0\venv")
+            env.setdefault("IDF_TOOLS_PATH", r"C:\Espressif\tools")
+            env.setdefault("ESP_ROM_ELF_DIR", r"C:\Espressif\tools\esp-rom-elfs\20241011")
+            # Prepend tool paths to PATH.
+            tool_paths = (
+                r"C:\Espressif\tools\python\v6.0\venv\Scripts",
+                r"C:\Espressif\tools\cmake\4.0.3\bin",
+                r"C:\Espressif\tools\ninja\1.12.1",
+                r"C:\Espressif\tools\xtensa-esp-elf\esp-15.2.0_20251204\xtensa-esp-elf\bin",
+                r"C:\Espressif\tools\riscv32-esp-elf\esp-15.2.0_20251204\riscv32-esp-elf\bin",
+                r"C:\Espressif\tools\esp32ulp-elf\2.38_20240113\esp32ulp-elf\bin",
+            )
+            existing = env.get("Path", env.get("PATH", ""))
+            entries = [p for p in existing.split(";") if p]
+            for p in tool_paths:
+                if p not in entries:
+                    entries.insert(0, p)
+            env["Path"] = ";".join(entries)
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    # Remove MSYSTEM so idf.py doesn't skip main() when invoked from MSYS.
+    env.pop("MSYSTEM", None)
+    return env
 
 
 def _find_built_bin(idf_workspace: Path) -> Path | None:

@@ -69,6 +69,13 @@ class EnvConfig:
     esptool_exe: str = ""
     idf_py_exe: str = ""
     idf_env_script: str = ""
+    # P5 finding CRIT #R1: the venv Python that has esptool
+    # installed. On Windows: C:\Espressif\tools\python\v6.0\venv\Scripts\python.exe
+    # (this is the same venv export.bat puts on PATH). On Linux:
+    # /opt/esp/python_env/idf6.0_py3.13_env/bin/python. Leave
+    # empty to fall back to the IDF venv Python derived from
+    # `idf_env_script`'s location, then `sys.executable`.
+    idf_python_exe: str = ""
 
 
 @dataclass(frozen=True)

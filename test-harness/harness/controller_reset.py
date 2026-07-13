@@ -53,34 +53,37 @@ class EraseResult:
 
 
 def build_esptool_command(config: HarnessConfig, *args: str) -> list[str]:
-    """Compose an esptool invocation, optionally sourcing the IDF env.
+    """Compose an esptool invocation.
 
-    esptool.py needs the IDF Python env (cryptography, reedsolo).
-    Two cases (P3 finding SUB #4 — unify the esptool invocation style):
-      - `idf_env_script` set: source it (cmd /c on Windows, bash -c
-        on POSIX) so `python` on PATH becomes the IDF python, then
-        run `python <esptool_exe> <args>`.
-      - `idf_env_script` empty: assume the host interpreter already
-        has esptool deps (user ran `export` or pip-installed
-        esptool). Run `<sys.executable> <esptool_exe> <args>`.
-    Both cases prefix `python` so `esptool_exe` is ALWAYS treated
-    as a Python script (NOT executed directly) — matches the
-    existing controller_reset path + fixes firmware._image_metadata
-    which used to run `[esptool_exe, ...]` without a python prefix.
+    esptool.py needs the IDF Python venv (it has `cryptography`,
+    `reedsolo`, etc.). The P3 `cmd /c "<export> && python <esptool>"`
+    approach was fragile (P5 finding CRIT #R1: Windows
+    cmd quoting rules break in non-obvious ways). The P5 fix:
+    invoke the IDF venv Python DIRECTLY via `[idf_python_exe,
+    esptool_exe, *args]`. esptool runs headless (image_info,
+    erase_region, write_flash) and doesn't need any of the IDF
+    env vars set, so we don't need to source export.bat at all.
+
+    Resolution order for the Python interpreter:
+      1. `config.env.idf_python_exe` (user-set absolute path)
+      2. `sys.executable` (the running Python — works if the
+         user runs the harness from inside the IDF env)
+
+    The output is always `<python> <esptool_exe> <args>` — a
+    single-arg list, no shell, no quoting.
     """
     esptool = config.require("env.esptool_exe", config.env.esptool_exe)
     if not Path(esptool).exists():
         raise RuntimeError(
             f"esptool not found at {esptool}. Set [env].esptool_exe in config.toml."
         )
-    env_script = config.env.idf_env_script
-    if not env_script:
-        return [sys.executable, esptool, *args]
-    if sys.platform.startswith("win"):
-        quoted = f'"{env_script}" && python "{esptool}" ' + " ".join(args)
-        return ["cmd", "/c", quoted]
-    quoted = f'source "{env_script}" && python "{esptool}" ' + " ".join(args)
-    return ["bash", "-c", quoted]
+    python_exe = config.env.idf_python_exe or sys.executable
+    if not Path(python_exe).exists():
+        raise RuntimeError(
+            f"IDF Python venv not found at {python_exe}. Set [env].idf_python_exe "
+            f"in config.toml (e.g. C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe)."
+        )
+    return [python_exe, esptool, *args]
 
 
 def erase_config_partitions(
