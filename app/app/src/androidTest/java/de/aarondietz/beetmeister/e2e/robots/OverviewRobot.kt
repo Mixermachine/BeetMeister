@@ -34,18 +34,20 @@ internal class OverviewRobot(
      *
      * The Overview list is a [androidx.compose.foundation.lazy.LazyColumn]
      * which only composes the visible viewport plus a small overscan
-     * window. On the A53's 1080x2400 screen, only the first 2 pair
-     * cards fit below the system-values card; pairs 3..8 are not
+     * window. On the A53's 1080x2400 screen, only the first 2-3 pair
+     * cards fit below the system-values card; pairs 4..8 are not
      * composed until the list is scrolled. `onAllNodesWithTag` only
      * sees composed nodes, so the naive `assertCountEquals(count)`
-     * fails with "Expected 8 but found 2".
+     * fails with "Expected 8 but found 2-3".
      *
-     * The fix scrolls the list to each expected index via
-     * `performScrollToIndex` until either all [count] cards have
-     * been composed at least once (we have a stable total of
-     * [count]) or the `assertCountEquals` on the final pass
-     * confirms it. A 20-iteration cap protects against infinite
-     * loops if the list ever fails to grow.
+     * The fix scrolls the list repeatedly with a `swipe` gesture
+     * (bottom-to-top drags) until the count of composed pair cards
+     * reaches [count]. We use a swipe instead of
+     * `performScrollToIndex` because the LazyColumn's overscan only
+     * grows the composed window by ~1 card per `performScrollToIndex`
+     * call (the index lands at the edge of the viewport), whereas a
+     * large swipe advances several indices at once. A 30-iteration
+     * cap protects against infinite loops.
      */
     fun assertPairRowsRendered(count: Int) {
         composeRule.waitUntil(timeoutMillis = 30_000) {
@@ -56,13 +58,19 @@ internal class OverviewRobot(
         }
         val listNode = composeRule.onNodeWithTag(OverviewTestTags.List)
         var composedCount = 0
-        repeat(20) {
+        var lastComposedCount = -1
+        repeat(30) {
             composedCount = composeRule
                 .onAllNodesWithTag(OverviewTestTags.PairCard)
                 .fetchSemanticsNodes()
                 .size
             if (composedCount >= count) return@repeat
-            listNode.performScrollToIndex(composedCount)
+            if (composedCount == lastComposedCount) {
+                listNode.performScrollToIndex(composedCount + 3)
+            } else {
+                listNode.performScrollToIndex(composedCount)
+            }
+            lastComposedCount = composedCount
         }
         composeRule
             .onAllNodesWithTag(OverviewTestTags.PairCard)
