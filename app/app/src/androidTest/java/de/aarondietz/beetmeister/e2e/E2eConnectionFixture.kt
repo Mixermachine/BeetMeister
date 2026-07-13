@@ -1,114 +1,100 @@
 package de.aarondietz.beetmeister.e2e
 
-import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeTestRule
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onFirst
-import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performClick
-import de.aarondietz.beetmeister.ui.NavigationSuiteTestTags
-import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGateTestTags
-import de.aarondietz.beetmeister.ui.feature.overview.OverviewTestTags
+import de.aarondietz.beetmeister.e2e.robots.ConnectionGateRobot
+
+/**
+ * Class-shared connect state.
+ *
+ * JUnit 4 creates a fresh test-class instance for every `@Test`, so
+ * per-instance state is reset between sibling `@Test`s. The original
+ * `E2eConnectionFixture.@Volatile connected: Boolean` was therefore
+ * decorative: every `@Test` re-ran the full scan/connect (~30-60 s)
+ * even though the BLE connection itself is process-wide (the
+ * `BeetRepository` is a singleton; once `connection.phase ==
+ * Connected` is set, every freshly-spawned `MainActivity` lands on
+ * the post-connect shell instead of the gate after the 900 ms
+ * `CONNECTED_UI_STABILITY_MS` window).
+ *
+ * The static [isConnected] here is the real class-shared guard.
+ * The fixture's [E2eConnectionFixture.connectOnce] is a fast-path
+ * no-op for `@Test`s 2..N — it just verifies the post-connect
+ * marker is still rendered. The first `@Test` does the actual
+ * scan/connect.
+ *
+ * **Cascade-FAIL (resolved P5):** if the BLE link drops mid-suite,
+ * the repository's `connection.phase` reverts from `Connected` and
+ * the freshly-spawned `MainActivity` shows the gate again, so the
+ * subsequent `@Test`'s `assertStillConnected` timeouts out and the
+ * test class reports FAIL. **No retry, no @After disconnect, no
+ * reconnect-once-it-dropped** — a mid-suite cascade is a genuine
+ * surfaced failure, not suppressed.
+ *
+ * **Process scope:** the static state is per-process. The
+ * orchestrator runs one E2E class per `am instrument` invocation,
+ * so the state is effectively per-class in normal flow. A user
+ * who runs `-e package de.aarondietz.beetmeister.e2e` (all three
+ * classes) would have the state carry across, which is consistent
+ * with the BLE connection also carrying across.
+ */
+internal object E2eConnectionState {
+    @Volatile
+    var isConnected: Boolean = false
+}
 
 /**
  * Shared connect-once fixture for the E2E test classes.
  *
  * Per the harness plan, the class-shared connect happens in the
- * test class's `@Before` exactly once for the whole class (so the
- * BLE connect is amortized across all sibling @Tests). The fixture
- * tracks an `isConnected` flag so subsequent @Before invocations
- * are a no-op; this keeps the test-class code uniform and matches
- * the plan's "one @Before per class" intent.
+ * test class's `@Before` exactly once for the whole class. The
+ * connect itself is amortized across all sibling `@Test`s via the
+ * static [E2eConnectionState.isConnected] flag.
  *
  * The fixture also owns the per-class [E2eScreenshotHelper] so each
- * test class can call `fixture.screenshots.captureStep("afterConnect")`
- * in its own logic without re-wiring.
+ * test class can call `fixture.screenshots.captureStep(...)` in its
+ * own logic without re-wiring.
  *
  * The connect path follows the on-device flow the orchestrator's
  * fresh_install / settings_update suites rely on:
- *  1. Wait for the ConnectionGate to render.
+ *  1. Wait for the ConnectionGate to render (only needed on the
+ *     first `@Test`; subsequent calls fast-path through
+ *     [assertStillConnected]).
  *  2. Tap the Scan button.
- *  3. Wait for the first device card to appear (or fail on timeout).
+ *  3. Wait for the expected device (matched by
+ *     `expected_device_name` from `am instrument -e`) to appear in
+ *     the device list. Use [ConnectionGateRobot.assertDeviceVisible]
+ *     so we connect to the **right** controller, not a
+ *     non-deterministic first card. If only one device is in BLE
+ *     range the assertion still holds; if more than one is
+ *     visible the name check disambiguates deterministically.
  *  4. Tap the first device card's Connect button.
- *  5. Wait for the NavigationSuiteScaffold to render (any nav item
- *     is sufficient; we use the Settings nav-item tag because it
- *     is the most semantically anchored).
+ *  5. Wait for the NavigationSuiteScaffold to render (the
+ *     [NavigationSuiteTestTags.SettingsNavItem] is the strongest
+ *     "gate is gone" signal).
  *  6. Take an after-connect screenshot.
- *
- * **Cascade policy (resolved P5):** if the class-shared connect
- * drops mid-suite, the suite **reports FAIL — no retry is added
- * to `@Before`**. A cascade is a genuine surfaced failure, not
- * suppressed. The Phase 2 deferral is closed by the design of
- * this fixture: it has a single connect path, no retry, no
- * reconnect-once-it-dropped, and no `@After` cleanup.
  */
 internal class E2eConnectionFixture(
     val composeRule: ComposeTestRule,
     testSlug: String,
 ) {
     val screenshots: E2eScreenshotHelper = E2eScreenshotHelper(testSlug = testSlug)
-
-    @Volatile
-    private var connected: Boolean = false
+    val gate: ConnectionGateRobot = ConnectionGateRobot(composeRule)
 
     /**
-     * Idempotent class-shared connect. The first call runs the full
-     * scan/connect/wait path; subsequent calls (one per remaining
-     * `@Before` invocation before each `@Test`) are a no-op.
+     * Idempotent class-shared connect. The first call runs the
+     * full scan/connect/wait path; subsequent calls verify the
+     * post-connect state is still present and return.
      */
     fun connectOnce() {
-        if (connected) return
-        tapScan()
-        assertFirstDeviceVisible()
-        tapFirstDeviceConnect()
-        assertConnected()
+        if (E2eConnectionState.isConnected) {
+            gate.assertConnected()
+            return
+        }
+        gate.tapScan()
+        gate.assertDeviceVisible()
+        gate.tapConnect()
+        gate.assertConnected()
         screenshots.captureStep("afterConnect")
-        connected = true
-    }
-
-    private fun tapScan() {
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            composeRule
-                .onAllNodesWithTag(ConnectionGateTestTags.ScanButton)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRule.onNodeWithTag(ConnectionGateTestTags.ScanButton).performClick()
-    }
-
-    private fun assertFirstDeviceVisible() {
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            composeRule
-                .onAllNodesWithTag(ConnectionGateTestTags.DeviceCard)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRule
-            .onAllNodesWithTag(ConnectionGateTestTags.DeviceCard)
-            .assertCountEquals(1)
-    }
-
-    private fun tapFirstDeviceConnect() {
-        composeRule
-            .onAllNodesWithTag(ConnectionGateTestTags.DeviceConnectButton)
-            .onFirst()
-            .performClick()
-    }
-
-    private fun assertConnected() {
-        composeRule.waitUntil(timeoutMillis = 60_000) {
-            composeRule
-                .onAllNodesWithTag(NavigationSuiteTestTags.SettingsNavItem)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        // The Overview screen is the default top-level destination after
-        // connect, so its list tag is also a strong "we are past the
-        // gate" signal. We don't assert on it because some tests will
-        // navigate to Settings first.
-        composeRule
-            .onNodeWithTag(OverviewTestTags.List)
-            .assertIsDisplayed()
+        E2eConnectionState.isConnected = true
     }
 }

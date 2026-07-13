@@ -1,11 +1,10 @@
 package de.aarondietz.beetmeister.e2e.robots
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import de.aarondietz.beetmeister.ui.feature.overview.OverviewTestTags
@@ -47,13 +46,32 @@ internal class OverviewRobot(
      * Asserts the moisture percentage cell of the n-th pair is
      * non-empty (typically "<n>%"). Used by FreshInstallE2ETest
      * to prove the controller has reported real pair telemetry.
+     *
+     * On real hardware the card composes before telemetry arrives
+     * and the cell momentarily holds the placeholder dash. The
+     * assertion therefore waits up to [timeoutMillis] for the
+     * percent sign to actually appear, which is the strongest
+     * "telemetry has landed" signal we have at the test layer.
      */
-    fun assertPairMoistureNonEmpty(index: Int) {
-        val nodes = composeRule.onAllNodesWithTag(OverviewTestTags.PairMoisture)
-        check(nodes.fetchSemanticsNodes().size > index) {
-            "Pair $index not present; only ${nodes.fetchSemanticsNodes().size} pairs rendered"
+    fun assertPairMoistureNonEmpty(
+        index: Int,
+        timeoutMillis: Long = 30_000L,
+    ) {
+        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+            val nodes = composeRule.onAllNodesWithTag(OverviewTestTags.PairMoisture)
+            if (nodes.fetchSemanticsNodes().size <= index) return@waitUntil false
+            val text = try {
+                nodes.get(index)
+                    .fetchSemanticsNode()
+                    .config
+                    .getOrElseNullable(SemanticsProperties.Text) { null }
+                    ?.joinToString("") { it.text }
+                    ?: ""
+            } catch (_: AssertionError) {
+                return@waitUntil false
+            }
+            text.contains("%")
         }
-        nodes.get(index).assertTextContains("%")
     }
 
     /**

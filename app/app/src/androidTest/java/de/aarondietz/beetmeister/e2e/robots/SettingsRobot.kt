@@ -13,6 +13,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
+import androidx.test.platform.app.InstrumentationRegistry
+import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.ui.NavigationSuiteTestTags
 import de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateTestTags
 import de.aarondietz.beetmeister.ui.feature.settings.SettingsTestTags
@@ -43,6 +45,39 @@ internal class SettingsRobot(
     private val composeRule: ComposeTestRule,
 ) {
     /**
+     * Localized "Yes" / "No" strings for the valve-enabled readback
+     * and the read-only cells that show a localized affirmative.
+     * Resolved from the app's resources via the instrumentation
+     * target context so the robot respects the device locale
+     * (German "Ja" / "Nein", etc.). Hardcoding English would break
+     * non-English phones.
+     */
+    private val yesLabel: String by lazy {
+        InstrumentationRegistry.getInstrumentation()
+            .targetContext
+            .getString(R.string.common_yes)
+    }
+    private val noLabel: String by lazy {
+        InstrumentationRegistry.getInstrumentation()
+            .targetContext
+            .getString(R.string.common_no)
+    }
+
+    /**
+     * The "—" placeholder the Settings screen shows for unloaded
+     * cells. The non-empty assertions in this robot must reject
+     * the placeholder, not just any non-empty string, because
+     * Compose's [assertTextContains] is satisfied by *any* text
+     * (including "—"), which makes a literal `assertTextContains("")`
+     * a no-op (per P2 review finding SUB #2).
+     */
+    private val placeholderDash: String by lazy {
+        InstrumentationRegistry.getInstrumentation()
+            .targetContext
+            .getString(R.string.placeholder_dash)
+    }
+
+    /**
      * Taps the Settings nav-item tag, then waits for the Settings
      * container to render.
      */
@@ -64,21 +99,37 @@ internal class SettingsRobot(
 
     /**
      * Asserts the device_id cell of the Controller Info card is
-     * non-empty. Used as a "controller reported identity" check.
+     * populated (non-blank and not the "—" placeholder).
+     *
+     * `assertTextContains("")` is a no-op (satisfied by any text,
+     * including the placeholder), so the assertion reads the
+     * actual [SemanticsProperties.Text] and rejects the
+     * placeholder explicitly.
      */
     fun assertDeviceIdNonEmpty() {
-        composeRule
-            .onNodeWithTag(SettingsTestTags.ControllerInfoDeviceId)
-            .assertTextContains("")
+        assertCellPopulated(SettingsTestTags.ControllerInfoDeviceId, label = "device_id")
     }
 
     /**
-     * Asserts the firmware_version cell is non-empty.
+     * Asserts the firmware_version cell of the Controller Info
+     * card is populated. See [assertDeviceIdNonEmpty] for the
+     * placeholder-rejection rationale.
      */
     fun assertFirmwareVersionNonEmpty() {
-        composeRule
-            .onNodeWithTag(SettingsTestTags.ControllerInfoFirmwareVersion)
-            .assertTextContains("")
+        assertCellPopulated(SettingsTestTags.ControllerInfoFirmwareVersion, label = "firmware_version")
+    }
+
+    private fun assertCellPopulated(tag: String, label: String) {
+        val text = composeRule
+            .onNodeWithTag(tag)
+            .fetchSemanticsNode()
+            .config
+            .getOrElseNullable(SemanticsProperties.Text) { null }
+            ?.joinToString("") { it.text }
+            ?: error("Controller Info $label cell has no text semantics")
+        require(text.isNotBlank() && text != placeholderDash) {
+            "Controller Info $label is empty or placeholder: '$text'"
+        }
     }
 
     /**
@@ -136,14 +187,16 @@ internal class SettingsRobot(
      * a value in that range.
      */
     fun setMaxActivePumps(target: Int) {
-        val currentDraftNode = composeRule.onNodeWithTag(SettingsTestTags.MaxActivePumpsDraftValue)
-        val current = currentDraftNode.fetchSemanticsNode().let { node ->
-            // The draft is displayed as a Text; reading the text is the
-            // simplest way to discover the current stepper value. We
-            // parse the integer back out.
-            val text = node.config.getOrElseNullable(SemanticsProperties.Text) { null }
-                ?.joinToString("") { it.text } ?: error("Stepper draft has no text semantics")
-            text.trim().toInt()
+        val current = readMaxPumpsDraft()
+        if (current == target) {
+            // Already at target: skip the click sequence and the
+            // save (the save button is gated by
+            // `maxPumpsDraft != liveMax` in SettingsScreen, so
+            // dirty == false means save is disabled and would
+            // throw `assertIsEnabled`). The persisted value is
+            // already `target`; [assertCurrentMaxActivePumps]
+            // confirms the readback.
+            return
         }
         val increment = composeRule.onNodeWithTag(SettingsTestTags.MaxActivePumpsIncrement)
         val decrement = composeRule.onNodeWithTag(SettingsTestTags.MaxActivePumpsDecrement)
@@ -156,6 +209,17 @@ internal class SettingsRobot(
             .performScrollTo()
             .assertIsEnabled()
             .performClick()
+    }
+
+    private fun readMaxPumpsDraft(): Int {
+        val text = composeRule
+            .onNodeWithTag(SettingsTestTags.MaxActivePumpsDraftValue)
+            .fetchSemanticsNode()
+            .config
+            .getOrElseNullable(SemanticsProperties.Text) { null }
+            ?.joinToString("") { it.text }
+            ?: error("Stepper draft has no text semantics")
+        return text.trim().toInt()
     }
 
     /**
@@ -275,7 +339,7 @@ internal class SettingsRobot(
             .getOrElseNullable(SemanticsProperties.Text) { null }
             ?.joinToString("") { it.text }
             ?: ""
-        val currentYes = currentLabel == "Yes"
+        val currentYes = currentLabel == yesLabel
         if (currentYes != enabled) {
             composeRule
                 .onNodeWithTag(SettingsTestTags.ValveConfigEnabledSwitch)
@@ -286,14 +350,14 @@ internal class SettingsRobot(
 
     /**
      * Asserts the [SettingsTestTags.ValveEnabledValue] cell shows
-     * "Yes" or "No" as expected. The exact localized string depends
-     * on the device's locale; we match on a case-insensitive
-     * substring.
+     * the localized "Yes" / "No" corresponding to [enabled].
+     * Strings are resolved from `R.string.common_yes` /
+     * `common_no` at robot init so the device locale is respected.
      */
     fun assertValveEnabled(enabled: Boolean) {
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveEnabledValue)
-            .assertTextEquals(if (enabled) "Yes" else "No")
+            .assertTextEquals(if (enabled) yesLabel else noLabel)
     }
 
     // endregion

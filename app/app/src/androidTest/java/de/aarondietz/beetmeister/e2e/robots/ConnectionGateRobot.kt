@@ -1,15 +1,13 @@
 package de.aarondietz.beetmeister.e2e.robots
 
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.test.platform.app.InstrumentationRegistry
 import de.aarondietz.beetmeister.ui.NavigationSuiteTestTags
 import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGateTestTags
 
@@ -19,27 +17,36 @@ import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGateTestTags
  *
  * The gate has four interaction surfaces:
  *  - [tapScan]: start a BLE scan.
- *  - [assertDeviceVisible]: assert a discovered device is in the
- *    device list (matched by name, e.g. "beetmeister-1234abcd").
- *  - [tapConnect]: tap the connect button on the device card.
+ *  - [assertDeviceVisible]: assert the **expected** device (matched
+ *    by name from the `expected_device_name` `am instrument -e`
+ *    extra) is in the device list. Falls back to "exactly one card
+ *    visible" when the extra is not set, which assumes single-
+ *    controller BLE range.
+ *  - [tapConnect]: tap the connect button on the first device card.
+ *    Pairs with [assertDeviceVisible] to ensure the expected device
+ *    is the one being connected to.
  *  - [assertConnected]: assert the connection completed by waiting
  *    for the NavigationSuiteScaffold to appear (its first nav-item
  *    tag is the strongest "gate is gone" signal).
  *
- * Used by:
- *  - [E2eConnectionFixture] (the class-shared `@Before`) for the
- *    scan -> connect -> assertConnected chain.
- *  - [FreshInstallE2ETest] (no shared fixture; this robot is the
- *    only connect surface it needs).
- *
- * The device-card ElevatedCard is `clickable` on the whole card
- * (in addition to the explicit Connect button inside), so calling
- * [tapConnect] on a freshly tapped card has the same effect as
- * tapping the card itself.
+ * The expected device name is required when more than one
+ * controller is in BLE range, which the harness explicitly
+ * disambiguates per the FreshInstall step 4 from the plan. The
+ * orchestrator (P4) sets `-e expected_device_name <id>`.
  */
 internal class ConnectionGateRobot(
     private val composeRule: ComposeTestRule,
 ) {
+    /**
+     * Expected controller BLE name passed by the orchestrator via
+     * `-e expected_device_name <id>`. May be null only when the
+     * BLE range is known to have exactly one controller, in which
+     * case [assertDeviceVisible] still verifies a single card is
+     * present.
+     */
+    private val expectedDeviceName: String? =
+        InstrumentationRegistry.getArguments().getString(EXTRA_EXPECTED_DEVICE_NAME)
+
     /** Taps the [ConnectionGateTestTags.ScanButton]. Waits up to 30s for it to render. */
     fun tapScan() {
         composeRule.waitUntil(timeoutMillis = 30_000) {
@@ -52,17 +59,36 @@ internal class ConnectionGateRobot(
     }
 
     /**
-     * Asserts that a device with the given name (e.g. "beetmeister-7C3FA2")
-     * is in the discovered device list. Uses the per-device [DeviceName]
-     * text content because the card itself is tagged the same for all
-     * devices.
+     * Asserts the expected device is visible in the discovered
+     * device list.
+     *
+     * If [expectedDeviceName] was provided via the `am instrument
+     * -e expected_device_name <id>` extra (the plan's FreshInstall
+     * step 4 contract), the robot waits for a device with that
+     * name and asserts exactly one card is present.
+     *
+     * If no extra was set, the robot falls back to "exactly one
+     * device card visible" which is acceptable for a single-
+     * controller BLE range. The fixture records a follow-up to
+     * require the extra in P4 wiring; for now the fallback is
+     * the safe default in the dev environment.
      */
-    fun assertDeviceVisible(name: String) {
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            composeRule
-                .onAllNodesWithText(name)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
+    fun assertDeviceVisible() {
+        val name = expectedDeviceName
+        if (name != null) {
+            composeRule.waitUntil(timeoutMillis = 30_000) {
+                composeRule
+                    .onAllNodesWithText(name)
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            }
+        } else {
+            composeRule.waitUntil(timeoutMillis = 30_000) {
+                composeRule
+                    .onAllNodesWithTag(ConnectionGateTestTags.DeviceCard)
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            }
         }
         composeRule
             .onAllNodesWithTag(ConnectionGateTestTags.DeviceCard)
@@ -70,9 +96,8 @@ internal class ConnectionGateRobot(
     }
 
     /**
-     * Taps the [ConnectionGateTestTags.DeviceConnectButton] on the first
-     * device card. Use after [assertDeviceVisible] to make sure the
-     * expected device is the one being connected to.
+     * Taps the [ConnectionGateTestTags.DeviceConnectButton] on the
+     * first (and only, per [assertDeviceVisible]) device card.
      */
     fun tapConnect() {
         composeRule
@@ -83,8 +108,12 @@ internal class ConnectionGateRobot(
 
     /**
      * Waits for the gate to be replaced by the NavigationSuiteScaffold
-     * (i.e. the post-connect main shell). 60s default because BLE
+     * (i.e. the post-connect main shell). 60 s default because BLE
      * connect + service discovery + sync can take a while.
+     *
+     * The strongest "gate is gone" signal is the Scaffold's
+     * `SettingsNavItem` appearing; the gate's [ScanButton] is
+     * implicitly gone once the Scaffold is up.
      */
     fun assertConnected(timeoutMillis: Long = 60_000L) {
         composeRule.waitUntil(timeoutMillis = timeoutMillis) {
@@ -93,15 +122,9 @@ internal class ConnectionGateRobot(
                 .fetchSemanticsNodes()
                 .isNotEmpty()
         }
-        // Sanity check the gate is actually gone — there is only one
-        // Container per Compose root at a time and it switches from the
-        // gate's Container to the Scaffold's content as soon as
-        // `connectionGateVisible` flips false. The Scaffold is the
-        // parent of the nav items, so this assertion is implicit but
-        // we make it explicit for clarity.
-        composeRule
-            .onAllNodesWithTag(ConnectionGateTestTags.Container)
-            .fetchSemanticsNodes()
-            .let { it.isEmpty() }
+    }
+
+    companion object {
+        const val EXTRA_EXPECTED_DEVICE_NAME = "expected_device_name"
     }
 }
