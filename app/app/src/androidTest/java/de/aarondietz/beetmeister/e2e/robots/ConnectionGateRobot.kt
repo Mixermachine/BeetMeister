@@ -1,6 +1,7 @@
 package de.aarondietz.beetmeister.e2e.robots
 
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -8,7 +9,6 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
-import de.aarondietz.beetmeister.ui.NavigationSuiteTestTags
 import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGateTestTags
 
 /**
@@ -66,12 +66,33 @@ internal class ConnectionGateRobot(
      * post-connect-already case.
      */
     fun tapScan() {
+        // P5 finding SUB #R7: the BLE auto-connect is fast enough
+        // that the gate can disappear BEFORE the test's first
+        // `waitUntil` fires. Additionally, the `createAndroidComposeRule`
+        // semantics tree is populated via a `SnapshotStateObserver`
+        // that synchronises state changes from the app's coroutines
+        // (the BLE state machine) to the test thread's view of the
+        // tree. Without a prior `waitForIdle()`, the test thread can
+        // query the tree while the app is mid-recomposition, the
+        // `mergeDescendants` semantics node for the NavigationBarItem
+        // may not yet be wired up, and `onAllNodesWithTag` returns
+        // empty even though the post-connect shell is rendered.
+        // The smoke-gate's `MaintenanceUpdateLiveActivityInstrumentationTest`
+        // works around the same race by using `hasText` instead of
+        // `onAllNodesWithTag` (the merged Text node carries the
+        // text content even mid-recomposition). We use the same
+        // `hasText` pattern for the post-connect probe and add an
+        // explicit `waitForIdle()` before the wait loop so the
+        // composition settles after the BLE state transitions
+        // complete.
+        composeRule.waitForIdle()
         composeRule.waitUntil(timeoutMillis = 30_000) {
             scanButtonVisible() || postConnectVisible()
         }
         if (scanButtonVisible()) {
             composeRule
-                .onNodeWithTag(ConnectionGateTestTags.ScanButton)
+                .onAllNodesWithTag(ConnectionGateTestTags.ScanButton)
+                .onFirst()
                 .performClick()
         }
         // else: post-connect shell is up; no scan/connect to do
@@ -84,7 +105,7 @@ internal class ConnectionGateRobot(
         .isNotEmpty()
 
     private fun postConnectVisible(): Boolean = composeRule
-        .onAllNodesWithTag(NavigationSuiteTestTags.SettingsNavItem)
+        .onAllNodesWithText(POST_CONNECT_MARKER_TEXT)
         .fetchSemanticsNodes()
         .isNotEmpty()
 
@@ -104,6 +125,7 @@ internal class ConnectionGateRobot(
      * the safe default in the dev environment.
      */
     fun assertDeviceVisible() {
+        composeRule.waitForIdle()
         val name = expectedDeviceName
         if (name != null) {
             composeRule.waitUntil(timeoutMillis = 30_000) {
@@ -143,14 +165,14 @@ internal class ConnectionGateRobot(
      *
      * The strongest "gate is gone" signal is the Scaffold's
      * `SettingsNavItem` appearing; the gate's [ScanButton] is
-     * implicitly gone once the Scaffold is up.
+     * implicitly gone once the Scaffold is up. We probe by the
+     * nav-item text (not the test tag) for the same
+     * `SnapshotStateObserver` reason as [postConnectVisible].
      */
     fun assertConnected(timeoutMillis: Long = 60_000L) {
+        composeRule.waitForIdle()
         composeRule.waitUntil(timeoutMillis = timeoutMillis) {
-            composeRule
-                .onAllNodesWithTag(NavigationSuiteTestTags.SettingsNavItem)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
+            postConnectVisible()
         }
     }
 
@@ -169,5 +191,17 @@ internal class ConnectionGateRobot(
 
     companion object {
         const val EXTRA_EXPECTED_DEVICE_NAME = "expected_device_name"
+
+        /**
+         * Localised text of the Settings nav item — the strongest
+         * "post-connect shell is up" signal that survives the
+         * `mergeDescendants` semantics merge (the merged
+         * NavigationBarItem exposes the text content even when
+         * the test-thread semantics observer hasn't yet wired
+         * up the per-tag resource-id mapping). Mirrors the
+         * smoke-gate's `MaintenanceUpdateLiveActivityInstrumentationTest`
+         * approach.
+         */
+        const val POST_CONNECT_MARKER_TEXT = "Settings"
     }
 }
