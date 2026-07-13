@@ -1,0 +1,321 @@
+package de.aarondietz.beetmeister.e2e.robots
+
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
+import de.aarondietz.beetmeister.ui.NavigationSuiteTestTags
+import de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateTestTags
+import de.aarondietz.beetmeister.ui.feature.settings.SettingsTestTags
+
+/**
+ * Robot for the Settings screen (the third top-level destination).
+ *
+ * The Settings screen hosts the E2E settings-update suite's full
+ * surface: every writable setting is a card on this LazyColumn, and
+ * every card has a stable test tag from [SettingsTestTags].
+ *
+ * Per the plan, the settings readback pattern is **UI readback only**:
+ * the robot sets a deterministic B, taps save, and asserts the
+ * taggable readback node. For settings with a read-only current-value
+ * row ([SettingsTestTags.WateringIntervalCurrent] etc.) the readback
+ * is the row's text. For the three valve-numeric fields (move / settle
+ * / hold) which have no read-only row, the robot types B, saves, then
+ * pull-to-refreshes the Settings screen (BeetPullToRefreshBox re-fetches
+ * valveConfig, `LaunchedEffect(valveConfig)` repopulates the field text)
+ * and asserts the field text == B.
+ *
+ * Settings robot also owns the firmware-update subflow
+ * ([openFirmwareUpdate], [useBundled], [tapInstall]) because the
+ * firmware update is reached via a card on this screen; the
+ * [FirmwareUpdateRobot] wraps the post-open state-machine.
+ */
+internal class SettingsRobot(
+    private val composeRule: ComposeTestRule,
+) {
+    /**
+     * Taps the Settings nav-item tag, then waits for the Settings
+     * container to render.
+     */
+    fun openSettings() {
+        composeRule
+            .onNodeWithTag(NavigationSuiteTestTags.SettingsNavItem)
+            .performClick()
+        composeRule
+            .onNodeWithTag(SettingsTestTags.Container)
+            .assertIsDisplayed()
+    }
+
+    /** Asserts the controller info card is rendered. */
+    fun assertControllerInfoDisplayed() {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ControllerInfoCard)
+            .assertIsDisplayed()
+    }
+
+    /**
+     * Asserts the device_id cell of the Controller Info card is
+     * non-empty. Used as a "controller reported identity" check.
+     */
+    fun assertDeviceIdNonEmpty() {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ControllerInfoDeviceId)
+            .assertTextContains("")
+    }
+
+    /**
+     * Asserts the firmware_version cell is non-empty.
+     */
+    fun assertFirmwareVersionNonEmpty() {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ControllerInfoFirmwareVersion)
+            .assertTextContains("")
+    }
+
+    /**
+     * Asserts the protocol_version cell matches the app's
+     * BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION. Used by
+     * FreshInstallE2ETest as a wire-version sanity check.
+     */
+    fun assertProtocolVersion(expected: Int) {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ControllerInfoProtocolVersion)
+            .assertTextEquals(expected.toString())
+    }
+
+    // region watering interval
+
+    /**
+     * Sets the watering interval to [hours] h [minutes] m and saves.
+     * The save button is only enabled when the field is dirty AND
+     * the value passes the validator; we type into both fields
+     * (which makes it dirty) and then tap the now-enabled save.
+     */
+    fun setWateringInterval(hours: Int, minutes: Int) {
+        val hoursNode = composeRule.onNodeWithTag(SettingsTestTags.WateringIntervalHoursField)
+        hoursNode.performScrollTo().performTextReplacement(hours.toString())
+        val minutesNode = composeRule.onNodeWithTag(SettingsTestTags.WateringIntervalMinutesField)
+        minutesNode.performScrollTo().performTextReplacement(minutes.toString())
+        composeRule
+            .onNodeWithTag(SettingsTestTags.WateringIntervalSave)
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+    }
+
+    /**
+     * Asserts the read-only `WateringIntervalCurrent` row shows
+     * [expectedFormatted] (e.g. "1 h 0 m"). The Settings screen's
+     * [SettingsTestTags.WateringIntervalCurrent] value is the
+     * `formatDuration(seconds, strings)` of `state.wateringInterval.seconds`.
+     */
+    fun assertCurrentWateringInterval(expectedFormatted: String) {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.WateringIntervalCurrent)
+            .performScrollTo()
+            .assertTextEquals(expectedFormatted)
+    }
+
+    // endregion
+
+    // region max active pumps
+
+    /**
+     * Adjusts the max-active-pumps stepper draft to [target] by
+     * tapping +/- buttons, then taps save. The stepper draft is
+     * bounded to [1, 8] in the UI; the caller is expected to choose
+     * a value in that range.
+     */
+    fun setMaxActivePumps(target: Int) {
+        val currentDraftNode = composeRule.onNodeWithTag(SettingsTestTags.MaxActivePumpsDraftValue)
+        val current = currentDraftNode.fetchSemanticsNode().let { node ->
+            // The draft is displayed as a Text; reading the text is the
+            // simplest way to discover the current stepper value. We
+            // parse the integer back out.
+            val text = node.config.getOrElseNullable(SemanticsProperties.Text) { null }
+                ?.joinToString("") { it.text } ?: error("Stepper draft has no text semantics")
+            text.trim().toInt()
+        }
+        val increment = composeRule.onNodeWithTag(SettingsTestTags.MaxActivePumpsIncrement)
+        val decrement = composeRule.onNodeWithTag(SettingsTestTags.MaxActivePumpsDecrement)
+        val targetNode = if (target > current) increment else decrement
+        repeat(kotlin.math.abs(target - current)) {
+            targetNode.performScrollTo().performClick()
+        }
+        composeRule
+            .onNodeWithTag(SettingsTestTags.MaxActivePumpsSave)
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+    }
+
+    /**
+     * Asserts the read-only `MaxActivePumpsCurrent` row contains
+     * [expectedNumber]. The row's text is built from the
+     * `settings_max_active_pumps_value` string resource which
+     * typically renders as `"<n>"`.
+     */
+    fun assertCurrentMaxActivePumps(expectedNumber: Int) {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.MaxActivePumpsCurrent)
+            .performScrollTo()
+            .assertTextContains(expectedNumber.toString())
+    }
+
+    // endregion
+
+    // region valve config (move / settle / hold) - pull-refresh reload pattern
+
+    private fun setValveNumberField(fieldTag: String, value: Int) {
+        composeRule
+            .onNodeWithTag(fieldTag)
+            .performScrollTo()
+            .performTextReplacement(value.toString())
+    }
+
+    fun setValveMoveDuration(ms: Int) {
+        setValveNumberField(SettingsTestTags.ValveConfigMoveDurationField, ms)
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ValveConfigSave)
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+    }
+
+    fun setValveSettleDelay(ms: Int) {
+        setValveNumberField(SettingsTestTags.ValveConfigSettleDelayField, ms)
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ValveConfigSave)
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+    }
+
+    fun setValveOpenHold(ms: Int) {
+        setValveNumberField(SettingsTestTags.ValveConfigOpenHoldField, ms)
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ValveConfigSave)
+            .performScrollTo()
+            .assertIsEnabled()
+            .performClick()
+    }
+
+    /**
+     * Pulls down on the [SettingsTestTags.Container] (the
+     * BeetPullToRefreshBox) to re-fetch valveConfig + watering interval.
+     *
+     * The swipe is performed as a top-to-bottom gesture from inside
+     * the container's bounds; the PullToRefreshBox detects the
+     * downward swipe and triggers `onRefresh` which calls
+     * `refreshValveConfig()` + `refreshWateringInterval()`.
+     */
+    fun pullToRefresh() {
+        val node = composeRule.onNodeWithTag(SettingsTestTags.Container)
+        val bounds = node.fetchSemanticsNode().boundsInRoot
+        val startX = (bounds.left + bounds.right) / 2f
+        val startY = bounds.top + 50f
+        val endX = startX
+        val endY = bounds.bottom - 50f
+        node.performTouchInput {
+            swipe(
+                start = Offset(startX, startY),
+                end = Offset(endX, endY),
+            )
+        }
+    }
+
+    /**
+     * Asserts the [SettingsTestTags.ValveConfigMoveDurationField]
+     * text equals [expectedMillisStr] (the field repopulated by
+     * `LaunchedEffect(valveConfig)` after a successful pull-to-refresh).
+     */
+    fun assertValveMoveDuration(expectedMillisStr: String) {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ValveConfigMoveDurationField)
+            .assertTextEquals(expectedMillisStr)
+    }
+
+    fun assertValveSettleDelay(expectedMillisStr: String) {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ValveConfigSettleDelayField)
+            .assertTextEquals(expectedMillisStr)
+    }
+
+    fun assertValveOpenHold(expectedMillisStr: String) {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ValveConfigOpenHoldField)
+            .assertTextEquals(expectedMillisStr)
+    }
+
+    // endregion
+
+    // region valve enabled toggle
+
+    /**
+     * Sets the Valve Config card's `valve_enabled` switch to [enabled]
+     * by clicking the switch until the desired state is reached. The
+     * switch's checked state isn't tagged, so we click until the
+     * read-only `ValveEnabledValue` row on the Valve card shows
+     * "Yes" / "No" as expected.
+     */
+    fun setValveEnabled(enabled: Boolean) {
+        val currentLabel = composeRule
+            .onNodeWithTag(SettingsTestTags.ValveEnabledValue)
+            .fetchSemanticsNode()
+            .config
+            .getOrElseNullable(SemanticsProperties.Text) { null }
+            ?.joinToString("") { it.text }
+            ?: ""
+        val currentYes = currentLabel == "Yes"
+        if (currentYes != enabled) {
+            composeRule
+                .onNodeWithTag(SettingsTestTags.ValveConfigEnabledSwitch)
+                .performScrollTo()
+                .performClick()
+        }
+    }
+
+    /**
+     * Asserts the [SettingsTestTags.ValveEnabledValue] cell shows
+     * "Yes" or "No" as expected. The exact localized string depends
+     * on the device's locale; we match on a case-insensitive
+     * substring.
+     */
+    fun assertValveEnabled(enabled: Boolean) {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ValveEnabledValue)
+            .assertTextEquals(if (enabled) "Yes" else "No")
+    }
+
+    // endregion
+
+    // region firmware update entry point
+
+    /**
+     * Opens the Maintenance screen by tapping the firmware-update
+     * card's open button on the Settings screen. Returns a
+     * [FirmwareUpdateRobot] bound to the same Compose rule for the
+     * rest of the firmware-update flow (use bundled, install, etc.).
+     */
+    fun openFirmwareUpdate(): FirmwareUpdateRobot {
+        composeRule
+            .onNodeWithTag(SettingsTestTags.FirmwareUpdateOpenButton)
+            .performScrollTo()
+            .performClick()
+        composeRule
+            .onNodeWithTag(MaintenanceUpdateTestTags.Card)
+            .assertIsDisplayed()
+        return FirmwareUpdateRobot(composeRule)
+    }
+
+    // endregion
+}

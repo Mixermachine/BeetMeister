@@ -1,0 +1,40 @@
+=== am instrument -w (NO beetRunE2e) -e class SettingsUpdateE2ETest ===
+  expected: NoTestsRemainException (gate drops the @E2e class)
+----
+
+de.aarondietz.beetmeister.e2e.SettingsUpdateE2ETest:
+Error in initializationError(de.aarondietz.beetmeister.e2e.SettingsUpdateE2ETest):
+org.junit.runner.manipulation.NoTestsRemainException
+	at org.junit.runners.ParentRunner.filter(ParentRunner.java:447)
+	at de.aarondietz.beetmeister.e2e.E2eAwareRunnerBuilder.runnerForClass(BeetE2eAwareJUnitRunner.kt:104)
+	at org.junit.runners.model.RunnerBuilder.safeRunnerForClass(RunnerBuilder.java:70)
+	at androidx.test.internal.runner.AndroidRunnerBuilder.runnerForClass(AndroidRunnerBuilder.java:146)
+	at org.junit.runners.model.RunnerBuilder.safeRunnerForClass(RunnerBuilder.java:70)
+	at androidx.test.internal.runner.DirectTestLoader.doCreateRunner(DirectTestLoader.java:45)
+	at androidx.test.internal.runner.TestLoader.getRunnersFor(TestLoader.java:64)
+	at androidx.test.internal.runner.TestRequestBuilder.build(TestRequestBuilder.java:842)
+	at androidx.test.runner.AndroidJUnitRunner.buildRequest(AndroidJUnitRunner.java:672)
+	at androidx.test.runner.AndroidJUnitRunner.onStart(AndroidJUnitRunner.java:453)
+	at android.app.Instrumentation$InstrumentationThread.run(Instrumentation.java:2653)
+
+
+Time: 0.024
+There was 1 failure:
+1) initializationError(de.aarondietz.beetmeister.e2e.SettingsUpdateE2ETest)
+org.junit.runner.manipulation.NoTestsRemainException
+	at org.junit.runners.ParentRunner.filter(ParentRunner.java:447)
+	at de.aarondietz.beetmeister.e2e.E2eAwareRunnerBuilder.runnerForClass(BeetE2eAwareJUnitRunner.kt:104)
+	at org.junit.runners.model.RunnerBuilder.safeRunnerForClass(RunnerBuilder.java:70)
+	at androidx.test.internal.runner.AndroidRunnerBuilder.runnerForClass(AndroidRunnerBuilder.java:146)
+	at org.junit.runners.model.RunnerBuilder.safeRunnerForClass(RunnerBuilder.java:70)
+	at androidx.test.internal.runner.DirectTestLoader.doCreateRunner(DirectTestLoader.java:45)
+	at androidx.test.internal.runner.TestLoader.getRunnersFor(TestLoader.java:64)
+	at androidx.test.internal.runner.TestRequestBuilder.build(TestRequestBuilder.java:842)
+	at androidx.test.runner.AndroidJUnitRunner.buildRequest(AndroidJUnitRunner.java:672)
+	at androidx.test.runner.AndroidJUnitRunner.onStart(AndroidJUnitRunner.java:453)
+	at android.app.Instrumentation$InstrumentationThread.run(Instrumentation.java:2653)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+
