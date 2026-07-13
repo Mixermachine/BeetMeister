@@ -47,16 +47,46 @@ internal class ConnectionGateRobot(
     private val expectedDeviceName: String? =
         InstrumentationRegistry.getArguments().getString(EXTRA_EXPECTED_DEVICE_NAME)
 
-    /** Taps the [ConnectionGateTestTags.ScanButton]. Waits up to 30s for it to render. */
+    /**
+     * Taps the [ConnectionGateTestTags.ScanButton] if the gate
+     * is still showing; no-op if the post-connect shell
+     * ([NavigationSuiteTestTags.SettingsNavItem]) is already
+     * up (auto-connect race fix, P5 finding SUB #R6).
+     *
+     * The wait condition accepts EITHER state: the gate's
+     * ScanButton OR the post-connect shell's SettingsNavItem.
+     * The original implementation only waited for the
+     * ScanButton, which races with the app's BLE auto-connect:
+     * the scan finds the controller in <1 s, the 900 ms
+     * stable-Connected window passes, the gate hides BEFORE
+     * the wait fires, the ScanButton never appears, and the
+     * test times out at 30 s. The fix is to accept both
+     * end states — the original click path stays correct
+     * when the gate is up, the no-op path covers the
+     * post-connect-already case.
+     */
     fun tapScan() {
         composeRule.waitUntil(timeoutMillis = 30_000) {
-            composeRule
-                .onAllNodesWithTag(ConnectionGateTestTags.ScanButton)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
+            scanButtonVisible() || postConnectVisible()
         }
-        composeRule.onNodeWithTag(ConnectionGateTestTags.ScanButton).performClick()
+        if (scanButtonVisible()) {
+            composeRule
+                .onNodeWithTag(ConnectionGateTestTags.ScanButton)
+                .performClick()
+        }
+        // else: post-connect shell is up; no scan/connect to do
+        // (the auto-connect already completed).
     }
+
+    private fun scanButtonVisible(): Boolean = composeRule
+        .onAllNodesWithTag(ConnectionGateTestTags.ScanButton)
+        .fetchSemanticsNodes()
+        .isNotEmpty()
+
+    private fun postConnectVisible(): Boolean = composeRule
+        .onAllNodesWithTag(NavigationSuiteTestTags.SettingsNavItem)
+        .fetchSemanticsNodes()
+        .isNotEmpty()
 
     /**
      * Asserts the expected device is visible in the discovered
@@ -135,18 +165,7 @@ internal class ConnectionGateRobot(
      * Does NOT wait — callers that want to wait should use
      * [assertConnected].
      */
-    fun isAlreadyConnected(): Boolean {
-        return try {
-            composeRule
-                .onAllNodesWithTag(NavigationSuiteTestTags.SettingsNavItem)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        } catch (_: Throwable) {
-            // Compose can throw if the rule isn't idle yet;
-            // treat any throw as "not yet connected".
-            false
-        }
-    }
+    fun isAlreadyConnected(): Boolean = postConnectVisible()
 
     companion object {
         const val EXTRA_EXPECTED_DEVICE_NAME = "expected_device_name"
