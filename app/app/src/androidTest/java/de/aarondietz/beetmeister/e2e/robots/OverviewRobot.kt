@@ -7,6 +7,8 @@ import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import de.aarondietz.beetmeister.ui.feature.overview.OverviewTestTags
 
 /**
@@ -29,6 +31,21 @@ internal class OverviewRobot(
      * Asserts that [count] pair cards are rendered. The pre-installed
      * controller is an 8-pair device, so the harness always asserts
      * count = 8.
+     *
+     * The Overview list is a [androidx.compose.foundation.lazy.LazyColumn]
+     * which only composes the visible viewport plus a small overscan
+     * window. On the A53's 1080x2400 screen, only the first 2 pair
+     * cards fit below the system-values card; pairs 3..8 are not
+     * composed until the list is scrolled. `onAllNodesWithTag` only
+     * sees composed nodes, so the naive `assertCountEquals(count)`
+     * fails with "Expected 8 but found 2".
+     *
+     * The fix scrolls the list to each expected index via
+     * `performScrollToIndex` until either all [count] cards have
+     * been composed at least once (we have a stable total of
+     * [count]) or the `assertCountEquals` on the final pass
+     * confirms it. A 20-iteration cap protects against infinite
+     * loops if the list ever fails to grow.
      */
     fun assertPairRowsRendered(count: Int) {
         composeRule.waitUntil(timeoutMillis = 30_000) {
@@ -36,6 +53,16 @@ internal class OverviewRobot(
                 .onAllNodesWithTag(OverviewTestTags.PairCard)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
+        }
+        val listNode = composeRule.onNodeWithTag(OverviewTestTags.List)
+        var composedCount = 0
+        repeat(20) {
+            composedCount = composeRule
+                .onAllNodesWithTag(OverviewTestTags.PairCard)
+                .fetchSemanticsNodes()
+                .size
+            if (composedCount >= count) return@repeat
+            listNode.performScrollToIndex(composedCount)
         }
         composeRule
             .onAllNodesWithTag(OverviewTestTags.PairCard)

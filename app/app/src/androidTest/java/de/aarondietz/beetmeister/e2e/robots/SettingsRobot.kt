@@ -80,10 +80,24 @@ internal class SettingsRobot(
     /**
      * Taps the Settings nav-item tag, then waits for the Settings
      * container to render.
+     *
+     * P5 finding SUB #R7: the `Modifier.testTag(NavigationSuiteTestTags.tagFor(...))`
+     * is applied to the `Text` composable inside the Material3
+     * `NavigationBarItem`'s `label` slot. `NavigationBarItem` uses
+     * `mergeDescendants = true`, which merges child semantics into
+     * the item's parent node but does NOT carry the child test tag
+     * forward. The `fetchOneOrThrow` call therefore fails with
+     * "the unmerged tree contains '1' node that matches" unless
+     * the finder explicitly opts out of the merge with
+     * `useUnmergedNode = true`. This is the same root cause as
+     * [ConnectionGateRobot.postConnectVisible] and the
+     * smoke-gate's `MaintenanceUpdateLiveActivityInstrumentationTest`
+     * has-text probe — the test rule's merged-tree finder cannot
+     * see tags applied inside `mergeDescendants` containers.
      */
     fun openSettings() {
         composeRule
-            .onNodeWithTag(NavigationSuiteTestTags.SettingsNavItem)
+            .onNodeWithTag(NavigationSuiteTestTags.SettingsNavItem, useUnmergedTree = true)
             .performClick()
         composeRule
             .onNodeWithTag(SettingsTestTags.Container)
