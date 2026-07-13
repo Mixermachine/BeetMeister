@@ -1,0 +1,23 @@
+=============================================
+P3 fix-verify 1: full dry-run after fixes
+  expected: passed=True, exit 0, smoke OK (4 tests)
+  also: capture file handles closed (run folder fully written)
+=============================================
+Traceback (most recent call last):
+  File "C:\git\BeetMeister\test-harness\run.py", line 95, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "C:\git\BeetMeister\test-harness\run.py", line 68, in main
+    result = orch.run(
+        args.suite,
+    ...<2 lines>...
+        skip_smoke=args.skip_smoke,
+    )
+  File "C:\git\BeetMeister\test-harness\harness\orchestrator.py", line 240, in run
+    result = self._finish(
+        run_dir, manifest, logcat_cap, serial_cap,
+        smoke_result, e2e_result,
+    )
+TypeError: Orchestrator._finish() missing 2 required keyword-only arguments: 'passed' and 'fail_reason'
+
+=== exit code: 1 ===

@@ -76,6 +76,11 @@ class OrchestratorConfig:
     default_am_instrument_timeout: int = 900
     smoke_timeout: int = 180
     post_install_settle: int = 5
+    # Max wall-clock seconds for the gradle build inside install_apks().
+    # A stuck gradle daemon (lock contention, network hang during
+    # dependency resolution) would otherwise hang the orchestrator
+    # forever; P3 review finding SUB #3.
+    gradle_build_timeout: int = 600
 
 
 @dataclass(frozen=True)

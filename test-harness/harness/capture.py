@@ -18,40 +18,68 @@ import os
 import shlex
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, IO, Optional
 
 
 @dataclass
 class Capture:
-    """A running capture subprocess + the file it is writing to."""
+    """A running capture subprocess + the file it is writing to.
+
+    `_out_fh` is the parent-side file handle passed to
+    `Popen(stdout=...)`. It MUST be closed after the subprocess
+    exits; otherwise on Windows the file stays locked and the
+    run folder cannot be renamed / deleted while the orchestrator
+    is alive. `stop()` closes it after `proc.wait()`.
+    """
 
     name: str  # "logcat" or "serial"
     output_path: Path
     proc: subprocess.Popen
     pid_file: Path
+    # The parent's stdout file handle. Closed in stop(); see
+    # AGENTS.md "Never block forever on serial/console readers" +
+    # P3 review finding CRIT #2.
+    _out_fh: Optional[IO[Any]] = field(default=None, repr=False)
 
     def is_running(self) -> bool:
         return self.proc.poll() is None
 
     def stop(self, timeout_seconds: float = 3.0) -> int:
-        """Terminate the capture subprocess and wait for it to flush.
+        """Terminate the capture subprocess AND close the file handle.
+
+        Order matters:
+          1. Terminate the subprocess (so it stops writing).
+          2. Wait for it to exit (so its last bytes are flushed).
+          3. Close the parent-side file handle (so Windows
+             releases the file lock and the run folder can be
+             renamed / deleted).
 
         Bounded: never blocks forever. Returns the subprocess
         returncode.
         """
-        if self.proc.poll() is not None:
-            return self.proc.returncode
-        self.proc.terminate()
-        try:
-            return self.proc.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+        if self.proc.poll() is None:
+            self.proc.terminate()
             try:
-                return self.proc.wait(timeout=timeout_seconds)
+                rc = self.proc.wait(timeout=timeout_seconds)
             except subprocess.TimeoutExpired:
-                return -1
+                self.proc.kill()
+                try:
+                    rc = self.proc.wait(timeout=timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    rc = -1
+        else:
+            rc = self.proc.returncode
+
+        fh = self._out_fh
+        if fh is not None:
+            try:
+                fh.close()
+            except Exception:  # noqa: BLE001 - close errors are not fatal
+                pass
+            self._out_fh = None
+        return rc
 
 
 def _python() -> str:
@@ -108,7 +136,10 @@ def start_logcat(
     proc = subprocess.Popen(cmd, stdout=out_fh, stderr=subprocess.STDOUT, bufsize=0)
     pid_file = run_dir / "logcat.pid"
     pid_file.write_text(str(proc.pid), encoding="utf-8")
-    return Capture(name="logcat", output_path=output_path, proc=proc, pid_file=pid_file)
+    return Capture(
+        name="logcat", output_path=output_path, proc=proc,
+        pid_file=pid_file, _out_fh=out_fh,
+    )
 
 
 def start_serial(
@@ -137,4 +168,7 @@ def start_serial(
     proc = subprocess.Popen(cmd, stdout=out_fh, stderr=subprocess.STDOUT, bufsize=0)
     pid_file = run_dir / "controller-serial.pid"
     pid_file.write_text(str(proc.pid), encoding="utf-8")
-    return Capture(name="serial", output_path=output_path, proc=proc, pid_file=pid_file)
+    return Capture(
+        name="serial", output_path=output_path, proc=proc,
+        pid_file=pid_file, _out_fh=out_fh,
+    )

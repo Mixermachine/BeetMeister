@@ -298,6 +298,7 @@ class Adb:
             capture_output=True,
             text=True,
             check=False,
+            timeout=float(self._config.orchestrator.gradle_build_timeout),
         )
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout).strip().splitlines()[-30:]

@@ -103,6 +103,20 @@ class Orchestrator:
         `suite` is one of: "fresh_install", "firmware_update",
         "settings_update". P3 only implements "fresh_install" +
         the dry-run path.
+
+        Exception safety (P3 review finding CRIT #1): the
+        pipeline body is wrapped in `try / except BaseException /
+        finally`. The `finally` always:
+          1. Stops the logcat + serial capture subprocesses
+             (closes the parent-side file handles — P3 finding
+             CRIT #2).
+          2. Writes the final manifest with end_iso / end_epoch
+             + pass/fail.
+        without which a Ctrl-C mid-run would leak the readers
+        (AGENTS.md "Never block forever on serial/console
+        readers") and leave no manifest. After the `finally` we
+        re-raise the captured exception so the caller (run.py,
+        pytest) can decide how to react.
         """
         if suite not in {"fresh_install", "firmware_update", "settings_update"}:
             raise ValueError(
@@ -115,8 +129,9 @@ class Orchestrator:
         serial_cap: Optional[capture.Capture] = None
         smoke_result: Optional[AmInstrumentResult] = None
         e2e_result: Optional[AmInstrumentResult] = None
-        fail_reason: Optional[str] = None
-        passed = False
+        reraise_exc: Optional[BaseException] = None
+        # Set by _finish() in the finally block; returned below.
+        result: Optional[OrchestratorResult] = None
 
         try:
             # 1. validate device.
@@ -147,7 +162,11 @@ class Orchestrator:
             run_folder.write(manifest)
             self._assert_runtime_protocol_matches_config(bundled)
 
-            # 6. SMOKE GATE.
+            # 6. SMOKE GATE. On fail, mark the manifest but DO NOT
+            # early-return; fall through to the finally so the
+            # captures are still stopped + the manifest is still
+            # written.
+            smoke_ok = True
             if not skip_smoke:
                 smoke_result = self.adb.am_instrument(
                     class_name=self.config.device.smoke_class,
@@ -162,52 +181,86 @@ class Orchestrator:
                     encoding="utf-8",
                 )
                 run_folder.write(manifest)
-                if not smoke_result.passed:
-                    screenshots.capture_on_failure(self.adb, run_dir)
-                    fail_reason = (
+                smoke_ok = smoke_result.passed
+                if not smoke_ok:
+                    manifest.fail_reason = (
                         f"smoke gate failed ({self.config.device.smoke_class}); "
                         f"see {run_dir}/instrumentation-smoke.txt"
                     )
-                    return self._finish(
-                        run_dir, manifest, logcat_cap, serial_cap,
-                        smoke_result, e2e_result, passed=False, fail_reason=fail_reason,
+                    self._safe_on_failure_screenshot(run_dir)
+
+            # 7. Suite dispatch. Skipped if the smoke gate failed.
+            if smoke_ok:
+                if dry_run:
+                    # P3 stop point: don't dispatch the per-suite
+                    # E2E class. The dry-run proves the build +
+                    # install + capture + smoke pipeline works
+                    # end-to-end.
+                    manifest.pass_ = True
+                else:
+                    e2e_result, passed, fail_reason = self._dispatch(
+                        suite=suite,
+                        class_name=class_name,
+                        extras=extras,
+                        run_dir=run_dir,
                     )
+                    manifest.pass_ = passed
+                    if fail_reason is not None:
+                        manifest.fail_reason = fail_reason
+                    manifest.e2e_results = (
+                        [e2e_result.to_manifest_dict()] if e2e_result else []
+                    )
+                    if not passed:
+                        self._safe_on_failure_screenshot(run_dir)
 
-            # 7. Suite dispatch.
-            if dry_run:
-                # P3 stop point: don't dispatch the per-suite E2E
-                # class. The dry-run proves the build + install +
-                # capture + smoke pipeline works end-to-end.
-                passed = True
-            else:
-                e2e_result, passed, fail_reason = self._dispatch(
-                    suite=suite,
-                    class_name=class_name,
-                    extras=extras,
-                    run_dir=run_dir,
-                )
-                manifest.e2e_results = (
-                    [e2e_result.to_manifest_dict()] if e2e_result else []
-                )
-                if not passed:
-                    screenshots.capture_on_failure(self.adb, run_dir)
+            if manifest.pass_:
+                try:
+                    screenshots.capture_final(self.adb, run_dir)
+                except Exception:  # noqa: BLE001 - final screenshot is best-effort
+                    pass
+        except KeyboardInterrupt:
+            if manifest.fail_reason is None:
+                manifest.fail_reason = "interrupted by user (KeyboardInterrupt)"
+            reraise_exc = KeyboardInterrupt(manifest.fail_reason)
+        except SystemExit as exc:
+            if manifest.fail_reason is None:
+                manifest.fail_reason = f"interrupted (SystemExit: {exc!r})"
+            reraise_exc = SystemExit(manifest.fail_reason)
+        except BaseException as exc:  # noqa: BLE001 - we always re-raise after finalize
+            if manifest.fail_reason is None:
+                manifest.fail_reason = f"orchestrator exception: {exc!r}"
+            reraise_exc = exc
+            self._safe_on_failure_screenshot(run_dir)
+        finally:
+            # ALWAYS: stop captures (closes file handles via
+            # Capture.stop(), which is the fix for P3 CRIT #2)
+            # + finalize the manifest. Idempotent. Safe on the
+            # success path, the early-exit path, and any
+            # exception path including BaseException.
+            result = self._finish(
+                run_dir, manifest, logcat_cap, serial_cap,
+                smoke_result, e2e_result,
+            )
 
-            if passed:
-                screenshots.capture_final(self.adb, run_dir)
-            return self._finish(
-                run_dir, manifest, logcat_cap, serial_cap,
-                smoke_result, e2e_result, passed=passed, fail_reason=fail_reason,
-            )
-        except Exception as exc:  # noqa: BLE001 — orchestrator must always finalize
-            fail_reason = f"orchestrator exception: {exc!r}"
-            try:
-                screenshots.capture_on_failure(self.adb, run_dir)
-            except Exception:  # noqa: BLE001
-                pass
-            return self._finish(
-                run_dir, manifest, logcat_cap, serial_cap,
-                smoke_result, e2e_result, passed=False, fail_reason=fail_reason,
-            )
+        # Re-raise OUTSIDE the finally so cleanup completes first.
+        # On the success path reraise_exc is None; we return the
+        # OrchestratorResult so the caller can read pass/fail
+        # + manifest path.
+        if reraise_exc is not None:
+            raise reraise_exc
+        assert result is not None  # the finally block always sets it
+        return result
+
+    def _safe_on_failure_screenshot(self, run_dir: Path) -> None:
+        """Best-effort on-failure screencap. Never raises.
+
+        The orchestrator's exception path calls this so a
+        screenshot error doesn't shadow the original exception.
+        """
+        try:
+            screenshots.capture_on_failure(self.adb, run_dir)
+        except Exception:  # noqa: BLE001
+            pass
 
     # --- internals --------------------------------------------------------
 
@@ -224,16 +277,26 @@ class Orchestrator:
         serial_cap: Optional[capture.Capture],
         smoke: Optional[AmInstrumentResult],
         e2e: Optional[AmInstrumentResult],
-        *,
-        passed: bool,
-        fail_reason: Optional[str],
     ) -> OrchestratorResult:
+        """Stop captures + finalize the manifest.
+
+        Reads pass/fail + fail_reason from the manifest (which
+        the pipeline body has already set). The pipeline body
+        never returns early anymore — it just mutates manifest
+        state and falls through to the `finally:` block, which
+        calls this. So `_finish` is always called exactly once
+        per run, regardless of the exit path (success, early
+        exit on smoke fail, BaseException).
+        """
         # Stop captures BEFORE finalize so the run folder's
-        # logcat/serial streams are flushed + closed.
+        # logcat/serial streams are flushed + closed (and the
+        # parent-side file handles are released — P3 CRIT #2).
         if logcat_cap is not None:
             logcat_cap.stop()
         if serial_cap is not None:
             serial_cap.stop()
+        passed = bool(manifest.pass_)
+        fail_reason = manifest.fail_reason
         run_folder.finalize(manifest, passed=passed, fail_reason=fail_reason)
         return OrchestratorResult(
             passed=passed,

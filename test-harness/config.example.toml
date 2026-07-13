@@ -81,3 +81,8 @@ default_am_instrument_timeout = 900
 smoke_timeout = 180
 # Sleep (seconds) before each am instrument call to let the device settle.
 post_install_settle = 5
+# Max wall-clock seconds for the gradle build inside install_apks().
+# A stuck gradle daemon (lock contention, network hang during
+# dependency resolution) would otherwise hang the orchestrator
+# forever.
+gradle_build_timeout = 600
