@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -104,6 +105,44 @@ internal class SettingsRobot(
             .assertIsDisplayed()
     }
 
+    /**
+     * Scrolls the Settings [SettingsTestTags.Container] LazyColumn
+     * until the node tagged [tag] is composed. Returns the
+     * `SemanticsNodeInteraction` for that tag.
+     *
+     * The Settings screen is a LazyColumn with multiple cards
+     * (watering interval, max active pumps, valve config, pair
+     * name, firmware update). The LazyColumn's overscan window
+     * only composes the visible viewport (empirically ~3 cards on
+     * the A53). When a test needs to interact with a card that's
+     * below the fold, `onNodeWithTag` fails with
+     * "could not find any node that satisfies" because the
+     * card isn't composed. `performScrollTo()` on a non-composed
+     * tag also fails for the same reason.
+     *
+     * The fix: drive bottom-to-top swipes on the container until
+     * the tag is composed, then return the node. 20 iterations
+     * is enough to traverse the full Settings list on the A53.
+     */
+    private fun scrollToTag(tag: String) {
+        val container = composeRule.onNodeWithTag(SettingsTestTags.Container)
+        val bounds = container.fetchSemanticsNode().boundsInRoot
+        val centerX = (bounds.left + bounds.right) / 2f
+        repeat(20) {
+            val found = composeRule
+                .onAllNodesWithTag(tag)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+            if (found) return@repeat
+            container.performTouchInput {
+                swipe(
+                    start = Offset(centerX, bounds.bottom - 100f),
+                    end = Offset(centerX, bounds.top + 100f),
+                )
+            }
+        }
+    }
+
     /** Asserts the controller info card is rendered. */
     fun assertControllerInfoDisplayed() {
         composeRule
@@ -166,10 +205,13 @@ internal class SettingsRobot(
      * (which makes it dirty) and then tap the now-enabled save.
      */
     fun setWateringInterval(hours: Int, minutes: Int) {
+        scrollToTag(SettingsTestTags.WateringIntervalHoursField)
         val hoursNode = composeRule.onNodeWithTag(SettingsTestTags.WateringIntervalHoursField)
         hoursNode.performScrollTo().performTextReplacement(hours.toString())
+        scrollToTag(SettingsTestTags.WateringIntervalMinutesField)
         val minutesNode = composeRule.onNodeWithTag(SettingsTestTags.WateringIntervalMinutesField)
         minutesNode.performScrollTo().performTextReplacement(minutes.toString())
+        scrollToTag(SettingsTestTags.WateringIntervalSave)
         composeRule
             .onNodeWithTag(SettingsTestTags.WateringIntervalSave)
             .performScrollTo()
@@ -184,6 +226,7 @@ internal class SettingsRobot(
      * `formatDuration(seconds, strings)` of `state.wateringInterval.seconds`.
      */
     fun assertCurrentWateringInterval(expectedFormatted: String) {
+        scrollToTag(SettingsTestTags.WateringIntervalCurrent)
         composeRule
             .onNodeWithTag(SettingsTestTags.WateringIntervalCurrent)
             .performScrollTo()
@@ -201,6 +244,7 @@ internal class SettingsRobot(
      * a value in that range.
      */
     fun setMaxActivePumps(target: Int) {
+        scrollToTag(SettingsTestTags.MaxActivePumpsDraftValue)
         val current = readMaxPumpsDraft()
         if (current == target) {
             // Already at target: skip the click sequence and the
@@ -212,12 +256,15 @@ internal class SettingsRobot(
             // confirms the readback.
             return
         }
+        scrollToTag(SettingsTestTags.MaxActivePumpsIncrement)
         val increment = composeRule.onNodeWithTag(SettingsTestTags.MaxActivePumpsIncrement)
+        scrollToTag(SettingsTestTags.MaxActivePumpsDecrement)
         val decrement = composeRule.onNodeWithTag(SettingsTestTags.MaxActivePumpsDecrement)
         val targetNode = if (target > current) increment else decrement
         repeat(kotlin.math.abs(target - current)) {
             targetNode.performScrollTo().performClick()
         }
+        scrollToTag(SettingsTestTags.MaxActivePumpsSave)
         composeRule
             .onNodeWithTag(SettingsTestTags.MaxActivePumpsSave)
             .performScrollTo()
@@ -243,6 +290,7 @@ internal class SettingsRobot(
      * typically renders as `"<n>"`.
      */
     fun assertCurrentMaxActivePumps(expectedNumber: Int) {
+        scrollToTag(SettingsTestTags.MaxActivePumpsCurrent)
         composeRule
             .onNodeWithTag(SettingsTestTags.MaxActivePumpsCurrent)
             .performScrollTo()
@@ -254,6 +302,7 @@ internal class SettingsRobot(
     // region valve config (move / settle / hold) - pull-refresh reload pattern
 
     private fun setValveNumberField(fieldTag: String, value: Int) {
+        scrollToTag(fieldTag)
         composeRule
             .onNodeWithTag(fieldTag)
             .performScrollTo()
@@ -262,6 +311,7 @@ internal class SettingsRobot(
 
     fun setValveMoveDuration(ms: Int) {
         setValveNumberField(SettingsTestTags.ValveConfigMoveDurationField, ms)
+        scrollToTag(SettingsTestTags.ValveConfigSave)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSave)
             .performScrollTo()
@@ -271,6 +321,7 @@ internal class SettingsRobot(
 
     fun setValveSettleDelay(ms: Int) {
         setValveNumberField(SettingsTestTags.ValveConfigSettleDelayField, ms)
+        scrollToTag(SettingsTestTags.ValveConfigSave)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSave)
             .performScrollTo()
@@ -280,6 +331,7 @@ internal class SettingsRobot(
 
     fun setValveOpenHold(ms: Int) {
         setValveNumberField(SettingsTestTags.ValveConfigOpenHoldField, ms)
+        scrollToTag(SettingsTestTags.ValveConfigSave)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSave)
             .performScrollTo()
@@ -317,18 +369,21 @@ internal class SettingsRobot(
      * `LaunchedEffect(valveConfig)` after a successful pull-to-refresh).
      */
     fun assertValveMoveDuration(expectedMillisStr: String) {
+        scrollToTag(SettingsTestTags.ValveConfigMoveDurationField)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigMoveDurationField)
             .assertTextEquals(expectedMillisStr)
     }
 
     fun assertValveSettleDelay(expectedMillisStr: String) {
+        scrollToTag(SettingsTestTags.ValveConfigSettleDelayField)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSettleDelayField)
             .assertTextEquals(expectedMillisStr)
     }
 
     fun assertValveOpenHold(expectedMillisStr: String) {
+        scrollToTag(SettingsTestTags.ValveConfigOpenHoldField)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigOpenHoldField)
             .assertTextEquals(expectedMillisStr)
@@ -346,6 +401,7 @@ internal class SettingsRobot(
      * "Yes" / "No" as expected.
      */
     fun setValveEnabled(enabled: Boolean) {
+        scrollToTag(SettingsTestTags.ValveEnabledValue)
         val currentLabel = composeRule
             .onNodeWithTag(SettingsTestTags.ValveEnabledValue)
             .fetchSemanticsNode()
@@ -355,6 +411,7 @@ internal class SettingsRobot(
             ?: ""
         val currentYes = currentLabel == yesLabel
         if (currentYes != enabled) {
+            scrollToTag(SettingsTestTags.ValveConfigEnabledSwitch)
             composeRule
                 .onNodeWithTag(SettingsTestTags.ValveConfigEnabledSwitch)
                 .performScrollTo()
@@ -369,6 +426,7 @@ internal class SettingsRobot(
      * `common_no` at robot init so the device locale is respected.
      */
     fun assertValveEnabled(enabled: Boolean) {
+        scrollToTag(SettingsTestTags.ValveEnabledValue)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveEnabledValue)
             .assertTextEquals(if (enabled) yesLabel else noLabel)
@@ -385,6 +443,7 @@ internal class SettingsRobot(
      * rest of the firmware-update flow (use bundled, install, etc.).
      */
     fun openFirmwareUpdate(): FirmwareUpdateRobot {
+        scrollToTag(SettingsTestTags.FirmwareUpdateOpenButton)
         composeRule
             .onNodeWithTag(SettingsTestTags.FirmwareUpdateOpenButton)
             .performScrollTo()
