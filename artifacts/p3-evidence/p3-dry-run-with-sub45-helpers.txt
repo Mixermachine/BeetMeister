@@ -1,0 +1,16 @@
+=============================================
+P3 dry-run with SUB #4 + #5 unstaged changes
+  (helpers only; no dispatch wiring)
+  expected: still passed=True, exit 0
+=============================================
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-142947-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-142947-fresh_install\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 8.3s
+
+
+=== exit code: 0 ===
