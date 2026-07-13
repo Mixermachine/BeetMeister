@@ -118,24 +118,46 @@ internal class SettingsRobot(
      * in the semantics tree, so neither `performScrollTo` on the
      * container nor `performScrollToIndex` on a child finds the
      * LazyColumn's scrollable state. The fix is to drive a
-     * bottom-to-top `swipe` gesture on a child of the LazyColumn
-     * (the always-composed [SettingsTestTags.ControllerInfoCard]).
-     * The child's swipe event bubbles up through the
+     * bottom-to-top `swipe` gesture on any composed child of the
+     * LazyColumn. The child's swipe event bubbles up through the
      * `nestedScroll` connection to the LazyColumn, scrolling it
      * while the `PullToRefreshBox` only intercepts downward
-     * top-of-list swipes. 20 iterations covers the full Settings
-     * list on the A53.
+     * top-of-list swipes. We pick a dynamic anchor (the first
+     * Settings card whose tag is currently composed) because the
+     * scroll position persists across `@Test`s in a class-shared
+     * activity — the ControllerInfoCard may have scrolled off the
+     * top after a prior test. 20 iterations covers the full
+     * Settings list on the A53.
      */
     private fun scrollToTag(tag: String) {
-        val anchor = composeRule.onAllNodesWithTag(SettingsTestTags.ControllerInfoCard).onFirst()
-        val bounds = anchor.fetchSemanticsNode().boundsInRoot
-        val centerX = (bounds.left + bounds.right) / 2f
         repeat(20) {
             val found = composeRule
                 .onAllNodesWithTag(tag)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
             if (found) return@repeat
+            // Pick the first currently-composed Settings card as
+            // the swipe anchor. The anchor list is ordered by
+            // LazyColumn item index (ControllerInfoCard, then
+            // WateringInterval, MaxActivePumps, ValveConfig,
+            // PairName, FirmwareUpdate). When the list is
+            // scrolled to the bottom, only the later cards are
+            // composed — we swipe on whichever is visible.
+            val anchorTag = listOf(
+                SettingsTestTags.FirmwareUpdateOpenButton,
+                SettingsTestTags.ValveConfigSave,
+                SettingsTestTags.MaxActivePumpsSave,
+                SettingsTestTags.WateringIntervalSave,
+                SettingsTestTags.ControllerInfoCard,
+            ).firstOrNull { anchorTag ->
+                composeRule
+                    .onAllNodesWithTag(anchorTag)
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            } ?: return@repeat
+            val anchor = composeRule.onAllNodesWithTag(anchorTag).onFirst()
+            val bounds = anchor.fetchSemanticsNode().boundsInRoot
+            val centerX = (bounds.left + bounds.right) / 2f
             anchor.performTouchInput {
                 swipe(
                     start = Offset(centerX, bounds.bottom - 50f),
