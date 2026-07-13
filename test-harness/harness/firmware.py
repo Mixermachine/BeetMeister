@@ -35,6 +35,7 @@ from pathlib import Path
 
 from harness import partition_map
 from harness.config import HarnessConfig
+from harness.controller_reset import build_esptool_command
 
 
 @dataclass(frozen=True)
@@ -70,6 +71,24 @@ def _cache_paths(harness_config: HarnessConfig, pinned_tag: str) -> tuple[Path, 
     return cache / bin_name, cache / f"beetmeister-{pinned_tag}.version.txt"
 
 
+def _cache_artifact_paths(harness_config: HarnessConfig, pinned_tag: str) -> tuple[Path, Path]:
+    """Paths for the cached bootloader + partition-table bins.
+
+    P3 finding SUB #5: `flash_old` must flash the CACHED bins
+    (not a rebuilt copy) so `image_sha256` in `version.txt`
+    matches what's actually on the chip + so the cache actually
+    skips the build on the 2nd+ run. ESP-IDF build outputs:
+      build/bootloader/bootloader.bin       -> 0x1000
+      build/partition_table/partition-table.bin -> 0x8000
+      build/beetmeister.bin                 -> ota_0 offset (from CSV)
+    """
+    cache = cache_dir(harness_config)
+    return (
+        cache / f"beetmeister-{pinned_tag}.bootloader.bin",
+        cache / f"beetmeister-{pinned_tag}.partition-table.bin",
+    )
+
+
 def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
@@ -98,16 +117,20 @@ def _parse_image_info(stdout: str) -> dict[str, str]:
     return out
 
 
-def _image_metadata(bin_path: Path, esptool_exe: str) -> dict[str, str]:
+def _image_metadata(bin_path: Path, config: HarnessConfig) -> dict[str, str]:
     """Run esptool `image_info` and return the parsed fields.
 
     `image_info` does not need a connected chip — it parses the
     `.bin` file directly. That's the plan's "parse built .bin
     metadata" choice: NOT stdout grep, NOT a synthesized
     `version.txt`.
+
+    Routes through `build_esptool_command` (P3 finding SUB #4)
+    so the env is sourced the same way as `erase_region` — no
+    more `[esptool_exe, ...]` without a `python` prefix.
     """
     proc = subprocess.run(
-        [esptool_exe, "image_info", str(bin_path)],
+        build_esptool_command(config, "image_info", str(bin_path)),
         capture_output=True,
         text=True,
         check=False,
@@ -135,10 +158,10 @@ def ensure_old_firmware_built(
     pinned_tag = pinned_tag or config.firmware.pinned_tag
     bin_path, version_path = _cache_paths(config, pinned_tag)
 
-    if bin_path.exists() and version_path.exists():
+    boot_path, pt_path = _cache_artifact_paths(config, pinned_tag)
+    if bin_path.exists() and version_path.exists() and boot_path.exists() and pt_path.exists():
         return _load_version_txt(version_path, pinned_tag, bin_path)
 
-    esptool = config.require("env.esptool_exe", config.env.esptool_exe)
     idf_py = config.require("env.idf_py_exe", config.env.idf_py_exe)
     env_script = config.env.idf_env_script
 
@@ -191,9 +214,20 @@ def ensure_old_firmware_built(
                 f"could not locate built .bin under {idf_workspace / 'build'}"
             )
 
-        # Copy into the cache and extract metadata.
+        # Copy the app + bootloader + partition-table into the cache.
+        # All three are flashed by `flash_old` via esptool write_flash
+        # (P3 finding SUB #5): the cached .bin is exactly what goes
+        # on the chip, so `image_sha256` in version.txt stays valid.
+        built_boot = idf_workspace / "build" / "bootloader" / "bootloader.bin"
+        built_pt = idf_workspace / "build" / "partition_table" / "partition-table.bin"
+        if not built_boot.exists():
+            raise RuntimeError(f"built bootloader.bin not found at {built_boot}")
+        if not built_pt.exists():
+            raise RuntimeError(f"built partition-table.bin not found at {built_pt}")
         shutil.copy2(built_bin, bin_path)
-        image_info = _image_metadata(bin_path, esptool)
+        shutil.copy2(built_boot, boot_path)
+        shutil.copy2(built_pt, pt_path)
+        image_info = _image_metadata(bin_path, config)
         build_label = image_info.get("Build version", pinned_tag)
         # ESP-IDF doesn't put runtime_protocol_version into
         # image_info; we read it from the bundled-firmware-stamp
@@ -301,69 +335,80 @@ def flash_old(
     *,
     pinned_tag: str | None = None,
 ) -> FirmwareBuildInfo:
-    """Erase appcfg (P5 decision) then flash the cached old .bin via idf.py.
+    """Erase appcfg+otadata (P5 decision) then flash the CACHED bins.
+
+    P3 finding SUB #5 fix: flash the app + bootloader +
+    partition-table cached by `ensure_old_firmware_built` directly
+    via `esptool write_flash`. No worktree re-add, no re-build.
+    so `image_sha256` in `version.txt` matches what lands on the
+    chip, and a cached run skips the build entirely.
+
+    Layout (matches `firmware/esp-idf/partitions/beetmeister.csv`):
+      0x1000   bootloader.bin
+      0x8000   partition-table.bin
+      ota_0    beetmeister.bin   (offset read from the CSV)
+    `otadata` is erased so the bootloader picks ota_0 (the slot
+    we just wrote the old image into) on the next boot.
 
     Returns the `FirmwareBuildInfo` for the flashed image so the
     orchestrator can pass `build_label` to the Kotlin test as a
     `-e expected_old_build_label` extra.
     """
     info = ensure_old_firmware_built(config, pinned_tag=pinned_tag)
+    pinned_tag = info.pinned_tag
 
+    from harness import controller_reset
+
+    # Erase appcfg (P5 decision) + otadata (so ota_0 boots). Both
+    # go through the same esptool erase_region path so the env is
+    # sourced the same way as write_flash below.
+    erase_partitions: tuple[str, ...] = ("appcfg",)
     if config.firmware.erase_appcfg_before_flash:
-        from harness import controller_reset
-        # `appcfg` is the only partition we erase pre-flash; the
-        # rest of the NVS state survives because the firmware
-        # rewrite on flash leaves the rest as-is.
-        results = controller_reset.erase_config_partitions(
-            config, port, partitions=("appcfg",)
+        pass  # appcfg already in the list
+    else:
+        erase_partitions = tuple(p for p in erase_partitions if p != "appcfg")
+    results = controller_reset.erase_config_partitions(
+        config, port,
+        partitions=erase_partitions,
+        extra_erase=("otadata",),
+    )
+    bad = [r for r in results if not r.ok]
+    if bad:
+        raise RuntimeError(
+            "pre-flash erase failed: "
+            + ", ".join(f"{r.partition} rc={r.returncode}" for r in bad)
         )
-        bad = [r for r in results if not r.ok]
-        if bad:
+
+    # Resolve the ota_0 offset from the partition CSV (source of
+    # truth; never hard-coded).
+    csv_path = config.repo_root / "firmware" / "esp-idf" / "partitions" / "beetmeister.csv"
+    layout = partition_map.load(csv_path)
+    ota_0, = partition_map.require(layout, "ota_0")
+
+    bin_path, _ = _cache_paths(config, pinned_tag)
+    boot_path, pt_path = _cache_artifact_paths(config, pinned_tag)
+    for p in (bin_path, boot_path, pt_path):
+        if not p.exists():
             raise RuntimeError(
-                "pre-flash appcfg erase failed: "
-                + ", ".join(f"{r.partition} rc={r.returncode}" for r in bad)
+                f"cached firmware artifact missing: {p}. "
+                f"Remove firmware_cache/ for {pinned_tag} and retry."
             )
 
-    idf_py = config.require("env.idf_py_exe", config.env.idf_py_exe)
-    idf_workspace = config.repo_root / config.firmware.worktree_dir
-    # We don't have a worktree anymore (it was removed by
-    # ensure_old_firmware_built). We need to re-add a temporary
-    # one to run `idf.py flash` from a project dir, because
-    # `idf.py` reads the project's sdkconfig + partitions CSV
-    # from cwd. Simpler: just add the worktree back, flash, and
-    # remove it again.
-    worktree_dir = idf_workspace
-    add = _git("worktree", "add", str(worktree_dir), info.pinned_tag, cwd=config.repo_root)
-    if add.returncode != 0:
+    # ESP32-S3 bootloader offset is 0x1000; partition table at 0x8000.
+    # These are fixed chip defaults (NOT partition-CSV entries).
+    cmd = build_esptool_command(
+        config,
+        "--port", port,
+        "--baud", str(config.controller.baud),
+        "write_flash",
+        "0x1000", str(boot_path),
+        "0x8000", str(pt_path),
+        f"0x{ota_0.offset:x}", str(bin_path),
+    )
+    flash = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if flash.returncode != 0:
         raise RuntimeError(
-            f"`git worktree add` (for flash) failed (rc={add.returncode}): "
-            f"{add.stderr.strip() or add.stdout.strip()}"
+            f"esptool write_flash failed (rc={flash.returncode}): "
+            f"{flash.stderr.strip()[-2000:] or flash.stdout.strip()[-2000:]}"
         )
-    try:
-        flash_cwd = worktree_dir / "firmware" / "esp-idf"
-        cmd = _build_idf_command(
-            config.env.idf_env_script, idf_py, "-p", port, "flash", cwd=flash_cwd
-        )
-        # `idf.py flash` looks for the .bin in build/ relative to
-        # the project; we need to either rebuild or override
-        # ESP_BIN_PATH. Simplest: rebuild (cached objects speed
-        # this up) so the .bin in build/ is the cached one.
-        build = subprocess.run(
-            _build_idf_command(config.env.idf_env_script, idf_py, "build", cwd=flash_cwd),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if build.returncode != 0:
-            raise RuntimeError(
-                f"idf.py build (pre-flash) failed (rc={build.returncode})"
-            )
-        flash = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if flash.returncode != 0:
-            raise RuntimeError(
-                f"idf.py flash failed (rc={flash.returncode}): "
-                f"{flash.stderr.strip()[-2000:] or flash.stdout.strip()[-2000:]}"
-            )
-    finally:
-        _git("worktree", "remove", "--force", str(worktree_dir), cwd=config.repo_root)
     return info

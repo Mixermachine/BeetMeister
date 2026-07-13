@@ -1,13 +1,25 @@
 """BeetMeister E2E harness CLI entry point.
 
-P3 usage:
-    python test-harness/run.py --dry-run fresh_install
-        Walks the full pipeline through the smoke gate
-        (MaintenanceUpdateInstrumentationTest) and stops before
-        the per-suite E2E class dispatch. Proves build + install
-        + capture + smoke work end-to-end on this machine.
+Modes (mutually exclusive):
+    --dry-run            P3 stop point. Walks the full pipeline
+                         through the smoke gate and stops before
+                         the per-suite E2E class dispatch. Proves
+                         build + install + capture + smoke work
+                         end-to-end on this machine.
+    --dry-run-dispatch   P4 stop point. Smoke gate runs, then
+                         the dispatch is COMPOSED (preconditions
+                         + am instrument command are recorded in
+                         dispatch-plan.json + logged) but NOTHING
+                         is executed. Lets the user verify P4
+                         wiring on a machine without hardware.
+    (no flag)            Real run. P5 territory — may FAIL on
+                         hardware until stabilization is done.
 
-P4 usage (NOT in P3):
+Usage:
+    python test-harness/run.py --dry-run fresh_install
+    python test-harness/run.py --dry-run-dispatch fresh_install
+    python test-harness/run.py --dry-run-dispatch firmware_update
+    python test-harness/run.py --dry-run-dispatch settings_update
     python test-harness/run.py fresh_install
     python test-harness/run.py firmware_update
     python test-harness/run.py settings_update
@@ -36,14 +48,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "suite",
         choices=["fresh_install", "firmware_update", "settings_update"],
-        help="Test suite to run. P3 only supports --dry-run; "
-             "real dispatch arrives in P4.",
+        help="Test suite to run.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="P3 stop point: build + install + capture + smoke gate only; "
              "do not invoke the per-suite E2E class.",
+    )
+    parser.add_argument(
+        "--dry-run-dispatch",
+        action="store_true",
+        help="P4 stop point: smoke gate runs, then dispatch is COMPOSED "
+             "(preconditions + am instrument command recorded in "
+             "dispatch-plan.json + logged) but NOTHING is executed. "
+             "Use to verify P4 wiring on a machine without hardware.",
     )
     parser.add_argument(
         "--skip-install",
@@ -58,16 +77,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    if not args.dry_run and args.suite in ("firmware_update", "settings_update"):
-        parser.error(
-            f"non-dry-run {args.suite} arrives in P4. "
-            f"Use --dry-run for the P3 stop point."
-        )
-
     orch = Orchestrator()
     result = orch.run(
         args.suite,
         dry_run=args.dry_run,
+        dry_run_dispatch=args.dry_run_dispatch,
         skip_install=args.skip_install,
         skip_smoke=args.skip_smoke,
     )
@@ -85,6 +99,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  e2e class   = {result.e2e.class_name}")
         print(f"  e2e pass    = {result.e2e.passed}")
         print(f"  e2e dur     = {result.e2e.duration_s:.1f}s")
+    if result.dispatch_plan is not None:
+        plan = result.dispatch_plan
+        n_pre = len(plan.preconditions)
+        n_executed = sum(1 for s in plan.preconditions if s.executed)
+        print(f"  dispatch    = {plan.suite} "
+              f"({n_executed}/{n_pre} preconditions executed"
+              + (
+                  f", am instrument {'executed' if plan.am_instrument and plan.am_instrument.executed else 'NOT executed'}"
+                  if plan.am_instrument else ""
+              )
+              + ")")
+        print(f"  plan file   = {result.run_dir}/dispatch-plan.json")
     if result.fail_reason:
         print(f"  fail reason = {result.fail_reason}")
     print()

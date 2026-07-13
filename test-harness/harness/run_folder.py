@@ -60,6 +60,13 @@ class Manifest:
 
     e2e_results: list[dict[str, Any]] = field(default_factory=list)
 
+    # True if the dispatch was actually executed; False if the
+    # orchestrator ran in dry_run_dispatch mode (P4) — in that
+    # case dispatch-plan.json records the composed plan, but
+    # no destructive preconditions ran and no am instrument was
+    # invoked.
+    dispatch_plan_executed: bool | None = None
+
     pass_: bool | None = None
     fail_reason: str | None = None
 

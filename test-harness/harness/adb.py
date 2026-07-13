@@ -258,13 +258,24 @@ class Adb:
     def install_apks(
         self,
         *,
+        rebuild: bool = True,
         extra_gradle_args: Iterable[str] = (),
     ) -> tuple[Path, Path]:
-        """Build + install both APKs.
+        """Install both APKs; rebuild first if `rebuild=True` (default).
 
-        Runs `gradlew assembleDebug assembleDebugAndroidTest`
-        (cross-platform via the wrapper), then `adb install -r`
-        both output APKs. Returns `(app_apk, test_apk)` paths.
+        When `rebuild=True` (the P3 path): runs `gradlew
+        assembleDebug assembleDebugAndroidTest` (cross-platform
+        via the wrapper) + `adb install -r` both output APKs.
+
+        When `rebuild=False` (the P4 dispatch path): skips the
+        gradle build and just installs the already-built APKs.
+        The P3 pipeline has already built them; the dispatch
+        only needs to install after its destructive precondition
+        (e.g. `adb uninstall` for fresh_install). This keeps
+        the per-suite dispatch down to seconds of overhead
+        instead of re-paying the 5-minute gradle build.
+
+        Returns `(app_apk, test_apk)` paths.
 
         This is the orchestrator's APK builder of record per the
         plan: every suite that needs the APKs goes through this
@@ -281,30 +292,31 @@ class Adb:
             raise FileNotFoundError(gradlew_path)
         app_dir_path = Path(app_dir).resolve()
 
-        # On Windows, the wrapper is `gradlew.bat`; on POSIX, `gradlew`.
-        # We pick the one that exists; fall back to a `.bat` shim.
-        if os.name == "nt":
-            cmd: list[str] = [str(gradlew_path.with_name("gradlew.bat"))]
-        else:
-            cmd = [str(gradlew_path)]
-        cmd += [
-            ":app:assembleDebug",
-            ":app:assembleDebugAndroidTest",
-            *extra_gradle_args,
-        ]
-        proc = subprocess.run(
-            cmd,
-            cwd=str(app_dir_path),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=float(self._config.orchestrator.gradle_build_timeout),
-        )
-        if proc.returncode != 0:
-            tail = (proc.stderr or proc.stdout).strip().splitlines()[-30:]
-            raise RuntimeError(
-                f"gradle build failed (rc={proc.returncode}):\n" + "\n".join(tail)
+        if rebuild:
+            # On Windows, the wrapper is `gradlew.bat`; on POSIX, `gradlew`.
+            # We pick the one that exists; fall back to a `.bat` shim.
+            if os.name == "nt":
+                cmd: list[str] = [str(gradlew_path.with_name("gradlew.bat"))]
+            else:
+                cmd = [str(gradlew_path)]
+            cmd += [
+                ":app:assembleDebug",
+                ":app:assembleDebugAndroidTest",
+                *extra_gradle_args,
+            ]
+            proc = subprocess.run(
+                cmd,
+                cwd=str(app_dir_path),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=float(self._config.orchestrator.gradle_build_timeout),
             )
+            if proc.returncode != 0:
+                tail = (proc.stderr or proc.stdout).strip().splitlines()[-30:]
+                raise RuntimeError(
+                    f"gradle build failed (rc={proc.returncode}):\n" + "\n".join(tail)
+                )
 
         app_apk = app_dir_path / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
         test_apk = (
@@ -363,10 +375,25 @@ class Adb:
 # --- instrumentation-output parser -----------------------------------------
 
 
+# Legacy AndroidX Test output (the format `MaintenanceUpdateInstrumentationTest`
+# still uses on this project).
 _OK_RE = re.compile(r"OK \((?P<n>\d+) tests?\)")
+_SUCCESS_RE = re.compile(r"SUCCESS \((?P<n>\d+) tests?\)")
+# Newer AndroidX Test output.
+_TESTS_RUN_RE = re.compile(r"Tests run:\s*(?P<n>\d+),\s*Failures:\s*(?P<f>\d+)")
+# Markers indicating at least one test failed.
 _FAIL_RE = re.compile(r"FAILURES!!!")
+# Per-test failure lines (legacy + newer formats).
 _TEST_LINE_RE = re.compile(
     r"Error in (?P<name>[A-Za-z0-9_$]+)\((?P<cls>[A-Za-z0-9_.$]+)\):",
+)
+# Per-test status line emitted by the AndroidX Test runner for
+# every test as it runs: `INSTRUMENTATION_STATUS: test=<name>(<class>)`.
+# We collect these so the manifest can list all tests (passed +
+# failed) by name, not just the failures.
+_STATUS_TEST_RE = re.compile(
+    r"INSTRUMENTATION_STATUS:\s*test=(?P<name>[A-Za-z0-9_$]+)"
+    r"\((?P<cls>[A-Za-z0-9_.$]+)\)"
 )
 
 
@@ -375,11 +402,18 @@ def _parse_instrumentation_output(
 ) -> tuple[bool, list[dict[str, object]]]:
     """Parse `am instrument` stdout into (passed, per-test results).
 
-    The Android test runner writes to stdout in a specific format.
-    The tail-end markers we care about:
-      - "OK (N tests)" — all green.
-      - "FAILURES!!!" — at least one test failed.
-      - Per-test "Error in <name>(<class>):" lines for failures.
+    Recognizes BOTH the legacy JUnit "OK (N tests)" / "FAILURES!!!"
+    output (the format the smoke gate uses) AND the newer AndroidX
+    "Tests run: N, Failures: M" output. The AndroidX Test runner
+    emits `INSTRUMENTATION_STATUS: test=<name>(<class>)` for every
+    test as it runs; we collect those names so the manifest can
+    list every test by name (not just the failures). For each
+    "test=" name we mark it passed unless we also see it in an
+    "Error in <name>(<class>):" line.
+
+    Returns `(passed, test_results)` where `test_results` is a
+    list of `{"name", "class", "passed", "details"}` dicts in
+    the order they appeared in the output.
     """
     if not stdout:
         return False, []
@@ -387,19 +421,62 @@ def _parse_instrumentation_output(
     # channel that uses `\r\n` line endings. Strip the `\r` so
     # the search sees plain `\n` line terminators.
     text = stdout.replace("\r\n", "\n").replace("\r", "\n")
-    if _OK_RE.search(text):
-        return True, []
-    if not _FAIL_RE.search(text):
-        # No OK line, no FAILURES line — assume non-zero exit was
-        # already captured by the caller. Treat as failed.
+
+    # Collect per-test status lines in order. Each becomes a
+    # `{name, class, passed, details}` entry. Failed names come
+    # from the "Error in <name>(<class>):" lines; if a name
+    # appears in both lists, it failed.
+    seen_order: list[tuple[str, str]] = []
+    seen_index: dict[tuple[str, str], int] = {}
+    failed: set[tuple[str, str]] = set()
+    for m in _STATUS_TEST_RE.finditer(text):
+        key = (m.group("name"), m.group("cls"))
+        if key not in seen_index:
+            seen_index[key] = len(seen_order)
+            seen_order.append(key)
+    for m in _TEST_LINE_RE.finditer(text):
+        failed.add((m.group("name"), m.group("cls")))
+
+    # Decide pass/fail from the summary lines.
+    passed = False
+    test_count: int | None = None
+    fail_count: int | None = None
+    if _OK_RE.search(text) or _SUCCESS_RE.search(text):
+        passed = True
+        # Parse the count for the manifest.
+        m = _OK_RE.search(text) or _SUCCESS_RE.search(text)
+        if m:
+            test_count = int(m.group("n"))
+    elif (m := _TESTS_RUN_RE.search(text)):
+        test_count = int(m.group("n"))
+        fail_count = int(m.group("f"))
+        passed = fail_count == 0
+    elif _FAIL_RE.search(text):
+        passed = False
+    else:
+        # No OK line, no FAILURES line, no Tests run line.
+        # Assume non-zero exit was already captured by the
+        # caller. Treat as failed.
         return False, []
 
     test_results: list[dict[str, object]] = []
-    for m in _TEST_LINE_RE.finditer(text):
+    for name, cls in seen_order:
+        entry: dict[str, object] = {
+            "name": name,
+            "class": cls,
+            "passed": (name, cls) not in failed,
+            "details": "see instrumentation-e2e.txt" if (name, cls) in failed else "",
+        }
+        test_results.append(entry)
+    # If we know the count but no per-test status lines were
+    # emitted (some AndroidX Test versions), synthesize a stub
+    # so the manifest still records the count.
+    if test_count is not None and not test_results:
         test_results.append({
-            "name": m.group("name"),
-            "class": m.group("cls"),
-            "passed": False,
-            "details": "see instrumentation.txt",
+            "name": f"<{test_count} tests>",
+            "class": "",
+            "passed": passed,
+            "details": f"summary: {test_count} tests"
+                       + (f", {fail_count} failures" if fail_count is not None else ""),
         })
-    return False, test_results
+    return passed, test_results

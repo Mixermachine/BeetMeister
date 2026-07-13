@@ -22,7 +22,6 @@ No BLE, no app needed. Just USB.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -53,15 +52,35 @@ class EraseResult:
         return self.returncode == 0
 
 
-def _python_exe() -> str:
-    """Return the Python interpreter that should host esptool.py.
+def build_esptool_command(config: HarnessConfig, *args: str) -> list[str]:
+    """Compose an esptool invocation, optionally sourcing the IDF env.
 
-    `esptool.py` ships inside the ESP-IDF tree. We invoke it as
-    `python esptool.py` (NOT directly) because esptool imports
-    `cryptography` and friends that live in the IDF Python env.
-    On Windows the IDF env is `C:\\esp\\v6.0\\esp-idf\\python_env\\...`.
+    esptool.py needs the IDF Python env (cryptography, reedsolo).
+    Two cases (P3 finding SUB #4 — unify the esptool invocation style):
+      - `idf_env_script` set: source it (cmd /c on Windows, bash -c
+        on POSIX) so `python` on PATH becomes the IDF python, then
+        run `python <esptool_exe> <args>`.
+      - `idf_env_script` empty: assume the host interpreter already
+        has esptool deps (user ran `export` or pip-installed
+        esptool). Run `<sys.executable> <esptool_exe> <args>`.
+    Both cases prefix `python` so `esptool_exe` is ALWAYS treated
+    as a Python script (NOT executed directly) — matches the
+    existing controller_reset path + fixes firmware._image_metadata
+    which used to run `[esptool_exe, ...]` without a python prefix.
     """
-    return sys.executable
+    esptool = config.require("env.esptool_exe", config.env.esptool_exe)
+    if not Path(esptool).exists():
+        raise RuntimeError(
+            f"esptool not found at {esptool}. Set [env].esptool_exe in config.toml."
+        )
+    env_script = config.env.idf_env_script
+    if not env_script:
+        return [sys.executable, esptool, *args]
+    if sys.platform.startswith("win"):
+        quoted = f'"{env_script}" && python "{esptool}" ' + " ".join(args)
+        return ["cmd", "/c", quoted]
+    quoted = f'source "{env_script}" && python "{esptool}" ' + " ".join(args)
+    return ["bash", "-c", quoted]
 
 
 def erase_config_partitions(
@@ -78,11 +97,6 @@ def erase_config_partitions(
     unreachable, so the orchestrator can abort the run with a
     clear message.
     """
-    esptool = config.require("env.esptool_exe", config.env.esptool_exe)
-    if not Path(esptool).exists():
-        raise RuntimeError(
-            f"esptool not found at {esptool}. Set [env].esptool_exe in config.toml."
-        )
     if not port:
         raise RuntimeError(
             "controller port is empty. Set [controller].serial_port in config.toml "
@@ -96,16 +110,14 @@ def erase_config_partitions(
     targets = partition_map.require(layout, *partitions, *extra_erase)
 
     results: list[EraseResult] = []
-    py = _python_exe()
     for part in targets:
-        cmd = [
-            py,
-            esptool,
+        cmd = build_esptool_command(
+            config,
             "--port", port,
             "erase_region",
             f"0x{part.offset:x}",
             f"0x{part.size:x}",
-        ]
+        )
         proc = subprocess.run(
             cmd,
             capture_output=True,

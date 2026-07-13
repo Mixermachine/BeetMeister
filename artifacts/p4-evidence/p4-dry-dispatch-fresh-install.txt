@@ -1,0 +1,66 @@
+=============================================
+P4 dry-run-dispatch: fresh_install
+=============================================
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-162430-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-162430-fresh_install\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 7.8s
+  dispatch    = fresh_install (0/5 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-162430-fresh_install/dispatch-plan.json
+
+
+=== exit code: 0 ===
+
+=== dispatch-plan.json ===
+{
+  "am_instrument": {
+    "cmd": "adb -s RZCT50CGLKA shell am instrument -w -e beetRunE2e true -e class de.aarondietz.beetmeister.e2e.FreshInstallE2ETest de.aarondietz.beetmeister.test/de.aarondietz.beetmeister.e2e.BeetE2eAwareJUnitRunner",
+    "description": "am instrument for de.aarondietz.beetmeister.e2e.FreshInstallE2ETest (gate arg: beetRunE2e=true)",
+    "executed": false,
+    "name": "am_instrument_fresh_install"
+  },
+  "extras": {},
+  "preconditions": [
+    {
+      "cmd": "adb -s RZCT50CGLKA uninstall de.aarondietz.beetmeister",
+      "description": "adb uninstall de.aarondietz.beetmeister",
+      "executed": false,
+      "name": "uninstall_app"
+    },
+    {
+      "cmd": "cmd /c '\"C:/esp/v6.0/esp-idf/export.bat\" && python \"C:/esp/v6.0/esp-idf/components/esptool_py/esptool/esptool.py\" --port COM4 erase_region 0x12000 0x10000'",
+      "description": "esptool erase_region for appcfg (offset=0x12000, size=0x10000)",
+      "executed": false,
+      "name": "erase_appcfg"
+    },
+    {
+      "cmd": "cmd /c '\"C:/esp/v6.0/esp-idf/export.bat\" && python \"C:/esp/v6.0/esp-idf/components/esptool_py/esptool/esptool.py\" --port COM4 erase_region 0x22000 0x4e000'",
+      "description": "esptool erase_region for events (offset=0x22000, size=0x4e000)",
+      "executed": false,
+      "name": "erase_events"
+    },
+    {
+      "cmd": "cmd /c '\"C:/esp/v6.0/esp-idf/export.bat\" && python \"C:/esp/v6.0/esp-idf/components/esptool_py/esptool/esptool.py\" --port COM4 erase_region 0xc70000 0x10000'",
+      "description": "esptool erase_region for sysevents (offset=0xc70000, size=0x10000)",
+      "executed": false,
+      "name": "erase_sysevents"
+    },
+    {
+      "cmd": "Adb.install_apks(rebuild=False)  # installs the APKs the P3 pipeline already built at C:/git/BeetMeister/app/app/build/outputs/apk",
+      "description": "adb install -r the app + androidTest APKs (no rebuild; pipeline already built them)",
+      "executed": false,
+      "name": "install_built_apks"
+    }
+  ],
+  "screenshot_pull": {
+    "cmd": "adb -s RZCT50CGLKA pull /sdcard/Android/data/de.aarondietz.beetmeister/files/e2e_screenshots/freshInstall 'C:\\git\\BeetMeister\\test-harness\\runs\\20260713-162430-fresh_install\\screenshots\\freshInstall'",
+    "description": "adb pull Kotlin in-test screenshots from /sdcard/Android/data/<package>/files/e2e_screenshots/freshInstall/ into the run folder",
+    "executed": false,
+    "name": "pull_in_test_screenshots"
+  },
+  "suite": "fresh_install"
+}
