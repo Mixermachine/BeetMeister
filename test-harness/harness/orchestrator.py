@@ -75,12 +75,23 @@ class DispatchStep:
     user can run manually for diagnostics. `executed` is False
     in dry-run-dispatch mode (so the user can see what WOULD
     have run).
+
+    For the `am instrument` step only:
+      - `extras`: the typed `-e KEY VALUE` pairs (NOT a
+        string-parsed copy of `cmd`). Lets the executor pass
+        the exact dict to `Adb.am_instrument`, avoiding the
+        shell-quote-parse-undo bug for build labels with
+        spaces or shell-special chars (P4 review SUB #3).
+      - `class_name`: the E2E class FQN. Same reason.
     """
 
     name: str
     description: str
     cmd: str
     executed: bool
+    # For the am_instrument step. Empty for preconditions.
+    extras: dict[str, str] = field(default_factory=dict)
+    class_name: str = ""
 
 
 @dataclass
@@ -128,6 +139,13 @@ class Orchestrator:
     def __init__(self, config: HarnessConfig | None = None) -> None:
         self.config = config or load()
         self.adb = Adb(self.config)
+        # Per-instance cache for the bundled firmware build_label
+        # (read by _dispatch_firmware_update when composing
+        # `expected_new_build_label`). Set by
+        # _parse_bundled_firmware_stamp at run() step 5; the
+        # default keeps any pre-stamp code path safe (P4 review
+        # finding CRIT #2).
+        self._bundled_build_label_cache: str = ""
 
     # --- public surface ---------------------------------------------------
 
@@ -578,6 +596,8 @@ class Orchestrator:
             description=f"am instrument for {class_name} (gate arg: beetRunE2e=true)",
             cmd=am_cmd,
             executed=False,
+            extras=dict(plan.extras),
+            class_name=class_name,
         )
 
         # 5. pull in-test screenshots.
@@ -595,7 +615,16 @@ class Orchestrator:
         # Real run: execute the preconditions + am instrument.
         self._run_precondition(plan.preconditions[0], self._do_uninstall(app_package))
         for step in plan.preconditions[1:-1]:
-            # Erase steps live in the middle of preconditions.
+            # Filter by name prefix: only `erase_*` steps are
+            # erase_region calls. `skip_erase_no_port` (the
+            # placeholder when [controller].serial_port is
+            # empty) and any future non-erase informational
+            # steps are skipped here (P4 review finding
+            # CRIT #1: the old loop crashed on
+            # `skip_erase_no_port` because _execute_erase_step
+            # raised AssertionError on unrecognized names).
+            if not step.name.startswith("erase_"):
+                continue
             self._execute_erase_step(step)
         # Last precondition is install_built_apks.
         self._run_precondition(plan.preconditions[-1], self._do_install_built_apks())
@@ -654,12 +683,18 @@ class Orchestrator:
         # Resolve the old + new build labels. In dry_run_dispatch
         # we skip the firmware build (it's destructive + needs
         # ESP-IDF on the host) and just compose the plan with
-        # placeholder labels: the tag name for old (we'd parse
-        # the .bin metadata to get the real value in a real run)
-        # + the parsed bundled build_label for new. In a real
-        # run, ensure_old_firmware_built reads (or builds) the
-        # .bin and parses the actual build_label via
-        # `esptool image_info`.
+        # placeholder labels: the tag name for old (the real
+        # run parses the .bin metadata to get the actual
+        # value) + the parsed bundled build_label for new.
+        # In a real run, we DON'T pre-call ensure_old_firmware_built
+        # here — that would be a duplicate call (P4 review
+        # finding SUB #4: flash_old already calls
+        # ensure_old_firmware_built internally). Instead we
+        # let flash_old do the work, capture the returned
+        # FirmwareBuildInfo, and UPDATE the plan's
+        # `expected_old_build_label` + the am_instrument
+        # step's `extras` + the cmd string with the actual
+        # label before invoking am_instrument.
         if dry_run_dispatch:
             old_label = self.config.firmware.pinned_tag
             info_desc = (
@@ -668,17 +703,12 @@ class Orchestrator:
                 f"metadata via esptool image_info)"
             )
         else:
-            try:
-                info = firmware.ensure_old_firmware_built(self.config)
-            except Exception as exc:  # noqa: BLE001
-                raise RuntimeError(
-                    f"ensure_old_firmware_built failed before "
-                    f"firmware_update dispatch: {exc!r}"
-                ) from exc
-            old_label = info.build_label
+            # Will be filled in from flash_old's return value
+            # below, after the actual flash.
+            old_label = ""
             info_desc = (
-                f"cached {info.bin_path.name}, build_label={info.build_label!r}, "
-                f"image_sha256={info.image_sha256[:16]}…"
+                "(set after flash_old returns; parses the cached "
+                ".bin's build_label via esptool image_info)"
             )
         plan.extras["expected_old_build_label"] = old_label
         plan.extras["expected_new_build_label"] = self._last_bundled_build_label()
@@ -731,6 +761,8 @@ class Orchestrator:
             ),
             cmd=am_cmd,
             executed=False,
+            extras=dict(plan.extras),
+            class_name=class_name,
         )
 
         # 5. pull in-test screenshots.
@@ -746,7 +778,30 @@ class Orchestrator:
             return None, True, None, plan
 
         # Real run: execute the preconditions + am instrument.
-        self._run_precondition(flash_step, self._do_flash_old())
+        # flash_old returns the FirmwareBuildInfo; we use it
+        # to update the plan's expected_old_build_label +
+        # the am_instrument step's extras + cmd BEFORE the
+        # am instrument call (P4 review finding SUB #4: avoids
+        # a duplicate ensure_old_firmware_built call and gives
+        # the actual build label parsed from the .bin).
+        info = self._run_precondition_returning_info(
+            flash_step, self._do_flash_old,
+        )
+        plan.extras["expected_old_build_label"] = info.build_label
+        plan.am_instrument.extras["expected_old_build_label"] = info.build_label
+        # Re-compose the am instrument cmd so the dispatch-plan.json
+        # + the run manifest reflect the actual label (vs the
+        # placeholder "" set in plan composition).
+        plan.am_instrument.cmd = self._compose_am_instrument_preview(
+            class_name=plan.am_instrument.class_name,
+            extras=plan.am_instrument.extras,
+            beet_run_e2e=True,
+        )
+        plan.am_instrument.description = (
+            f"am instrument for {class_name} with "
+            f"expected_old_build_label={info.build_label!r} "
+            f"+ expected_new_build_label={plan.extras.get('expected_new_build_label')!r}"
+        )
         self._run_precondition(plan.preconditions[1], self._do_uninstall(app_package))
         self._run_precondition(plan.preconditions[2], self._do_install_built_apks())
         e2e_result = self._execute_am_instrument(plan.am_instrument)
@@ -811,6 +866,8 @@ class Orchestrator:
             ),
             cmd=am_cmd,
             executed=False,
+            extras=dict(plan.extras),
+            class_name=class_name,
         )
 
         # 3. pull in-test screenshots.
@@ -922,6 +979,22 @@ class Orchestrator:
         action()
         step.executed = True
 
+    def _run_precondition_returning_info(
+        self,
+        step: DispatchStep,
+        action: "callable",  # noqa: F821
+    ) -> Any:
+        """Like `_run_precondition` but returns the action's value.
+
+        Used for `flash_old` (P4 review finding SUB #4): the
+        action returns the `FirmwareBuildInfo` and the caller
+        reads `build_label` to update the plan's
+        `expected_old_build_label` + the am_instrument step.
+        """
+        result = action()
+        step.executed = True
+        return result
+
     def _do_uninstall(self, app_package: str):
         def action() -> None:
             self.adb.uninstall(app_package)
@@ -933,8 +1006,10 @@ class Orchestrator:
         return action
 
     def _do_flash_old(self):
-        def action() -> None:
-            firmware.flash_old(self.config, self.config.controller.serial_port)
+        def action():
+            return firmware.flash_old(
+                self.config, self.config.controller.serial_port,
+            )
         return action
 
     def _execute_erase_step(self, step: DispatchStep) -> None:
@@ -964,36 +1039,30 @@ class Orchestrator:
     def _execute_am_instrument(
         self, step: DispatchStep
     ) -> AmInstrumentResult:
-        """Invoke `am instrument` for the E2E class + write the run log."""
-        class_name = self._class_name_from_step(step)
+        """Invoke `am instrument` for the E2E class + write the run log.
+
+        Reads `class_name` + `extras` directly from the
+        `DispatchStep` (P4 review SUB #3). The previous
+        implementation parsed the shell-quoted `cmd` string to
+        recover these values, which broke for build labels
+        with spaces or shell-special chars. The cmd string is
+        still kept on the step for display in the plan file +
+        copy-paste for manual runs.
+        """
+        if not step.class_name:
+            raise AssertionError(
+                f"am_instrument step {step.name!r} has no class_name; "
+                f"the dispatch composition is broken."
+            )
         result = self.adb.am_instrument(
-            class_name=class_name,
+            class_name=step.class_name,
             runner=self.config.device.test_runner,
             beet_run_e2e=True,
-            extras=self._extras_from_step(step),
+            extras=dict(step.extras),
             timeout=float(self.config.orchestrator.default_am_instrument_timeout),
         )
         step.executed = True
         return result
-
-    def _class_name_from_step(self, step: DispatchStep) -> str:
-        # Convention: the DispatchStep.cmd includes `class <FQN>`.
-        # Find the FQN by parsing -e class <FQN>.
-        import re as _re
-        m = _re.search(r"-e\s+class\s+(\S+)", step.cmd)
-        if not m:
-            raise AssertionError(f"could not parse class from cmd: {step.cmd}")
-        return m.group(1)
-
-    def _extras_from_step(self, step: DispatchStep) -> dict[str, str]:
-        import re as _re
-        extras: dict[str, str] = {}
-        # Find all `-e KEY VALUE` triples BEFORE the `-e class …`.
-        m = _re.search(r"-e\s+class\s+\S+", step.cmd)
-        prefix = step.cmd[: m.start()] if m else step.cmd
-        for em in _re.finditer(r"-e\s+(\S+)\s+(\S+)", prefix):
-            extras[em.group(1)] = em.group(2)
-        return extras
 
     def _execute_screenshot_pull(self, step: DispatchStep, run_dir: Path) -> None:
         """Pull the Kotlin in-test screenshots from the device.
