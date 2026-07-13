@@ -1,0 +1,83 @@
+# BeetMeister E2E test harness config template.
+#
+# Copy this file to `config.toml` (git-ignored) and edit in place.
+# `config.toml` is the file the orchestrator loads; this
+# `config.example.toml` is committed so the schema is discoverable.
+#
+# All path values are absolute. The orchestrator does NOT activate
+# the ESP-IDF environment itself; point the harness at the resolved
+# executables inside the activated env, or set [env].idf_env_script
+# and let `firmware.py` source it for subprocess invocations.
+#
+# Windows notes:  use raw strings (r"...") or double backslashes
+#                 in TOML. Forward slashes also work on Windows.
+# Linux/Mac:      standard absolute paths.
+
+[device]
+# `adb devices` output (e.g. "RZCT50CGLKA"). Empty = auto-pick the
+# only attached device; populated = always pass `-s <serial>` to adb.
+adb_serial = "RZCT50CGLKA"
+
+# The Gradle wrapper (cross-platform). The orchestrator invokes
+# `gradlew assembleDebug assembleDebugAndroidTest` and then installs
+# the resulting APKs.
+app_dir = "C:/git/BeetMeister/app"
+gradlew = "C:/git/BeetMeister/app/gradlew"
+
+# Android applicationId + test runner FQN (must match the AndroidManifest
+# / build.gradle.kts `testInstrumentationRunner` value).
+app_package = "de.aarondietz.beetmeister"
+test_runner = "de.aarondietz.beetmeister.e2e.BeetE2eAwareJUnitRunner"
+
+# The @E2e gate runner arg the orchestrator always passes.
+# Matches `BeetE2eAwareJUnitRunner` which reads `-e beetRunE2e`.
+e2e_gate_arg = "beetRunE2e"
+
+# Pure-UI smoke gate FQN (NOT @E2e). Pass every run as a precondition;
+# FAIL aborts the suite early.
+smoke_class = "de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest"
+
+[controller]
+# Serial port (Windows: "COM4", Linux: "/dev/ttyUSB0", Mac: "/dev/cu.SLAB_USBtoUART").
+# Empty = disable the controller capture (fresh-install + settings suites still run;
+# firmware-update suite refuses to start without it).
+serial_port = "COM4"
+baud = 115200
+
+[firmware]
+# Tag (or commit-ish) the firmware-update suite flashes first as the
+# "old" baseline. The harness builds it on demand from a worktree
+# and caches the .bin under test-harness/firmware_cache/.
+pinned_tag = "v0.3.0"
+
+# Optional worktree dir name (relative to repo root). Removed after build.
+worktree_dir = "_build_old"
+
+# Optional appcfg erase before flashing v0.3.0 (P5 decision: always erase).
+erase_appcfg_before_flash = true
+
+[env]
+# Absolute path to esptool.py inside the ESP-IDF env. Required for the
+# fresh-install suite (erase_region). Resolved at runtime, NOT on PATH.
+esptool_exe = "C:/esp/v6.0/esp-idf/components/esptool_py/esptool/esptool.py"
+
+# Absolute path to idf.py inside the ESP-IDF env. Required ONLY for the
+# firmware-update suite (build v0.3.0 + flash). May be empty if you
+# never intend to run the firmware-update suite.
+idf_py_exe = "C:/esp/v6.0/esp-idf/tools/idf.py"
+
+# Optional opt-in source script the orchestrator will call (export.bat
+# on Windows, export.sh on Linux/Mac) before invoking idf.py /
+# esptool.py from a subprocess. Leave empty if your paths above point
+# at executables that don't need the env (e.g. esptool installed via pip).
+# Windows: r"C:/esp/v6.0/esp-idf/export.bat"
+# Linux:   "/opt/esp/esp-idf/export.sh"
+idf_env_script = "C:/esp/v6.0/esp-idf/export.bat"
+
+[orchestrator]
+# Default timeouts (seconds). Per-suite overrides live in the
+# Orchestrator.run() kwargs.
+default_am_instrument_timeout = 900
+smoke_timeout = 180
+# Sleep (seconds) before each am instrument call to let the device settle.
+post_install_settle = 5

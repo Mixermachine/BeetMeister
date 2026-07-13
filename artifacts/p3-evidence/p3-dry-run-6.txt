@@ -1,0 +1,14 @@
+=============================================
+P3 dry-run attempt 6 - 2026-07-13T15:51:15+02:00
+=============================================
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-135116-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-135116-fresh_install\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 8.3s
+
+
+=== exit code: 0 ===

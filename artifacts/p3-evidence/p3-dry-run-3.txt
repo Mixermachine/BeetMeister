@@ -1,0 +1,15 @@
+=============================================
+P3 dry-run attempt 3 - 2026-07-13T15:47:57+02:00
+=============================================
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-134757-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-134757-fresh_install\manifest.json
+  passed      = False
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = False
+  smoke dur   = 8.3s
+  fail reason = smoke gate failed (de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest); see C:\git\BeetMeister\test-harness\runs\20260713-134757-fresh_install/instrumentation-smoke.txt
+
+
+=== exit code: 1 ===
