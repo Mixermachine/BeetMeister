@@ -122,8 +122,15 @@ def start_logcat(
     output_path = run_dir / "android-logcat.txt"
     reader = _resolve_reader("logcat_reader")
     cmd: list[str] = [_python(), str(reader)]
+    # P5 finding SUB #R4: pass the serial as a POSITIONAL arg,
+    # not `-s SERIAL`. The reader has no `-s` short flag, so
+    # `-s` falls through to `parse_known_args`'s `extra` and
+    # gets appended to the adb logcat command — where adb
+    # treats `-s TAG` as a tag filter (silent mode), producing
+    # 0 output. Using the positional form matches the
+    # reader's own docstring examples.
     if adb_serial:
-        cmd += ["-s", adb_serial]
+        cmd += [adb_serial]
     cmd += ["--format", log_format]
     if max_seconds:
         cmd += ["--max-seconds", str(max_seconds)]

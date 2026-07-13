@@ -84,10 +84,43 @@ internal class E2eConnectionFixture(
      * Idempotent class-shared connect. The first call runs the
      * full scan/connect/wait path; subsequent calls verify the
      * post-connect state is still present and return.
+     *
+     * P5 finding SUB #R5: the app's BLE auto-connect is fast
+     * enough that the gate can disappear BEFORE the first
+     * `@Test`'s `@Before` runs (the BLE stack reconnects via
+     * the OS-level bond that survives `adb uninstall`, the
+     * scan finds the controller in <1 s, the 900 ms stable
+     * `Connected` window passes, the gate is hidden). The
+     * original implementation only checked the static
+     * [E2eConnectionState.isConnected] flag (which is false
+     * on a freshly-loaded class) and tried `tapScan` which
+     * then waited 30 s for a [ScanButton] that no longer
+     * existed (the gate is gone, so the ScanButton isn't
+     * rendered). Both E2E tests failed at the same line.
+     *
+     * New flow: BEFORE calling [ConnectionGateRobot.tapScan],
+     * check whether the post-connect shell is already
+     * rendered (the [NavigationSuiteTestTags.SettingsNavItem]
+     * tag is the strongest "gate is gone" signal — same
+     * signal [ConnectionGateRobot.assertConnected] waits
+     * for after a real connect). If the post-connect shell
+     * is already up, skip the gate entirely and just verify
+     * the post-connect markers; the BLE connection is
+     * already in place via the auto-connect.
      */
     fun connectOnce() {
         if (E2eConnectionState.isConnected) {
             gate.assertConnected()
+            return
+        }
+        if (gate.isAlreadyConnected()) {
+            // App already past the gate (P5 SUB #R5). No
+            // scan/connect needed; just take the after-connect
+            // screenshot (the one the original flow captures
+            // after `assertConnected` returns) and mark the
+            // static state so subsequent `@Test`s fast-path.
+            screenshots.captureStep("afterConnect")
+            E2eConnectionState.isConnected = true
             return
         }
         gate.tapScan()

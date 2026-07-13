@@ -124,6 +124,30 @@ internal class ConnectionGateRobot(
         }
     }
 
+    /**
+     * Non-blocking check: is the post-connect shell ALREADY
+     * rendered? Used by [E2eConnectionFixture.connectOnce] to
+     * skip the gate's tapScan path when the app has already
+     * auto-connected to the controller (P5 finding SUB #R5).
+     *
+     * Returns `true` if the [NavigationSuiteTestTags.SettingsNavItem]
+     * is currently in the composition tree, `false` otherwise.
+     * Does NOT wait — callers that want to wait should use
+     * [assertConnected].
+     */
+    fun isAlreadyConnected(): Boolean {
+        return try {
+            composeRule
+                .onAllNodesWithTag(NavigationSuiteTestTags.SettingsNavItem)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        } catch (_: Throwable) {
+            // Compose can throw if the rule isn't idle yet;
+            // treat any throw as "not yet connected".
+            false
+        }
+    }
+
     companion object {
         const val EXTRA_EXPECTED_DEVICE_NAME = "expected_device_name"
     }
