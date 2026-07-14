@@ -199,6 +199,28 @@ def ensure_old_firmware_built(
                 f"worktree {worktree_dir} has no firmware/esp-idf/ — "
                 f"unexpected pinned_tag {pinned_tag!r}"
             )
+        # P5 finding SUB #R22: v0.3.0's sdkconfig.defaults does
+        # NOT set CONFIG_IDF_TARGET, so the build defaults to
+        # `esp32` (the original ESP32). The BeetMeister controller
+        # is an ESP32-S3, and v0.3.0's source uses GPIO_NUM_47/40/
+        # 41/42 which only exist on the S3. Patching the v0.3.0
+        # tag to add `CONFIG_IDF_TARGET="esp32s3"` would violate
+        # the pinned-tag principle, so we instead rewrite the
+        # target in the worktree's sdkconfig *before* building.
+        # The sed is idempotent and a no-op if the target is
+        # already esp32s3.
+        sdkconfig = idf_workspace / "sdkconfig"
+        if sdkconfig.is_file():
+            sdkconfig_text = sdkconfig.read_text(encoding="utf-8")
+            sdkconfig_text = sdkconfig_text.replace(
+                'CONFIG_IDF_TARGET="esp32"',
+                'CONFIG_IDF_TARGET="esp32s3"',
+            )
+            sdkconfig_text = sdkconfig_text.replace(
+                "CONFIG_IDF_TARGET_ESP32=y",
+                "CONFIG_IDF_TARGET_ESP32S3=y",
+            )
+            sdkconfig.write_text(sdkconfig_text, encoding="utf-8")
         cmd = _build_idf_command(config, env_script, idf_py, "build", cwd=idf_workspace)
         build = subprocess.run(
             cmd,
