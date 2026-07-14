@@ -1,7 +1,7 @@
 package de.aarondietz.beetmeister.e2e.robots
 
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -105,7 +105,9 @@ internal class ConnectionGateRobot(
         .isNotEmpty()
 
     private fun postConnectVisible(): Boolean = composeRule
-        .onAllNodes(hasText(POST_CONNECT_MARKER_TEXT))
+        .onAllNodes(
+            hasTestTag(POST_CONNECT_MARKER_TAG)
+        )
         .fetchSemanticsNodes()
         .isNotEmpty()
 
@@ -202,6 +204,6 @@ internal class ConnectionGateRobot(
          * smoke-gate's `MaintenanceUpdateLiveActivityInstrumentationTest`
          * approach.
          */
-        const val POST_CONNECT_MARKER_TEXT = "Settings"
+        const val POST_CONNECT_MARKER_TAG = "nav_settings_item"
     }
 }
