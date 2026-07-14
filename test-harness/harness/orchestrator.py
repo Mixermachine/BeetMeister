@@ -818,13 +818,13 @@ class Orchestrator:
         ))
 
         # 4. clear phone-side BLE bond via the app's test-only
-        #    `ClearBleBondReceiver` (P5 followup to commit
+        #    `ClearBleBondActivity` (P5 followup to commit
         #    26512e9). `flash_old` wiped the controller's NVS,
         #    so the phone's stored link key is stale. The
         #    next BLE auto-connect tries to encrypt with it
         #    and gets HCI_ERR_KEY_MISSING, which makes the
-        #    link drop and stalls the test. Firing the
-        #    receiver (via `am broadcast`) clears the bond
+        #    link drop and stalls the test. Launching the
+        #    Activity (via `am start`) clears the bond
         #    via `BluetoothDevice.removeBond()` — the only
         #    API that actually clears the persistent bond
         #    store on Android 16. `cmd bluetooth_manager
@@ -835,26 +835,28 @@ class Orchestrator:
         #    start (confirmed on SM-A536B A536BXXSMGZE1, the
         #    WH-1000XM3 bond survives a `pm clear` and is
         #    briefly shown as "(No uuid)" before the UUIDs
-        #    repopulate). The receiver is production-safe
-        #    (never fired by production code; see
-        #    ClearBleBondReceiver.kt for the full analysis).
+        #    repopulate). The Activity is production-safe
+        #    (never launched by production code; uses
+        #    translucent theme + noHistory + excludeFromRecents;
+        #    see ClearBleBondActivity.kt for the full analysis).
         #    Skipped if [controller].ble_mac is unset.
         mac = self.config.controller.ble_mac
         if mac:
             clear_bond_cmd = self.adb._cmd(
-                "shell", "am", "broadcast",
+                "shell", "am", "start",
+                "-n", f"{app_package}/.debug.ClearBleBondActivity",
                 "-a", "de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND",
-                "-p", app_package,
                 "--es", "mac", mac,
             )
             plan.preconditions.append(DispatchStep(
                 name="clear_ble_bond_via_intent",
                 description=(
-                    f"adb shell am broadcast -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND "
-                    f"-p {app_package} --es mac {mac} (fires the app's test-only ClearBleBondReceiver, "
-                    f"which calls BluetoothDevice.removeBond({mac}). This is the only API that actually "
-                    f"clears the persistent bond store on Android 16; see the receiver's docstring for "
-                    f"why pm clear + cmd bluetooth_manager remove-bond are no-ops.)"
+                    f"adb shell am start -n {app_package}/.debug.ClearBleBondActivity "
+                    f"-a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND --es mac {mac} "
+                    f"(launches the app's test-only ClearBleBondActivity, which calls "
+                    f"BluetoothDevice.removeBond({mac}) and finishes. This is the only API that "
+                    f"actually clears the persistent bond store on Android 16; see the activity's "
+                    f"docstring for why pm clear + cmd bluetooth_manager remove-bond are no-ops.)"
                 ),
                 cmd=" ".join(shlex.quote(c) for c in clear_bond_cmd),
                 executed=False,
@@ -1179,11 +1181,11 @@ class Orchestrator:
         return action
 
     def _do_clear_ble_bond_via_intent(self, mac: str, app_package: str):
-        """Clear the phone-side BLE bond by firing the app's
-        test-only `ClearBleBondReceiver`.
+        """Clear the phone-side BLE bond by launching the app's
+        test-only `ClearBleBondActivity`.
 
         P5 followup: see `Adb.clear_ble_bond_via_intent`
-        docstring + the receiver's own docstring. The
+        docstring + the activity's own docstring. The
         firmware_update dispatch composes a
         `clear_ble_bond_via_intent` precondition (only when
         `mac` is non-empty) and invokes it after
@@ -1203,7 +1205,7 @@ class Orchestrator:
                 # doesn't come up.
                 print(
                     f"[orchestrator] WARNING: "
-                    f"am broadcast ClearBleBondReceiver for {mac} "
+                    f"am start ClearBleBondActivity for {mac} "
                     f"returned non-zero; continuing anyway"
                 )
         return action

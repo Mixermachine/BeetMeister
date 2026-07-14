@@ -25,20 +25,21 @@ loop can find any of the "Pair" / "Pairing" / "OK" / "Allow"
 button text). The test then times out at `gate.tapScan`
 (30 s in `E2eConnectionFixture.connectOnce`).
 
-**Fix:** test-side. The firmware_update dispatch now fires the
-app's test-only `ClearBleBondReceiver` (`adb shell am broadcast
--a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND --es
-mac <MAC>`) between `install_built_apks` and the
-`am_instrument_firmware_update` step. The receiver calls
-`BluetoothDevice.removeBond(mac)` via reflection (the method
-is `@hide @SystemApi`, not in the public SDK) and the
-controller's BLE bond is cleared. The fresh "Just Works"
-pairing (firmware uses `BLE_HS_IO_NO_INPUT_OUTPUT`) completes
-without an OS dialog, the MTU exchange succeeds, and the test
-proceeds.
+**Fix:** test-side. The firmware_update dispatch now launches
+the app's test-only `ClearBleBondActivity` (`adb shell am
+start -n de.aarondietz.beetmeister/.debug.ClearBleBondActivity
+-a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND
+--es mac <MAC>`) between `install_built_apks` and the
+`am_instrument_firmware_update` step. The Activity reads
+the MAC, calls `BluetoothDevice.removeBond(mac)` via
+reflection (the method is `@hide @SystemApi`, not in the
+public SDK), and finishes. The fresh "Just Works" pairing
+(firmware uses `BLE_HS_IO_NO_INPUT_OUTPUT`) completes
+without an OS dialog, the MTU exchange succeeds, and the
+test proceeds.
 
-**Why a broadcast receiver (not orchestrator-side `pm clear`
-or `cmd bluetooth_manager remove-bond`):**
+**Why an Activity (not orchestrator-side `pm clear` / `cmd
+bluetooth_manager remove-bond` / BroadcastReceiver):**
 
 * `cmd bluetooth_manager remove-bond <MAC>` was removed from
   the Android 16 shell interface. The only remaining
@@ -55,17 +56,24 @@ or `cmd bluetooth_manager remove-bond`):**
 * `BluetoothDevice.removeBond()` is the only API that
   actually clears the persistent bond, but it is `@hide
   @SystemApi` and only available to system apps or via
-  reflection. The app's `ClearBleBondReceiver` calls it
-  via reflection.
-* The receiver is **production-safe**: the action name is
+  reflection.
+* **Activity chosen over BroadcastReceiver** for explicit
+  lifecycle: `am start` is synchronous and waits for the
+  Activity to be bound to a window, so the orchestrator
+  knows the bond removal is done before the next step.
+  A BroadcastReceiver can be silently dropped on devices
+  in App Standby restricted buckets (Android 8+); an
+  Activity launched via `am start` from the shell user is
+  never dropped (shell is treated as foreground for
+  delivery purposes).
+* The Activity is **production-safe**: the action name is
   namespaced under `de.aarondietz.beetmeister.debug.*` and
-  is never fired by production code. A grep for the action
-  name makes the test-only intent obvious. Worst-case misuse
-  is an unpair of the user's BLE peripheral (low impact,
-  user-recoverable by re-pairing). The receiver is exported
-  so the orchestrator's `am broadcast` reaches it, but the
-  specific action name means a regular app or user has no
-  reason to fire it.
+  is never fired by production code. The Activity uses a
+  translucent no-title theme + `excludeFromRecents` +
+  `noHistory` so the user does not see a UI flash and the
+  entry does not appear in the recents list. Worst-case
+  misuse is an unpair of the user's BLE peripheral (low
+  impact, user-recoverable by re-pairing).
 
 ## Correction
 
@@ -234,19 +242,23 @@ dialog; the MTU exchange succeeds; the test proceeds.
 Files changed:
 
 - `app/app/src/main/AndroidManifest.xml` — new
-  `<receiver android:name=".debug.ClearBleBondReceiver" ...>`
+  `<activity android:name=".debug.ClearBleBondActivity" ...>`
   with the `de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND`
-  intent filter.
-- `app/app/src/main/java/de/aarondietz/beetmeister/debug/ClearBleBondReceiver.kt`
-  — the receiver itself. Reads `--es mac` from the intent,
+  intent filter. Translucent no-title theme +
+  `excludeFromRecents` + `noHistory` so the user does not
+  see a UI flash.
+- `app/app/src/main/java/de/aarondietz/beetmeister/debug/ClearBleBondActivity.kt`
+  — the Activity itself. Reads `--es mac` from the intent,
   calls `BluetoothDevice.removeBond(mac)` via reflection,
-  logs the result. Production-safe (never fired by production
-  code; action name is namespaced under `.debug.*`).
+  logs the result, finishes. Production-safe (never
+  launched by production code; action name is namespaced
+  under `.debug.*`; Activity uses translucent theme so
+  no UI is shown to the user).
 - `test-harness/harness/config.py` — new `ble_mac: str = ""`
   field on `ControllerConfig`.
 - `test-harness/harness/adb.py` — new
   `Adb.clear_ble_bond_via_intent(mac, app_package)` method
-  (runs the `am broadcast`).
+  (runs the `am start`).
 - `test-harness/harness/orchestrator.py` — new
   `_do_clear_ble_bond_via_intent` action +
   `clear_ble_bond_via_intent` `DispatchStep` appended to the

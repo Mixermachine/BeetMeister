@@ -183,43 +183,46 @@ class Adb:
         self._run("shell", "pm", "grant", package, "android.permission.BLUETOOTH_CONNECT")
 
     def clear_ble_bond_via_intent(self, mac: str, app_package: str) -> bool:
-        """Clear the BLE bond for the given MAC by firing the
-        test-only `ClearBleBondReceiver` in the app.
+        """Clear the BLE bond for the given MAC by launching the
+        test-only `ClearBleBondActivity` in the app.
 
         Runs:
-            adb shell am broadcast \
+            adb shell am start \
+                -n <app_package>/.debug.ClearBleBondActivity \
                 -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND \
-                -p <app_package> \
                 --es mac <MAC>
 
-        The receiver (in `app/.../debug/ClearBleBondReceiver.kt`)
-        calls `BluetoothDevice.removeBond(mac)` on the app's
-        process, which is the only API that actually clears
-        the persistent bond store on Android 16
-        (`cmd bluetooth_manager remove-bond` was removed in
-        newer Android; `pm clear com.android.bluetooth`
-        returns Success but the bond is re-loaded from
-        `/data/misc/bluetooth/` on next Bluetooth app start —
-        confirmed on SM-A536B A536BXXSMGZE1, the WH-1000XM3
-        bond survives a `pm clear` and is briefly shown as
-        "(No uuid)" before the UUIDs repopulate).
+        The Activity (in
+        `app/.../debug/ClearBleBondActivity.kt`) reads the
+        MAC, calls `BluetoothDevice.removeBond(mac)` via
+        reflection (the method is `@hide @SystemApi`, not in
+        the public SDK), and finishes. `am start` is
+        synchronous — the command returns when the Activity
+        is bound to a window (which for a translucent
+        no-title Activity happens within ~100 ms).
 
-        The receiver is **production-safe**: it is never
-        fired by production code; the action name is
+        The Activity is **production-safe**: it is never
+        launched by production code; the action name is
         namespaced under `de.aarondietz.beetmeister.debug.*`
-        so a grep makes the test-only intent obvious; and the
-        worst-case misuse is an unpair of the user's BLE
-        peripheral (low impact, user-recoverable by
-        re-pairing). See `ClearBleBondReceiver.kt` for the
-        full production-safety analysis.
+        so a grep makes the test-only intent obvious; the
+        Activity uses a translucent theme + excludeFromRecents
+        + noHistory so no UI is shown to the user and no
+        recents entry is created. The worst-case misuse is an
+        unpair of the user's BLE peripheral (low impact,
+        user-recoverable by re-pairing). See
+        `ClearBleBondActivity.kt` for the full
+        production-safety analysis.
 
-        `am broadcast` is async; the receiver uses the
-        synchronous `onReceive` (no `goAsync()`), and the
-        broadcast typically completes within a few hundred ms.
-        We add a short `--receiver-foreground` flag to
-        prioritize the delivery and a 5 s `am` command
-        timeout. The returncode is from `am broadcast`
-        itself (command-level), not from the receiver.
+        **Why an Activity (not a BroadcastReceiver):**
+        lifecycle is explicit (`onCreate` → `onDestroy`).
+        `am start` is synchronous and waits for the Activity
+        to be bound, so the orchestrator knows the bond
+        removal is done before the next step. A
+        BroadcastReceiver can be silently dropped on devices
+        in App Standby restricted buckets (Android 8+); an
+        Activity launched via `am start` from the shell user
+        is never dropped (shell is treated as foreground for
+        delivery).
 
         Used by the firmware_update dispatch's
         `clear_ble_bond_via_intent` precondition. After
@@ -243,9 +246,9 @@ class Adb:
         with `HCI_ERR_KEY_MISSING`).
         """
         proc = self._run(
-            "shell", "am", "broadcast",
+            "shell", "am", "start",
+            "-n", f"{app_package}/.debug.ClearBleBondActivity",
             "-a", "de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND",
-            "-p", app_package,
             "--es", "mac", mac,
             timeout=15.0,
         )

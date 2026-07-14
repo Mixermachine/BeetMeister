@@ -57,15 +57,16 @@ baud = 115200
 # boot log).
 #
 # **Side effect:** the precondition runs
-# `adb shell am broadcast -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND ...`,
-# which fires the app's test-only `ClearBleBondReceiver`.
-# The receiver calls `BluetoothDevice.removeBond(<MAC>)` for
+# `adb shell am start -n de.aarondietz.beetmeister/.debug.ClearBleBondActivity -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND --es mac <MAC>`,
+# which launches the app's test-only `ClearBleBondActivity`.
+# The Activity calls `BluetoothDevice.removeBond(<MAC>)` for
 # JUST the controller — the only API that actually clears
 # the persistent bond store on Android 16. User-paired
-# devices (e.g. headphones) are NOT touched. The receiver
-# is production-safe (never fired by production code; see
-# the receiver's docstring in
-# `app/app/src/main/java/de/aarondietz/beetmeister/debug/ClearBleBondReceiver.kt`).
+# devices (e.g. headphones) are NOT touched. The Activity
+# is production-safe (never launched by production code;
+# uses translucent theme + noHistory + excludeFromRecents so
+# no UI is shown; see the activity's docstring in
+# `app/app/src/main/java/de/aarondietz/beetmeister/debug/ClearBleBondActivity.kt`).
 ble_mac = ""
 
 [firmware]
