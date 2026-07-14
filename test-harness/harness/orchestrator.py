@@ -1083,7 +1083,7 @@ class Orchestrator:
     def _run_precondition_returning_info(
         self,
         step: DispatchStep,
-        action: "callable",  # noqa: F821
+        action_or_value: "callable | Any",  # noqa: F821
     ) -> Any:
         """Like `_run_precondition` but returns the action's value.
 
@@ -1091,8 +1091,20 @@ class Orchestrator:
         action returns the `FirmwareBuildInfo` and the caller
         reads `build_label` to update the plan's
         `expected_old_build_label` + the am_instrument step.
+
+        Accepts either a zero-arg callable (legacy contract for
+        `_do_uninstall` / `_do_install_built_apks`) or a direct
+        value returned by an action like `_do_flash_old` (P5
+        finding SUB #R20: the wrapper-closure pattern returned
+        a function instead of the FirmwareBuildInfo, causing
+        `info.build_label` to raise AttributeError). The
+        callable form is called and its result is returned; the
+        value form is returned directly.
         """
-        result = action()
+        if callable(action_or_value):
+            result = action_or_value()
+        else:
+            result = action_or_value
         step.executed = True
         return result
 
@@ -1107,11 +1119,22 @@ class Orchestrator:
         return action
 
     def _do_flash_old(self):
-        def action():
-            return firmware.flash_old(
-                self.config, self.config.controller.serial_port,
-            )
-        return action
+        """Execute the flash_old precondition and return the FirmwareBuildInfo.
+
+        Unlike `_do_uninstall` and `_do_install_built_apks` (which
+        return a zero-arg action for `_run_precondition`), this
+        method is consumed by `_run_precondition_returning_info`
+        which expects the result of the action to be the
+        `FirmwareBuildInfo` (used by the firmware_update dispatch
+        to populate `expected_old_build_label`). We therefore
+        invoke `firmware.flash_old` directly and return its
+        result, rather than wrapping it in an `action` closure.
+        The caller is responsible for marking the DispatchStep
+        as executed.
+        """
+        return firmware.flash_old(
+            self.config, self.config.controller.serial_port,
+        )
 
     def _execute_erase_step(self, step: DispatchStep) -> None:
         """Execute one of the erase preconditions (already in plan).
