@@ -519,3 +519,97 @@ to fix the gate-hide blocker. The next P5 sub-task should
 be SUB #R35: address the bond-timeout failure (likely the
 NimBLE version mismatch already known from the MTU-bug
 investigation).
+
+## Fix applied (commit fc8ae28, P5 SUB #R35)
+
+P5 SUB #R35 applied: register the `systemReceiver` with
+`RECEIVER_EXPORTED` instead of `RECEIVER_NOT_EXPORTED` on
+Android 13+. The `RECEIVER_NOT_EXPORTED` flag blocks implicit
+system broadcasts on Android 14+, so
+`BLUETOOTH_DEVICE_ACTION_BOND_STATE_CHANGED` was never being
+delivered to the broadcast receiver arm.
+
+### Code change
+
+Single file: `app/app/src/main/java/de/aarondietz/beetmeister/data/ble/BeetScanBondCoordinator.kt`
+
+`registerReceiverIfNeeded()` now uses `Context.RECEIVER_EXPORTED`
+on `Build.VERSION_CODES.TIRAMISU+`. `BLUETOOTH_CONNECT`
+permission is already declared and held, so the exported
+receiver can only receive protected system broadcasts
+(BLUETOOTH_DEVICE_ACTION_BOND_STATE_CHANGED is a protected
+broadcast — only the system can send it).
+
+### On-device verification
+
+Reproduction (manual, on `RZCT50CGLKA` against bench controller `COM6`):
+
+1. `adb -s RZCT50CGLKA shell am start -n de.aarondietz.beetmeister/.debug.DebugActionActivity -a de.aarondietz.beetmeister.debug.action.RUN --es action clear_ble_bond --es mac 3C:0F:02:D2:0F:6A`
+2. `adb -s RZCT50CGLKA logcat -c`
+3. `adb -s RZCT50CGLKA shell am start -n de.aarondietz.beetmeister/.MainActivity`
+4. Tap "Pair" on the system Bluetooth pairing dialog.
+
+Observed (this APK, on 2026-07-14 ~18:22):
+
+```
+18:22:17.964 BeetScanBond: Broadcast ACTION_BOND_STATE_CHANGED address=3C:0F:02:D2:0F:6A previous=10 current=11
+18:22:18.773 BeetGattSession: openGatt(address=3C:0F:02:D2:0F:6A, bondState=11)
+18:22:21.451 BeetAppUi: phase=Connected gateVisibleBefore=true
+18:22:22.354 BeetAppUi: Leaving connection gate after stable connected window
+18:22:41.793 BeetScanBond: Broadcast ACTION_BOND_STATE_CHANGED address=3C:0F:02:D2:0F:6A previous=11 current=12
+18:22:41.793 BeetScanBond: Skipping BOND_BONDED openGatt from broadcast: GATT connection already live address=3C:0F:02:D2:0F:6A
+```
+
+**Broadcast receiver now fires.** Previously: the
+`ACTION_BOND_STATE_CHANGED` arm never logged a single time
+across all test-harness runs. The polling loop was the
+fallback that completed bonding, but the broadcast arm was
+dead. Now: both arms fire correctly, and the P5.3 fix
+correctly skips the second `openGatt` from the broadcast arm
+("Skipping BOND_BONDED openGatt from broadcast: GATT
+connection already live").
+
+**Bond completes in ~24 s** (well within the 30 s default
+timeout). The bond-timeout failure noted in the
+"Open observation" section above is resolved for this
+phone+controller pair — the bond DOES reach `BOND_BONDED`
+when the broadcast receiver arm is functional.
+
+### Test-harness end-to-end run (20260714-162726)
+
+Run: `python test-harness/run.py firmware_update`
+Build label: `dev-fc8ae28` (includes both d8438f0 P5.3 fix
+AND fc8ae28 broadcast receiver fix).
+Result: **Same `maintenance_update_summary` failure as
+20260714-155911 run.** NOT a regression. P5 SUB #R34 + R35
+are both verified to work.
+
+The `maintenance_update_summary` failure is now confirmed to
+be a **separate issue from the bond flow**:
+- The connect phase works (gate hides at 903ms).
+- The bond completes (BOND_BONDED reached, broadcast
+  receiver fires, polling loop also fires).
+- The test reaches the maintenance update screen and taps
+  "Use bundled".
+- The `maintenance_update_summary` component is not
+  displayed.
+
+The on-fail screenshot shows the Android system Bluetooth
+settings (not the app's maintenance update screen), which
+suggests the test infrastructure itself may be the problem
+(e.g. the test is looking at the wrong window, or the app
+is being backgrounded). This is a test-infrastructure /
+maintenance-update-UI issue, not a BLE / bond issue.
+
+The next P5 sub-task should be:
+- **SUB #R36**: investigate the `maintenance_update_summary`
+  failure. Could be:
+  - Test infrastructure (looking at wrong window)
+  - Maintenance update UI (button not registering click)
+  - `BeetFirmwareCatalog.loadBundledFirmware` failing
+    (e.g. asset not in APK, parse error)
+  - State machine not transitioning to `Ready` phase
+
+The bond flow is now correct. P5 SUB #R34 (double openGatt
+fix) and P5 SUB #R35 (broadcast receiver fix) are both
+verified working.
