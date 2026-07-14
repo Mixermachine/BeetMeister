@@ -334,7 +334,15 @@ internal class BeetScanBondCoordinator(
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            host.appContext.registerReceiver(systemReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            // Android 14+ blocks implicit system broadcasts (including
+            // BLUETOOTH_DEVICE_ACTION_BOND_STATE_CHANGED) from being delivered
+            // to non-exported receivers. The polling loop is the fallback, so
+            // bonding still completes, but the broadcast arm never fires —
+            // and on the test-harness phone (Android 14) the BOND_BONDED arm
+            // never logged a single time across all runs. Register as exported
+            // so the system (the only sender of these protected broadcasts)
+            // can deliver them. BLUETOOTH_CONNECT is already required and held.
+            host.appContext.registerReceiver(systemReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             @Suppress("DEPRECATION")
             host.appContext.registerReceiver(systemReceiver, filter)
