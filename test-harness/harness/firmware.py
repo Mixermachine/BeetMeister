@@ -311,6 +311,16 @@ def _idf_env(config: HarnessConfig) -> dict[str, str]:
         # .../esp-idf/tools/idf.py -> .../esp-idf
         idf_path = str(Path(idf_py).parent.parent)
         env["IDF_PATH"] = idf_path
+        # Read the IDF version from <IDF_PATH>/version.txt so the
+        # v6.x idf_component_manager's `ESP_IDF_VERSION` check
+        # passes. P5 finding SUB #R21: without this, the v0.3.0
+        # build (run inside a git worktree but using the host's
+        # IDF v6.0 toolchain) crashes with
+        # `TypeError: expected string or bytes-like object, got 'NoneType'`
+        # in idf_component_manager's version coercion.
+        version_file = Path(idf_path) / "version.txt"
+        if version_file.is_file():
+            env.setdefault("ESP_IDF_VERSION", version_file.read_text().strip())
         # Best-effort default for the venv root (Windows convention).
         if sys.platform.startswith("win"):
             env.setdefault("IDF_PYTHON_ENV_PATH", r"C:\Espressif\tools\python\v6.0\venv")
