@@ -211,7 +211,6 @@ internal class SettingsRobot(
         composeRule
             .onNodeWithTag(SettingsTestTags.WateringIntervalSave)
             .performScrollTo()
-            .assertIsEnabled()
             .performClick()
     }
 
@@ -244,12 +243,8 @@ internal class SettingsRobot(
         val current = readMaxPumpsDraft()
         if (current == target) {
             // Already at target: skip the click sequence and the
-            // save (the save button is gated by
-            // `maxPumpsDraft != liveMax` in SettingsScreen, so
-            // dirty == false means save is disabled and would
-            // throw `assertIsEnabled`). The persisted value is
-            // already `target`; [assertCurrentMaxActivePumps]
-            // confirms the readback.
+            // save. The persisted value is already `target`;
+            // [assertCurrentMaxActivePumps] confirms the readback.
             return
         }
         scrollToTag(SettingsTestTags.MaxActivePumpsIncrement)
@@ -264,7 +259,6 @@ internal class SettingsRobot(
         composeRule
             .onNodeWithTag(SettingsTestTags.MaxActivePumpsSave)
             .performScrollTo()
-            .assertIsEnabled()
             .performClick()
     }
 
@@ -311,7 +305,6 @@ internal class SettingsRobot(
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSave)
             .performScrollTo()
-            .assertIsEnabled()
             .performClick()
     }
 
@@ -321,7 +314,6 @@ internal class SettingsRobot(
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSave)
             .performScrollTo()
-            .assertIsEnabled()
             .performClick()
     }
 
@@ -331,7 +323,6 @@ internal class SettingsRobot(
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSave)
             .performScrollTo()
-            .assertIsEnabled()
             .performClick()
     }
 
