@@ -1,16 +1,86 @@
 # P5.3 MTU Bug — Handoff Document
 
-## Summary
+## Summary (corrected — see "Correction" below)
 
-The P5 firmware_update E2E test (P5.3) is blocked on a BLE MTU exchange
-bug in the v0.3.0 controller firmware. The app's Android BLE stack
-requests MTU 247 (the same MTU the HEAD firmware negotiates
-successfully), but the v0.3.0 firmware's MTU exchange fails and the
-firmware then terminates the connection. This is a **firmware-side
-bug**, not a test-side bug.
+**Original hypothesis (wrong):** the P5 firmware_update E2E test
+(P5.3) is blocked on a BLE MTU exchange bug in the v0.3.0
+controller firmware. The app's Android BLE stack requests MTU 247
+(same MTU HEAD negotiates successfully), but v0.3.0's MTU exchange
+fails and the firmware terminates the connection.
 
-The test-side fixes are complete and committed (see "Test-side status"
-below). The remaining work is a firmware-side investigation and fix.
+**Correction:** the v0.3.0 firmware is **not** the cause. The
+proximate cause is a **phone-side BLE bond mismatch** between the
+Android Bluetooth stack's stored link key (from a previous test
+run with the same controller) and the controller's wiped NVS
+(cleared by `flash_old`'s `erase_appcfg` precondition). Android
+tries to encrypt the link with the stale key, the controller
+rejects with `HCI_ERR_KEY_MISSING`, Android drops the link
+(`HCI_ERR_PEER_USER` / `HCI_ERR_CONN_CAUSE_LOCAL_HOST`), and the
+MTU Exchange Request is silently dropped. The test's BLE
+auto-connect keeps retrying with the same stale key; the OS
+pairing dialog never gets a clean window to show (it gets
+generated, the link drops ~50 ms later, and the dialog is
+dismissed by the stack before the test's `dismissBluetoothPairingDialog`
+loop can find any of the "Pair" / "Pairing" / "OK" / "Allow"
+button text). The test then times out at `gate.tapScan`
+(30 s in `E2eConnectionFixture.connectOnce`).
+
+**Fix:** test-side. The firmware_update dispatch now clears the
+phone-side BLE bond (`adb shell cmd bluetooth_manager
+remove-bond <MAC>`) between `install_built_apks` and the
+`am_instrument_firmware_update` step. The fresh "Just Works"
+pairing (firmware uses `BLE_HS_IO_NO_INPUT_OUTPUT`) completes
+without an OS dialog, the MTU exchange succeeds, and the test
+proceeds.
+
+## Correction
+
+Investigation of `controller-serial.txt` (v0.3.0 boot log) +
+`android-logcat.txt` (`runs/20260714-095903-firmware_update/`)
+shows the firmware-side hypotheses in the original handover are
+incorrect:
+
+1. **NimBLE version mismatch (most likely, original):** ruled
+   out. `git diff v0.3.0..HEAD -- firmware/esp-idf/` shows
+   zero changes to `components/`, `main/`, `sdkconfig.*`, or
+   `dependencies.lock` between the two tags. Both resolve NimBLE
+   v1.6.0 from the same IDF v6.0.0 component.
+2. **L2CAP MTU / ACL buffer misconfig (possible, original):**
+   the build's `BT_NIMBLE_ACL_BUF_SIZE=255` and ATT MTU 247 fit
+   comfortably in a 3-byte MTU Exchange Response, so this isn't
+   the proximate cause.
+3. **Firmware app code terminates on MTU (less likely, original):**
+   the firmware's `BLE_GAP_EVENT_MTU` handler just logs and
+   returns 0 (no `ble_gap_terminate`). The disconnect is initiated
+   by the **phone** side after the encryption failure, not by the
+   firmware.
+
+The actual smoking gun is in the logcat at 11:56:38.946 (4 ms
+after `onConnectionStateChange(status=0, newState=2)`):
+
+```
+I btm_acl: disconnect_acl: Disconnecting peer:xx:xx:xx:xx:0f:6a
+           reason:HCI_ERR_PEER_USER
+           comment:encryption_change_evt Encryption Failure
+W bt_btm_sec: btm_sec_encrypt_change:
+           Security Manager encryption change request
+           hci_status:HCI_ERR_KEY_MISSING request:unencrypt
+E bt_btm_sec: btm_sec_encryption_change_evt:
+           Encryption failure 6, disconnecting 77
+E bt_btm_sec: btm_sec_encrypt_change:
+           xx:xx:xx:xx:0f:6a encrypt failure status 0x6
+W bt_btm_sec: btm_sec_encrypt_change:
+           Remote key missing - will report
+```
+
+`HCI_ERR_KEY_MISSING` (0x06) + `HCI_ERR_PEER_USER` (0x16) +
+`HCI_ERR_CONN_CAUSE_LOCAL_HOST` (0x16) is the textbook Android
+flow for "the remote device doesn't have the link key I was
+going to use, so I'm tearing the link down before bothering
+with MTU." It happens BEFORE the MTU Exchange Request
+(`configureMTU() mtu: 247` is called at 11:56:38.948, 2 ms
+after the disconnect starts). The MTU failure (`status=133
+mtu=23`) is a **symptom** of the dropped link, not the cause.
 
 ## Symptom (from real-hardware logs)
 
@@ -76,7 +146,7 @@ build_label from BTMT metadata"):
 This fix is independent of the MTU bug but was needed to get the
 test to assert against the correct value.
 
-## Root cause hypothesis (firmware-side)
+## Root cause (corrected)
 
 Both v0.3.0 and HEAD use ESP-IDF v6.0.0 (same NimBLE version). The
 relevant BLE init code is essentially identical between the two:
@@ -97,83 +167,71 @@ ble_att_set_preferred_mtu(247);
 ```
 
 The HEAD firmware has the same call. So the MTU *preference* is
-correctly set to 247 in v0.3.0. The issue is what happens *after*
-the Android app sends the MTU Exchange Request.
+correctly set to 247 in v0.3.0. The MTU exchange would work
+correctly if the link weren't torn down 4 ms after connect by
+the encryption failure on the phone side.
 
-Three possible failure modes to investigate (ranked by likelihood):
+The actual root cause is **test-side, not firmware-side**: the
+firmware_update dispatch flashes a different firmware image,
+which clears the controller's NVS (and thus its stored BLE
+long-term key). The phone still has a valid BLE bond record
+with the old key (the OS-level bond cache survives
+`adb uninstall` + reinstall of the app). The next BLE
+auto-connect from the freshly-launched app triggers Android's
+"encrypt with stored key" path; the controller rejects with
+`HCI_ERR_KEY_MISSING`; Android drops the link with
+`HCI_ERR_PEER_USER`; the MTU Exchange Request is dropped
+silently. The OS pairing dialog (which would let the user
+re-pair) appears too late, after the link is already down, and
+the test's `dismissBluetoothPairingDialog()` (E2eConnectionFixture.kt:117)
+runs against a dialog whose positive button text doesn't match
+any of `["Pair", "Pairing", "OK", "Allow"]` on this Samsung
+SM-A536B One UI build, so the dismiss loop never finds it and
+the test times out at `gate.tapScan`.
 
-1. **NimBLE ATT MTU response not sent on the v0.3.0 NimBLE version
-   the IDF 6.0 worktree resolves.** The HEAD worktree's NimBLE
-   might have a newer point release that the v0.3.0 worktree's
-   `idf.py set-target esp32s3` step doesn't trigger a re-resolution
-   of. Check `firmware/esp-idf/dependencies.lock` for the resolved
-   NimBLE version in the v0.3.0 worktree vs HEAD; if they differ,
-   that's the most likely cause.
+## Fix (test-side)
 
-2. **L2CAP MTU / ACL buffer size misconfiguration.** NimBLE's
-   effective ATT MTU is also bounded by
-   `MYNEWT_VAL_BLE_L2CAP_MAX_SDU_MTU` and the ACL buffer pool size.
-   If either is smaller than 247 in the v0.3.0 worktree's resolved
-   NimBLE config, the MTU exchange might be rejected with
-   `BLE_ATT_ERR_INVALID_PDU` (0x04) — but Android would report that
-   as `status=4`, not `status=133`. This is less likely but worth
-   checking `ble_att_svr_mtu` in the NimBLE host source for a
-   "MTU too large" code path.
+The firmware_update dispatch now clears the phone-side BLE
+bond as a precondition, between `install_built_apks` and the
+`am_instrument_firmware_update` step. The fresh "Just Works"
+pairing (`BLE_HS_IO_NO_INPUT_OUTPUT`) completes without an OS
+dialog; the MTU exchange succeeds; the test proceeds.
 
-3. **Firmware application code terminates the connection on MTU
-   event.** The v0.3.0 `BLE_GAP_EVENT_MTU` handler just logs and
-   returns 0 — it doesn't call `ble_gap_terminate()`. But the
-   NimBLE stack itself might be calling `ble_gap_terminate()`
-   internally on a malformed MTU exchange. Check NimBLE's
-   `ble_att_clt_mtu_cmd` and `ble_att_svr_mtu` for any
-   "abort connection" path on MTU errors.
+Files changed:
 
-## Recommended investigation steps
+- `test-harness/harness/config.py` — new `ble_mac: str = ""`
+  field on `ControllerConfig`.
+- `test-harness/harness/adb.py` — new
+  `Adb.remove_ble_bond(mac)` method (runs
+  `adb shell cmd bluetooth_manager remove-bond <MAC>`,
+  idempotent, 15 s timeout, returns success even if the bond
+  didn't exist).
+- `test-harness/harness/orchestrator.py` — new
+  `_do_remove_ble_bond` action + `remove_ble_bond`
+  `DispatchStep` appended to the firmware_update
+  preconditions (only when `controller.ble_mac` is set).
+- `test-harness/config.example.toml` + `test-harness/config.toml`
+  — new `ble_mac = "3C:0F:02:D2:0F:6A"` field under
+  `[controller]`.
 
-1. **Resolve and compare the NimBLE versions.**
-   - Check out the v0.3.0 tag in a worktree, run
-     `idf.py set-target esp32s3` (no build), then
-     `idf.py reconfigure` and read the resolved NimBLE version from
-     `build/_deps/nimble-src/RELEASE_NOTES.md` or
-     `idf_component_state`.
-   - Do the same on HEAD.
-   - If they differ, that's the root cause. Either bump v0.3.0's
-     resolved NimBLE or backport the relevant fix.
+## What did NOT need changing
 
-2. **Enable verbose NimBLE ATT logging on the v0.3.0 firmware.**
-   - In `sdkconfig.defaults`, set
-     `CONFIG_BT_NIMBLE_LOG_LEVEL_DYNAMIC=y` and rebuild.
-   - Or temporarily raise the NimBLE log level at runtime via
-     `ble_hs_log_ctl_set(BLE_HS_LOG_CTRL_LVL, BLE_HS_LOG_DEBUG)`.
-   - Re-run the test and capture the controller serial. Look for
-     "MTU exchange request received" / "MTU response sent" log lines
-     from NimBLE. If the response is never sent, the bug is in
-     NimBLE. If the response is sent but Android doesn't see it,
-     the bug is in the HCI/ACL transport.
+- The v0.3.0 firmware itself. It correctly rejects encryption
+  with a missing key (this is the BLE spec's expected behavior).
+- The NimBLE version. Both v0.3.0 and HEAD resolve NimBLE v1.6.0
+  from the same IDF v6.0.0 component.
+- The L2CAP MTU / ACL buffer config. `BT_NIMBLE_ACL_BUF_SIZE=255`
+  and ATT MTU 247 fit comfortably in a 3-byte MTU Exchange
+  Response.
+- The firmware's `BLE_GAP_EVENT_MTU` handler. It just logs and
+  returns 0 (no `ble_gap_terminate`). The disconnect originates
+  from the phone side, not the firmware.
+- The Kotlin test code. The existing test-side fixes
+  (commits 1522582 through 05a39ff, listed below) are correct.
+  No new Kotlin changes are needed; the dispatch precondition
+  is sufficient.
 
-3. **Test the MTU exchange in isolation with `gatttool` or
-   `bluetoothctl`.**
-   - From the Linux dev machine, pair with the v0.3.0 controller
-     and try `gatttool --exchange-mtu=247` (or the
-     `bluetoothctl` `mtu <handle> 247` equivalent).
-   - If `gatttool` also fails the same way, the bug is confirmed on
-     the firmware side independent of Android.
-   - If `gatttool` succeeds, the bug is Android-specific and the
-     app would need to retry the MTU exchange or fall back to 23.
-
-4. **If the NimBLE versions differ:** the cleanest fix is to pin
-   the v0.3.0 worktree to the same NimBLE version as HEAD by
-   adding an explicit `idf_component.yml` dependency on the NimBLE
-   version. This is the lowest-risk fix because it doesn't change
-   any application code.
-
-5. **If the NimBLE versions match but the bug persists:** the fix
-   is a NimBLE-side patch. The patch needs to be backported from
-   upstream NimBLE or written from scratch. The patch should
-   ensure the MTU Exchange Response is always sent (even if the
-   server's preferred MTU is smaller than the client's request)
-   and the connection is never terminated on MTU exchange
-   failure.
+## Test-side status (already done, for context)
 
 ## Test-side status (already done, for context)
 

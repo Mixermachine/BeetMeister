@@ -44,6 +44,26 @@ smoke_class = "de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdate
 serial_port = "COM4"
 baud = 115200
 
+# The controller's BLE MAC. Required for the firmware_update
+# dispatch's `remove_ble_bond` precondition: after `flash_old`
+# wipes the controller's NVS, the phone's stored link key is
+# stale and the next auto-connect gets HCI_ERR_KEY_MISSING,
+# which stalls the test. Empty = skip the precondition (with a
+# warning) — useful when you're iterating on the dispatch logic
+# without a controller, but the firmware_update suite will not
+# pass E2E without a MAC. Format: "AA:BB:CC:DD:EE:FF" (uppercase,
+# colon-separated, as printed by `Bluetooth MAC: ...` in the
+# controller's boot log).
+#
+# **Side effect:** the precondition runs
+# `adb shell pm clear com.android.bluetooth` (the only
+# Android-16 shell path for bond removal; the more obvious
+# `cmd bluetooth_manager remove-bond <MAC>` was removed in
+# newer Android). This clears ALL phone-side Bluetooth bonds
+# (the controller's stale one AND any user-paired devices like
+# headphones). Re-pair those by hand after the test run.
+ble_mac = ""
+
 [firmware]
 # Tag (or commit-ish) the firmware-update suite flashes first as the
 # "old" baseline. The harness builds it on demand from a worktree

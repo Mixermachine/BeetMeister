@@ -817,6 +817,43 @@ class Orchestrator:
             executed=False,
         ))
 
+        # 4. remove phone-side BLE bond (P5 followup to
+        #    commit 26512e9). `flash_old` wiped the
+        #    controller's NVS, so the phone's stored link key
+        #    is stale. The next BLE auto-connect tries to
+        #    encrypt with it and gets HCI_ERR_KEY_MISSING,
+        #    which makes the link drop and stalls the test.
+        #    Clearing all phone-side bonds (via
+        #    `pm clear com.android.bluetooth` — the only shell
+        #    path on Android 16, see `Adb.remove_ble_bond`)
+        #    forces a fresh "Just Works" pairing (the firmware
+        #    uses `BLE_HS_IO_NO_INPUT_OUTPUT`, so no OS
+        #    dialog appears) on the test's first auto-connect.
+        #    Skipped if [controller].ble_mac is unset.
+        #    Side effect: any other user-paired BT devices
+        #    (e.g. headphones) must be re-paired by hand
+        #    after the test run.
+        mac = self.config.controller.ble_mac
+        if mac:
+            remove_bond_cmd = self.adb._cmd(
+                "shell", "pm", "clear", "com.android.bluetooth",
+            )
+            plan.preconditions.append(DispatchStep(
+                name="remove_ble_bond",
+                description=(
+                    f"adb shell pm clear com.android.bluetooth "
+                    f"(clear all phone-side BLE bonds, including the "
+                    f"stale one with the controller at {mac}; flash_old "
+                    f"wiped the controller's matching key, leaving the "
+                    f"phone's link key stale. After the clear, the app's "
+                    f"auto-connect triggers a fresh Just Works pairing. "
+                    f"Side effect: any other user-paired BT devices must "
+                    f"be re-paired by hand after the test run.)"
+                ),
+                cmd=" ".join(shlex.quote(c) for c in remove_bond_cmd),
+                executed=False,
+            ))
+
         # 4. am instrument FirmwareUpdateE2ETest with both build labels.
         am_cmd = self._compose_am_instrument_preview(
             class_name=class_name,
@@ -876,6 +913,19 @@ class Orchestrator:
         )
         self._run_precondition(plan.preconditions[1], self._do_uninstall(app_package))
         self._run_precondition(plan.preconditions[2], self._do_install_built_apks())
+        # P5 followup: remove phone-side BLE bond BEFORE the
+        # am instrument launches the app (so the app's
+        # auto-connect doesn't try to encrypt with a stale
+        # link key). The step is appended conditionally
+        # (only when [controller].ble_mac is set), so we
+        # check by name instead of by fixed index.
+        for step in plan.preconditions:
+            if step.name == "remove_ble_bond":
+                self._run_precondition(
+                    step,
+                    self._do_remove_ble_bond(self.config.controller.ble_mac),
+                )
+                break
         # P5 SUB #R3: start the serial capture ONLY after the
         # preconditions (flash + uninstall + install) are done.
         # The cap then runs through the E2E am instrument (which
@@ -1117,6 +1167,34 @@ class Orchestrator:
     def _do_install_built_apks(self):
         def action() -> None:
             self.adb.install_apks(rebuild=False)
+        return action
+
+    def _do_remove_ble_bond(self, mac: str):
+        """Clear the phone-side BLE bond for the controller MAC.
+
+        P5 followup: see `Adb.remove_ble_bond` docstring. The
+        firmware_update dispatch composes a `remove_ble_bond`
+        precondition (only when `mac` is non-empty) and invokes
+        it after `install_built_apks` + before the serial
+        capture + am instrument. The bond is on the PHONE
+        (the controller's NVS is wiped by `flash_old`); a
+        stale link key there triggers
+        `HCI_ERR_KEY_MISSING` on the first auto-connect and
+        stalls the test.
+        """
+        def action() -> None:
+            ok = self.adb.remove_ble_bond(mac)
+            if not ok:
+                # Log + continue. The bond might genuinely be
+                # absent (first run, or already removed by a
+                # previous dispatch). The am instrument will
+                # surface a real failure if the link still
+                # doesn't come up.
+                print(
+                    f"[orchestrator] WARNING: "
+                    f"adb shell pm clear com.android.bluetooth "
+                    f"returned non-zero; continuing anyway"
+                )
         return action
 
     def _do_flash_old(self):

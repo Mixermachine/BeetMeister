@@ -182,6 +182,67 @@ class Adb:
         self._run("shell", "pm", "grant", package, "android.permission.BLUETOOTH_SCAN")
         self._run("shell", "pm", "grant", package, "android.permission.BLUETOOTH_CONNECT")
 
+    def remove_ble_bond(self, mac: str) -> bool:
+        """Clear the phone-side BLE bond(s) for the controller.
+
+        Runs `adb shell pm clear com.android.bluetooth`. This
+        is a coarse tool — it clears ALL bonds (including
+        user-paired devices like headphones), forces the
+        Bluetooth system app to reinitialize, and resets all
+        Bluetooth settings. The mac parameter is currently
+        unused (kept for dispatch API stability); once the
+        Bluetooth app reinitializes the test's auto-connect
+        path handles the fresh "Just Works" pairing (the
+        firmware uses `BLE_HS_IO_NO_INPUT_OUTPUT`, so no OS
+        dialog appears).
+
+        Why this approach (and not the obvious
+        `cmd bluetooth_manager remove-bond <MAC>`): the
+        `cmd bluetooth_manager` shell interface on Android 16
+        (SM-A536B A536BXXSMGZE1) is stripped to
+        enable/disable/enableBle/disableBle/wait-for-state.
+        No bond-management commands. Bond removal is
+        restricted to apps with BLUETOOTH_CONNECT. The only
+        shell-side path that actually clears bonds is
+        `pm clear com.android.bluetooth`.
+
+        Used by the firmware_update dispatch's
+        `remove_ble_bond` precondition to clear the phone-side
+        bond stored from a previous firmware run. After
+        `flash_old` wipes the controller's NVS, the phone's
+        stored link key is stale; the next BLE auto-connect
+        tries to encrypt with it and gets HCI_ERR_KEY_MISSING
+        (the controller has no matching key), which makes the
+        link drop and stalls the test. The dismissal loop
+        never finds a "Pair" button on Samsung One UI either
+        (the button text doesn't match the [Pair|Pairing|OK|
+        Allow] candidates), so the test times out at
+        `gate.tapScan`.
+
+        Side effect: the user must re-pair any other
+        previously-bonded BT devices (e.g. headphones) after
+        a test run. Documented in the config example; the
+        field is opt-in by leaving `ble_mac` empty.
+
+        Idempotent: clearing a Bluetooth app with no stored
+        bonds is a no-op. Returns True if `pm clear` returned
+        rc=0.
+
+        P5 followup: addresses the actual root cause of the
+        P5.3 firmware_update E2E block. The original handover
+        (commit 26512e9) hypothesized a NimBLE / firmware
+        MTU bug, but the logcat from
+        `test-harness/runs/20260714-095903-firmware_update/`
+        shows the proximate cause is the stale link key
+        (`btm_sec: Encryption failure 6, disconnecting 77`
+        with `HCI_ERR_KEY_MISSING`).
+        """
+        proc = self._run(
+            "shell", "pm", "clear", "com.android.bluetooth",
+            timeout=15.0,
+        )
+        return proc.returncode == 0
+
     def unlock_guard(self) -> None:
         """Wake + unlock the device if it's on the lockscreen.
 

@@ -55,6 +55,15 @@ class DeviceConfig:
 class ControllerConfig:
     serial_port: str = ""
     baud: int = 115200
+    # The controller's BLE MAC address. Required for the
+    # firmware_update dispatch's `remove_ble_bond` precondition
+    # (P5 finding followup: the phone-side bond stored from a
+    # previous firmware run is stale after flash_old wipes
+    # the controller's NVS, which causes HCI_ERR_KEY_MISSING
+    # at first auto-connect). Format: "AA:BB:CC:DD:EE:FF"
+    # (uppercase, colon-separated, as printed by the BLE
+    # controller's boot log and by `adb shell dumpsys bluetooth`).
+    ble_mac: str = ""
 
 
 @dataclass(frozen=True)
