@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import de.aarondietz.beetmeister.ui.NavigationSuiteTestTags
 import de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateTestTags
@@ -56,7 +57,19 @@ internal class FirmwareUpdateRobot(
      * Install button is then enabled.
      */
     fun assertSummaryShown() {
-        composeRule.onNodeWithTag(MaintenanceUpdateTestTags.Summary).assertIsDisplayed()
+        // P5 SUB #R36: prepareBundledFirmware() is async (host.scope.launch).
+        // Wait up to 10s for the summary node to appear in the semantics tree
+        // before asserting, instead of failing immediately on a missing node.
+        composeRule.waitUntil(timeoutMillis = 10_000L) {
+            composeRule
+                .onAllNodesWithTag(MaintenanceUpdateTestTags.Summary)
+                .fetchSemanticsNodes()
+                .isNotEmpty()
+        }
+        composeRule
+            .onNodeWithTag(MaintenanceUpdateTestTags.Summary)
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     /** Taps the Install button. */

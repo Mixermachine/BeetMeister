@@ -33,7 +33,17 @@ import kotlinx.coroutines.flow.update
 
 internal class BeetRepository(
     context: Context,
-    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    // P5 SUB #R36: default to Dispatchers.Main.immediate so all
+    // host.scope.launch coroutines run on the UI thread. State updates
+    // happen via _state.update { ... } which Compose's SnapshotStateObserver
+    // reads on the UI thread during layout/draw. Running the updates on
+    // Dispatchers.IO triggers "Detected multithreaded access to
+    // SnapshotStateObserver" and the recomposition never lands — the
+    // maintenance summary node stays missing in E2E. BLE IO itself is
+    // handled by the Android Bluetooth stack on its own threads, so the
+    // coordinator coroutines are just coordination/state-update glue;
+    // running them on Main is safe (delay() suspends, doesn't block).
+    ioDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : BeetRepositoryCallbacks {
     override val appContext: Context = context.applicationContext
     private val bluetoothManager = appContext.getSystemService(android.bluetooth.BluetoothManager::class.java)
