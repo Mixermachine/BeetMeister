@@ -205,22 +205,28 @@ def ensure_old_firmware_built(
         # is an ESP32-S3, and v0.3.0's source uses GPIO_NUM_47/40/
         # 41/42 which only exist on the S3. Patching the v0.3.0
         # tag to add `CONFIG_IDF_TARGET="esp32s3"` would violate
-        # the pinned-tag principle, so we instead rewrite the
-        # target in the worktree's sdkconfig *before* building.
-        # The sed is idempotent and a no-op if the target is
-        # already esp32s3.
-        sdkconfig = idf_workspace / "sdkconfig"
-        if sdkconfig.is_file():
-            sdkconfig_text = sdkconfig.read_text(encoding="utf-8")
-            sdkconfig_text = sdkconfig_text.replace(
-                'CONFIG_IDF_TARGET="esp32"',
-                'CONFIG_IDF_TARGET="esp32s3"',
+        # the pinned-tag principle, so we instead run
+        # `idf.py set-target esp32s3` *before* the build. This
+        # creates the sdkconfig with the correct target. The
+        # `set-target` step is idempotent (idempotent in the sense
+        # that it re-writes the sdkconfig with the same target if
+        # already set; we always call it to be safe).
+        set_target_cmd = _build_idf_command(
+            config, env_script, idf_py, "set-target", "esp32s3", cwd=idf_workspace,
+        )
+        set_target = subprocess.run(
+            set_target_cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=idf_workspace,
+            env=_idf_env(config),
+        )
+        if set_target.returncode != 0:
+            raise RuntimeError(
+                f"idf.py set-target esp32s3 failed (rc={set_target.returncode}): "
+                f"{set_target.stderr.strip()[-2000:] or set_target.stdout.strip()[-2000:]}"
             )
-            sdkconfig_text = sdkconfig_text.replace(
-                "CONFIG_IDF_TARGET_ESP32=y",
-                "CONFIG_IDF_TARGET_ESP32S3=y",
-            )
-            sdkconfig.write_text(sdkconfig_text, encoding="utf-8")
         cmd = _build_idf_command(config, env_script, idf_py, "build", cwd=idf_workspace)
         build = subprocess.run(
             cmd,
