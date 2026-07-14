@@ -1,6 +1,9 @@
 package de.aarondietz.beetmeister.e2e
 
 import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
 import de.aarondietz.beetmeister.e2e.robots.ConnectionGateRobot
 
 /**
@@ -53,25 +56,6 @@ internal object E2eConnectionState {
  * The fixture also owns the per-class [E2eScreenshotHelper] so each
  * test class can call `fixture.screenshots.captureStep(...)` in its
  * own logic without re-wiring.
- *
- * The connect path follows the on-device flow the orchestrator's
- * fresh_install / settings_update suites rely on:
- *  1. Wait for the ConnectionGate to render (only needed on the
- *     first `@Test`; subsequent calls fast-path through
- *     [assertStillConnected]).
- *  2. Tap the Scan button.
- *  3. Wait for the expected device (matched by
- *     `expected_device_name` from `am instrument -e`) to appear in
- *     the device list. Use [ConnectionGateRobot.assertDeviceVisible]
- *     so we connect to the **right** controller, not a
- *     non-deterministic first card. If only one device is in BLE
- *     range the assertion still holds; if more than one is
- *     visible the name check disambiguates deterministically.
- *  4. Tap the first device card's Connect button.
- *  5. Wait for the NavigationSuiteScaffold to render (the
- *     [NavigationSuiteTestTags.SettingsNavItem] is the strongest
- *     "gate is gone" signal).
- *  6. Take an after-connect screenshot.
  */
 internal class E2eConnectionFixture(
     val composeRule: ComposeTestRule,
@@ -87,36 +71,19 @@ internal class E2eConnectionFixture(
      *
      * P5 finding SUB #R5: the app's BLE auto-connect is fast
      * enough that the gate can disappear BEFORE the first
-     * `@Test`'s `@Before` runs (the BLE stack reconnects via
-     * the OS-level bond that survives `adb uninstall`, the
-     * scan finds the controller in <1 s, the 900 ms stable
-     * `Connected` window passes, the gate is hidden). The
-     * original implementation only checked the static
-     * [E2eConnectionState.isConnected] flag (which is false
-     * on a freshly-loaded class) and tried `tapScan` which
-     * then waited 30 s for a [ScanButton] that no longer
-     * existed (the gate is gone, so the ScanButton isn't
-     * rendered). Both E2E tests failed at the same line.
+     * `@Test`'s `@Before` runs.
      *
-     * New flow: BEFORE calling [ConnectionGateRobot.tapScan],
-     * check whether the post-connect shell is already
-     * rendered (the [NavigationSuiteTestTags.SettingsNavItem]
-     * tag is the strongest "gate is gone" signal — same
-     * signal [ConnectionGateRobot.assertConnected] waits
-     * for after a real connect). If the post-connect shell
-     * is already up, skip the gate entirely and just verify
-     * the post-connect markers; the BLE connection is
-     * already in place via the auto-connect.
-     *
-     * P5 finding SUB #R25: the firmware_update dispatch
-     * flashes an older firmware (v0.3.0) to the controller.
-     * The orchestrator's `adb uninstall` of the app removes
-     * the phone-side BLE bond. When the v0.3.0 controller
-     * advertises, the OS shows a system-level Bluetooth
-     * pairing dialog ("Pair with beetmeister-01?") that
-     * blocks the app's UI. The orchestrator dismisses the
-     * dialog before the am instrument call (see
-     * _dismiss_bluetooth_pairing_dialog in orchestrator.py).
+     * P5 finding SUB #R25: the firmware_update dispatch flashes
+     * an older firmware (v0.3.0) to the controller and uninstalls
+     * the app. The phone-side BLE bond is removed. When the app
+     * launches and auto-connects, the OS shows a system-level
+     * "Pair with beetmeister-01?" dialog that blocks the app's UI.
+     * The Compose test rule can't see any semantics nodes. We
+     * dismiss the dialog via `UiDevice` (cross-process; the
+     * dialog is in system_server, not the test process). The
+     * dismiss is a no-op for fresh_install / settings_update
+     * (the controller's firmware identity is unchanged there,
+     * so the OS bond survives `adb uninstall`).
      */
     fun connectOnce() {
         if (E2eConnectionState.isConnected) {
@@ -124,20 +91,42 @@ internal class E2eConnectionFixture(
             return
         }
         if (gate.isAlreadyConnected()) {
-            // App already past the gate (P5 SUB #R5). No
-            // scan/connect needed; just take the after-connect
-            // screenshot (the one the original flow captures
-            // after `assertConnected` returns) and mark the
-            // static state so subsequent `@Test`s fast-path.
             screenshots.captureStep("afterConnect")
             E2eConnectionState.isConnected = true
             return
         }
+        dismissBluetoothPairingDialog()
         gate.tapScan()
         gate.assertDeviceVisible()
         gate.tapConnect()
         gate.assertConnected()
         screenshots.captureStep("afterConnect")
         E2eConnectionState.isConnected = true
+    }
+
+    /**
+     * Dismiss a pending OS-level Bluetooth pairing dialog using
+     * `UiDevice` (cross-process; the dialog is in system_server).
+     *
+     * The dialog title is "Bluetooth pairing request" with
+     * "Pair" and "Cancel" buttons. We click "Pair" to proceed.
+     * On AOSP the button text is "Pair"; on Samsung it may be
+     * "Pairing". We try both. No-op if the dialog isn't present
+     * (the common case for fresh_install / settings_update).
+     */
+    private fun dismissBluetoothPairingDialog() {
+        val device = UiDevice.getInstance(
+            InstrumentationRegistry.getInstrumentation(),
+        )
+        // Try both AOSP and Samsung button labels.
+        val candidates = listOf("Pair", "Pairing", "OK", "Allow")
+        for (label in candidates) {
+            val node = device.findObject(By.text(label))
+            if (node != null) {
+                node.click()
+                device.waitForIdle(2_000L)
+                return
+            }
+        }
     }
 }
