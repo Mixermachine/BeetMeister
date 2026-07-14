@@ -691,6 +691,7 @@ class Orchestrator:
         serial_cap = capture.start_serial(
             run_dir, self.config.controller.serial_port,
             baud=self.config.controller.baud,
+            max_seconds=600.0,
         )
         if serial_cap is not None:
             serial_caps.append(serial_cap)
@@ -948,6 +949,7 @@ class Orchestrator:
         serial_cap = capture.start_serial(
             run_dir, self.config.controller.serial_port,
             baud=self.config.controller.baud,
+            max_seconds=600.0,
         )
         if serial_cap is not None:
             serial_caps.append(serial_cap)
@@ -1044,6 +1046,7 @@ class Orchestrator:
         serial_cap = capture.start_serial(
             run_dir, self.config.controller.serial_port,
             baud=self.config.controller.baud,
+            max_seconds=600.0,
         )
         if serial_cap is not None:
             serial_caps.append(serial_cap)
