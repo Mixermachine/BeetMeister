@@ -44,30 +44,31 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
         <!--
-            Test-only Activity. Launched by the test-harness
-            orchestrator's firmware_update dispatch via
-            adb shell am start, BEFORE the test's am
-            instrument launches the app. Clears the
-            phone-side BLE bond for the controller so the
-            app's auto-connect triggers a fresh Just Works
-            pair instead of trying to encrypt with a stale
-            link key (which would fail with HCI_ERR_KEY_MISSING
-            and stall the test). The Activity uses a
-            translucent no-title theme + excludeFromRecents +
-            noHistory so the user does not see a UI flash and
-            the entry does not appear in the recents list.
-            See ClearBleBondActivity.kt for the full rationale
-            and production-safety analysis.
+            Test-only generic Activity. Launched by the
+            test-harness orchestrator via adb shell am start,
+            BEFORE the test's am instrument launches the app.
+            Dispatches to test actions based on the
+            extra: action NAME. Currently supports
+            clear_ble_bond (required extra: mac). New
+            actions can be added without changing the
+            manifest by adding a new arm to the when in
+            DebugActionActivity.kt. The Activity uses a
+            translucent no-title theme plus excludeFromRecents
+            plus noHistory so the user does not see a UI
+            flash and the entry does not appear in the
+            recents list. See DebugActionActivity.kt for
+            the full rationale and production-safety
+            analysis.
         -->
         <activity
-            android:name=".debug.ClearBleBondActivity"
+            android:name=".debug.DebugActionActivity"
             android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:taskAffinity="">
             <intent-filter>
-                <action android:name="de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND" />
+                <action android:name="de.aarondietz.beetmeister.debug.action.RUN" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>

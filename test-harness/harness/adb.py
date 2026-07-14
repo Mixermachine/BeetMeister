@@ -183,46 +183,62 @@ class Adb:
         self._run("shell", "pm", "grant", package, "android.permission.BLUETOOTH_CONNECT")
 
     def clear_ble_bond_via_intent(self, mac: str, app_package: str) -> bool:
-        """Clear the BLE bond for the given MAC by launching the
-        test-only `ClearBleBondActivity` in the app.
+        """Clear the BLE bond for the given MAC by firing the
+        `clear_ble_bond` action of the test-only
+        `DebugActionActivity` in the app.
 
         Runs:
             adb shell am start \
-                -n <app_package>/.debug.ClearBleBondActivity \
-                -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND \
+                -n <app_package>/.debug.DebugActionActivity \
+                -a de.aarondietz.beetmeister.debug.action.RUN \
+                --es action clear_ble_bond \
                 --es mac <MAC>
 
         The Activity (in
-        `app/.../debug/ClearBleBondActivity.kt`) reads the
-        MAC, calls `BluetoothDevice.removeBond(mac)` via
-        reflection (the method is `@hide @SystemApi`, not in
-        the public SDK), and finishes. `am start` is
-        synchronous — the command returns when the Activity
-        is bound to a window (which for a translucent
-        no-title Activity happens within ~100 ms).
+        `app/.../debug/DebugActionActivity.kt`) dispatches
+        on the `action` extra. For `clear_ble_bond` it calls
+        `BluetoothDevice.removeBond(mac)` via reflection
+        (the method is `@hide @SystemApi`, not in the public
+        SDK) and finishes. `am start` is synchronous — the
+        command returns when the Activity is bound to a
+        window (which for a translucent no-title Activity
+        happens within ~100 ms).
 
         The Activity is **production-safe**: it is never
-        launched by production code; the action name is
-        namespaced under `de.aarondietz.beetmeister.debug.*`
-        so a grep makes the test-only intent obvious; the
-        Activity uses a translucent theme + excludeFromRecents
-        + noHistory so no UI is shown to the user and no
-        recents entry is created. The worst-case misuse is an
-        unpair of the user's BLE peripheral (low impact,
-        user-recoverable by re-pairing). See
-        `ClearBleBondActivity.kt` for the full
+        launched by production code; the class lives in the
+        `.debug.*` package, the intent action is
+        `de.aarondietz.beetmeister.debug.action.RUN`, and
+        the Activity uses a translucent theme +
+        `excludeFromRecents` + `noHistory` so no UI is
+        shown to the user and no recents entry is created.
+        The worst-case misuse is the side effect of the
+        invoked action (e.g. unpair the user's BLE
+        peripheral) — a low-impact action the user can
+        recover from by re-pairing. See
+        `DebugActionActivity.kt` for the full
         production-safety analysis.
 
         **Why an Activity (not a BroadcastReceiver):**
         lifecycle is explicit (`onCreate` → `onDestroy`).
         `am start` is synchronous and waits for the Activity
-        to be bound, so the orchestrator knows the bond
-        removal is done before the next step. A
-        BroadcastReceiver can be silently dropped on devices
-        in App Standby restricted buckets (Android 8+); an
-        Activity launched via `am start` from the shell user
-        is never dropped (shell is treated as foreground for
+        to be bound, so the orchestrator knows the action
+        is done before the next step. A BroadcastReceiver
+        can be silently dropped on devices in App Standby
+        restricted buckets (Android 8+); an Activity
+        launched via `am start` from the shell user is never
+        dropped (shell is treated as foreground for
         delivery).
+
+        **Why a single Activity with a dispatch `action`
+        extra (not one Activity per operation):** adding a
+        new test operation (e.g. `reset_maintenance_state`,
+        `dump_runtime_config`) is a new `when` arm in
+        `DebugActionActivity.dispatch()`. No new manifest
+        entry, no new class, no new test code in the
+        orchestrator's `Adb` wrapper unless the new
+        operation needs its own adb-side args. Keeps the
+        manifest and orchestrator's dispatch surface
+        minimal.
 
         Used by the firmware_update dispatch's
         `clear_ble_bond_via_intent` precondition. After
@@ -247,8 +263,9 @@ class Adb:
         """
         proc = self._run(
             "shell", "am", "start",
-            "-n", f"{app_package}/.debug.ClearBleBondActivity",
-            "-a", "de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND",
+            "-n", f"{app_package}/.debug.DebugActionActivity",
+            "-a", "de.aarondietz.beetmeister.debug.action.RUN",
+            "--es", "action", "clear_ble_bond",
             "--es", "mac", mac,
             timeout=15.0,
         )

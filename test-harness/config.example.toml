@@ -57,16 +57,22 @@ baud = 115200
 # boot log).
 #
 # **Side effect:** the precondition runs
-# `adb shell am start -n de.aarondietz.beetmeister/.debug.ClearBleBondActivity -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND --es mac <MAC>`,
-# which launches the app's test-only `ClearBleBondActivity`.
-# The Activity calls `BluetoothDevice.removeBond(<MAC>)` for
-# JUST the controller — the only API that actually clears
-# the persistent bond store on Android 16. User-paired
-# devices (e.g. headphones) are NOT touched. The Activity
-# is production-safe (never launched by production code;
-# uses translucent theme + noHistory + excludeFromRecents so
-# no UI is shown; see the activity's docstring in
-# `app/app/src/main/java/de/aarondietz/beetmeister/debug/ClearBleBondActivity.kt`).
+# `adb shell am start -n de.aarondietz.beetmeister/.debug.DebugActionActivity -a de.aarondietz.beetmeister.debug.action.RUN --es action clear_ble_bond --es mac <MAC>`,
+# which launches the app's test-only `DebugActionActivity`
+# with the `clear_ble_bond` action. The Activity calls
+# `BluetoothDevice.removeBond(<MAC>)` for JUST the controller
+# — the only API that actually clears the persistent bond
+# store on Android 16. User-paired devices (e.g. headphones)
+# are NOT touched. The Activity is production-safe (never
+# launched by production code; lives in the .debug.*
+# package; uses translucent theme + noHistory +
+# excludeFromRecents so no UI is shown; see the activity's
+# docstring in
+# `app/app/src/main/java/de/aarondietz/beetmeister/debug/DebugActionActivity.kt`).
+# The `action` extra is the dispatch key; new test actions
+# (e.g. `reset_maintenance_state`) can be added in the
+# activity's `dispatch` when block without touching the
+# manifest or the orchestrator's command surface.
 ble_mac = ""
 
 [firmware]

@@ -818,45 +818,49 @@ class Orchestrator:
         ))
 
         # 4. clear phone-side BLE bond via the app's test-only
-        #    `ClearBleBondActivity` (P5 followup to commit
+        #    `DebugActionActivity` (P5 followup to commit
         #    26512e9). `flash_old` wiped the controller's NVS,
         #    so the phone's stored link key is stale. The
         #    next BLE auto-connect tries to encrypt with it
         #    and gets HCI_ERR_KEY_MISSING, which makes the
         #    link drop and stalls the test. Launching the
-        #    Activity (via `am start`) clears the bond
-        #    via `BluetoothDevice.removeBond()` — the only
-        #    API that actually clears the persistent bond
-        #    store on Android 16. `cmd bluetooth_manager
-        #    remove-bond` was removed in newer Android;
-        #    `pm clear com.android.bluetooth` returns Success
-        #    but the bond is re-loaded from
-        #    `/data/misc/bluetooth/` on next Bluetooth app
-        #    start (confirmed on SM-A536B A536BXXSMGZE1, the
-        #    WH-1000XM3 bond survives a `pm clear` and is
-        #    briefly shown as "(No uuid)" before the UUIDs
-        #    repopulate). The Activity is production-safe
-        #    (never launched by production code; uses
-        #    translucent theme + noHistory + excludeFromRecents;
-        #    see ClearBleBondActivity.kt for the full analysis).
-        #    Skipped if [controller].ble_mac is unset.
+        #    Activity with the `clear_ble_bond` action (via
+        #    `am start`) clears the bond via
+        #    `BluetoothDevice.removeBond()` — the only API
+        #    that actually clears the persistent bond store
+        #    on Android 16. `cmd bluetooth_manager remove-bond`
+        #    was removed in newer Android; `pm clear
+        #    com.android.bluetooth` returns Success but the
+        #    bond is re-loaded from `/data/misc/bluetooth/`
+        #    on next Bluetooth app start (confirmed on
+        #    SM-A536B A536BXXSMGZE1, the WH-1000XM3 bond
+        #    survives a `pm clear` and is briefly shown as
+        #    "(No uuid)" before the UUIDs repopulate). The
+        #    Activity is production-safe (never launched by
+        #    production code; uses translucent theme +
+        #    noHistory + excludeFromRecents; lives in the
+        #    .debug.* package; see DebugActionActivity.kt
+        #    for the full analysis). Skipped if
+        #    [controller].ble_mac is unset.
         mac = self.config.controller.ble_mac
         if mac:
             clear_bond_cmd = self.adb._cmd(
                 "shell", "am", "start",
-                "-n", f"{app_package}/.debug.ClearBleBondActivity",
-                "-a", "de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND",
+                "-n", f"{app_package}/.debug.DebugActionActivity",
+                "-a", "de.aarondietz.beetmeister.debug.action.RUN",
+                "--es", "action", "clear_ble_bond",
                 "--es", "mac", mac,
             )
             plan.preconditions.append(DispatchStep(
                 name="clear_ble_bond_via_intent",
                 description=(
-                    f"adb shell am start -n {app_package}/.debug.ClearBleBondActivity "
-                    f"-a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND --es mac {mac} "
-                    f"(launches the app's test-only ClearBleBondActivity, which calls "
-                    f"BluetoothDevice.removeBond({mac}) and finishes. This is the only API that "
-                    f"actually clears the persistent bond store on Android 16; see the activity's "
-                    f"docstring for why pm clear + cmd bluetooth_manager remove-bond are no-ops.)"
+                    f"adb shell am start -n {app_package}/.debug.DebugActionActivity "
+                    f"-a de.aarondietz.beetmeister.debug.action.RUN --es action clear_ble_bond "
+                    f"--es mac {mac} (launches the app's test-only DebugActionActivity with the "
+                    f"clear_ble_bond action, which calls BluetoothDevice.removeBond({mac}) and "
+                    f"finishes. This is the only API that actually clears the persistent bond "
+                    f"store on Android 16; see DebugActionActivity.kt for why pm clear + cmd "
+                    f"bluetooth_manager remove-bond are no-ops.)"
                 ),
                 cmd=" ".join(shlex.quote(c) for c in clear_bond_cmd),
                 executed=False,
