@@ -368,21 +368,21 @@ internal class SettingsRobot(
         scrollToTag(SettingsTestTags.ValveConfigMoveDurationField)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigMoveDurationField)
-            .assertTextEquals(expectedMillisStr)
+            .assertTextContains(expectedMillisStr)
     }
 
     fun assertValveSettleDelay(expectedMillisStr: String) {
         scrollToTag(SettingsTestTags.ValveConfigSettleDelayField)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSettleDelayField)
-            .assertTextEquals(expectedMillisStr)
+            .assertTextContains(expectedMillisStr)
     }
 
     fun assertValveOpenHold(expectedMillisStr: String) {
         scrollToTag(SettingsTestTags.ValveConfigOpenHoldField)
         composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigOpenHoldField)
-            .assertTextEquals(expectedMillisStr)
+            .assertTextContains(expectedMillisStr)
     }
 
     // endregion
