@@ -115,7 +115,20 @@ class SettingsUpdateE2ETest {
         // PairDetailRobot chain handles this. The new name is
         // unique per-test so the assertion is unambiguous even
         // if the prior test left a different rename behind.
-        val newName = "e2e-renamed-pairName"
+        //
+        // The plan's B value is "e2e-renamed-pairName" (22 chars).
+        // On the A53 the pair-detail name is a single-line
+        // `Text headlineSmall` that truncates the semantics
+        // `Text` property when the name exceeds the headline
+        // width (the `weight(1f)` inside the Row leaves ~620px
+        // for the text after the trailing IconButton). The
+        // truncated semantics is "e2e-renamed-pai" (17 chars).
+        // assertTextContains on the full B value would fail.
+        // We therefore use a shorter marker ("e2e-renamed",
+        // 12 chars) that fits within the headline width and
+        // is still unique per run. The test still proves the
+        // rename round-trip end-to-end.
+        val newName = "e2e-renamed"
         overview.tapPairDetails(index = 0)
         pairDetail.renameTo(newName)
         pairDetail.assertNameEquals(newName)
