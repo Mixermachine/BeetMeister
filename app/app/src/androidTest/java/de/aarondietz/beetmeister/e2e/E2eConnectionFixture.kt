@@ -107,6 +107,16 @@ internal class E2eConnectionFixture(
      * is already up, skip the gate entirely and just verify
      * the post-connect markers; the BLE connection is
      * already in place via the auto-connect.
+     *
+     * P5 finding SUB #R25: the firmware_update dispatch
+     * flashes an older firmware (v0.3.0) to the controller.
+     * The orchestrator's `adb uninstall` of the app removes
+     * the phone-side BLE bond. When the v0.3.0 controller
+     * advertises, the OS shows a system-level Bluetooth
+     * pairing dialog ("Pair with beetmeister-01?") that
+     * blocks the app's UI. The orchestrator dismisses the
+     * dialog before the am instrument call (see
+     * _dismiss_bluetooth_pairing_dialog in orchestrator.py).
      */
     fun connectOnce() {
         if (E2eConnectionState.isConnected) {

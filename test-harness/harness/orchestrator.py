@@ -1172,12 +1172,27 @@ class Orchestrator:
         with spaces or shell-special chars. The cmd string is
         still kept on the step for display in the plan file +
         copy-paste for manual runs.
+
+        P5 finding SUB #R25: the firmware_update dispatch
+        flashes an older firmware (v0.3.0) to the controller.
+        The orchestrator's `adb uninstall` removes the
+        phone-side BLE bond. When the controller advertises
+        post-install, the OS shows a system-level Bluetooth
+        pairing dialog ("Pair with beetmeister-01?") that
+        blocks the app's UI. The Compose test rule can't
+        dismiss the dialog (it's in system_server, not the
+        test process), and `fetchSemanticsNodes()` returns
+        empty ("No compose hierarchies"). Dismiss the dialog
+        via `adb shell input` before the am instrument call.
+        No-op for fresh_install / settings_update (the
+        controller's firmware identity is unchanged there).
         """
         if not step.class_name:
             raise AssertionError(
                 f"am_instrument step {step.name!r} has no class_name; "
                 f"the dispatch composition is broken."
             )
+        self._dismiss_bluetooth_pairing_dialog()
         result = self.adb.am_instrument(
             class_name=step.class_name,
             runner=self.config.device.test_runner,
@@ -1187,6 +1202,46 @@ class Orchestrator:
         )
         step.executed = True
         return result
+
+    def _dismiss_bluetooth_pairing_dialog(self) -> None:
+        """Dismiss a pending OS-level Bluetooth pairing dialog.
+
+        P5 finding SUB #R25: after the firmware_update dispatch
+        flashes v0.3.0 to the controller, the phone's BLE bond
+        (removed by `adb uninstall`) is missing, so the OS
+        shows a "Pair with beetmeister-01?" dialog when the
+        controller advertises. The dialog blocks the app's UI
+        and the Compose test rule can't see any semantics
+        nodes. Click the "Pair" button via `adb shell input`
+        to dismiss the dialog. The tap coordinates are
+        hard-coded for the A53's 1080x2400 screen (the "Pair"
+        button is at the bottom-right of the dialog, roughly
+        x=900 y=2150). No-op if the dialog isn't present
+        (the `am instrument` call would have already
+        dismissed it via the system back-stack).
+        """
+        serial = self.config.device.serial
+        # Check if the dialog is present by looking for the
+        # "Pair" text in the UI tree.
+        check = subprocess.run(
+            self.adb._cmd("shell", "uiautomator", "dump", "/dev/tty"),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if "Bluetooth pairing request" not in check.stdout and \
+           "Pair" not in check.stdout:
+            return  # No dialog; nothing to dismiss.
+        # Click the "Pair" button. The dialog has "Cancel"
+        # (left) and "Pair" (right) buttons at the bottom.
+        # On the A53 (1080x2400), the "Pair" button is at
+        # approximately x=890, y=2150.
+        subprocess.run(
+            self.adb._cmd("shell", "input", "tap", "890", "2150"),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     def _execute_screenshot_pull(self, step: DispatchStep, run_dir: Path) -> None:
         """Pull the Kotlin in-test screenshots from the device.
