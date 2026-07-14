@@ -147,6 +147,26 @@ internal class SettingsRobot(
     }
 
     /**
+     * Asserts the Controller Info card's build-label cell contains
+     * the expected OLD build label. Must be called BEFORE
+     * [openFirmwareUpdate] (which navigates to the Maintenance
+     * screen and hides the Settings LazyColumn behind it).
+     *
+     * Reads the expected label from the `expected_old_build_label`
+     * `am instrument -e` extra set by the orchestrator.
+     */
+    fun assertCurrentFirmwareMatchesOldBuildLabel() {
+        val expectedOld = InstrumentationRegistry.getArguments()
+            .getString(FirmwareUpdateRobot.EXTRA_OLD_BUILD_LABEL)
+            ?: error(
+                "Missing -e ${FirmwareUpdateRobot.EXTRA_OLD_BUILD_LABEL} on the instrumentation runner",
+            )
+        composeRule
+            .onNodeWithTag(SettingsTestTags.ControllerInfoBuildLabel)
+            .assertTextContains(expectedOld)
+    }
+
+    /**
      * Asserts the device_id cell of the Controller Info card is
      * populated (non-blank and not the "—" placeholder).
      *

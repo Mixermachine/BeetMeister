@@ -39,19 +39,9 @@ import de.aarondietz.beetmeister.ui.feature.settings.SettingsTestTags
 internal class FirmwareUpdateRobot(
     private val composeRule: ComposeTestRule,
 ) {
-    private val expectedOld: String =
-        InstrumentationRegistry.getArguments().getString(EXTRA_OLD_BUILD_LABEL)
-            ?: error("Missing -e $EXTRA_OLD_BUILD_LABEL on the instrumentation runner")
     private val expectedNew: String =
         InstrumentationRegistry.getArguments().getString(EXTRA_NEW_BUILD_LABEL)
             ?: error("Missing -e $EXTRA_NEW_BUILD_LABEL on the instrumentation runner")
-
-    /** Asserts the Settings card's current firmware row contains the old build label. */
-    fun assertCurrentFirmwareMatchesOldBuildLabel() {
-        composeRule
-            .onNodeWithTag(SettingsTestTags.ControllerInfoBuildLabel)
-            .assertTextContains(expectedOld)
-    }
 
     /** Taps the "Use bundled" button. */
     fun useBundled() {

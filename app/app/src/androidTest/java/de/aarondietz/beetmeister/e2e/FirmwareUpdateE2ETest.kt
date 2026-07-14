@@ -61,8 +61,8 @@ class FirmwareUpdateE2ETest {
     @Test(timeout = 600_000)
     fun bundledFirmwareInstallsAndPostUpdateHealthIsCorrect() {
         settings.openSettings()
+        settings.assertCurrentFirmwareMatchesOldBuildLabel()
         val firmwareUpdate: FirmwareUpdateRobot = settings.openFirmwareUpdate()
-        firmwareUpdate.assertCurrentFirmwareMatchesOldBuildLabel()
         firmwareUpdate.useBundled()
         firmwareUpdate.assertSummaryShown()
         firmwareUpdate.tapInstall()
