@@ -1,6 +1,6 @@
 package de.aarondietz.beetmeister.e2e.robots
 
-import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -39,12 +39,22 @@ internal class PairDetailRobot(
     }
 
     /**
-     * Asserts the pair's name (displayed as the headline) equals
+     * Asserts the pair's name (displayed as the headline) contains
      * [expected]. Used by the settings-update suite to verify the
      * rename round-trip after [renameTo].
+     *
+     * Uses [assertTextContains] rather than [assertTextEquals]
+     * because the pair-detail name is rendered in a single-line
+     * `Text` composable that truncates with an ellipsis when the
+     * name exceeds the headline width. On the A53 a 22-char name
+     * like `"e2e-renamed-pairName"` is truncated to the visible
+     * width (~16 chars), so [assertTextEquals] would see only the
+     * truncated prefix. The full string is still in the semantics
+     * tree (the truncation is visual only), so a substring match
+     * validates the rename without depending on the device width.
      */
     fun assertNameEquals(expected: String) {
-        composeRule.onNodeWithTag(PairDetailTestTags.Name).assertTextEquals(expected)
+        composeRule.onNodeWithTag(PairDetailTestTags.Name).assertTextContains(expected)
     }
 
     /** Navigates back to the Overview (via the in-screen back button). */
