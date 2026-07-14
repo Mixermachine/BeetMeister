@@ -817,40 +817,46 @@ class Orchestrator:
             executed=False,
         ))
 
-        # 4. remove phone-side BLE bond (P5 followup to
-        #    commit 26512e9). `flash_old` wiped the
-        #    controller's NVS, so the phone's stored link key
-        #    is stale. The next BLE auto-connect tries to
-        #    encrypt with it and gets HCI_ERR_KEY_MISSING,
-        #    which makes the link drop and stalls the test.
-        #    Clearing all phone-side bonds (via
-        #    `pm clear com.android.bluetooth` — the only shell
-        #    path on Android 16, see `Adb.remove_ble_bond`)
-        #    forces a fresh "Just Works" pairing (the firmware
-        #    uses `BLE_HS_IO_NO_INPUT_OUTPUT`, so no OS
-        #    dialog appears) on the test's first auto-connect.
+        # 4. clear phone-side BLE bond via the app's test-only
+        #    `ClearBleBondReceiver` (P5 followup to commit
+        #    26512e9). `flash_old` wiped the controller's NVS,
+        #    so the phone's stored link key is stale. The
+        #    next BLE auto-connect tries to encrypt with it
+        #    and gets HCI_ERR_KEY_MISSING, which makes the
+        #    link drop and stalls the test. Firing the
+        #    receiver (via `am broadcast`) clears the bond
+        #    via `BluetoothDevice.removeBond()` — the only
+        #    API that actually clears the persistent bond
+        #    store on Android 16. `cmd bluetooth_manager
+        #    remove-bond` was removed in newer Android;
+        #    `pm clear com.android.bluetooth` returns Success
+        #    but the bond is re-loaded from
+        #    `/data/misc/bluetooth/` on next Bluetooth app
+        #    start (confirmed on SM-A536B A536BXXSMGZE1, the
+        #    WH-1000XM3 bond survives a `pm clear` and is
+        #    briefly shown as "(No uuid)" before the UUIDs
+        #    repopulate). The receiver is production-safe
+        #    (never fired by production code; see
+        #    ClearBleBondReceiver.kt for the full analysis).
         #    Skipped if [controller].ble_mac is unset.
-        #    Side effect: any other user-paired BT devices
-        #    (e.g. headphones) must be re-paired by hand
-        #    after the test run.
         mac = self.config.controller.ble_mac
         if mac:
-            remove_bond_cmd = self.adb._cmd(
-                "shell", "pm", "clear", "com.android.bluetooth",
+            clear_bond_cmd = self.adb._cmd(
+                "shell", "am", "broadcast",
+                "-a", "de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND",
+                "-p", app_package,
+                "--es", "mac", mac,
             )
             plan.preconditions.append(DispatchStep(
-                name="remove_ble_bond",
+                name="clear_ble_bond_via_intent",
                 description=(
-                    f"adb shell pm clear com.android.bluetooth "
-                    f"(clear all phone-side BLE bonds, including the "
-                    f"stale one with the controller at {mac}; flash_old "
-                    f"wiped the controller's matching key, leaving the "
-                    f"phone's link key stale. After the clear, the app's "
-                    f"auto-connect triggers a fresh Just Works pairing. "
-                    f"Side effect: any other user-paired BT devices must "
-                    f"be re-paired by hand after the test run.)"
+                    f"adb shell am broadcast -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND "
+                    f"-p {app_package} --es mac {mac} (fires the app's test-only ClearBleBondReceiver, "
+                    f"which calls BluetoothDevice.removeBond({mac}). This is the only API that actually "
+                    f"clears the persistent bond store on Android 16; see the receiver's docstring for "
+                    f"why pm clear + cmd bluetooth_manager remove-bond are no-ops.)"
                 ),
-                cmd=" ".join(shlex.quote(c) for c in remove_bond_cmd),
+                cmd=" ".join(shlex.quote(c) for c in clear_bond_cmd),
                 executed=False,
             ))
 
@@ -913,17 +919,20 @@ class Orchestrator:
         )
         self._run_precondition(plan.preconditions[1], self._do_uninstall(app_package))
         self._run_precondition(plan.preconditions[2], self._do_install_built_apks())
-        # P5 followup: remove phone-side BLE bond BEFORE the
+        # P5 followup: clear phone-side BLE bond BEFORE the
         # am instrument launches the app (so the app's
         # auto-connect doesn't try to encrypt with a stale
         # link key). The step is appended conditionally
         # (only when [controller].ble_mac is set), so we
         # check by name instead of by fixed index.
         for step in plan.preconditions:
-            if step.name == "remove_ble_bond":
+            if step.name == "clear_ble_bond_via_intent":
                 self._run_precondition(
                     step,
-                    self._do_remove_ble_bond(self.config.controller.ble_mac),
+                    self._do_clear_ble_bond_via_intent(
+                        self.config.controller.ble_mac,
+                        app_package,
+                    ),
                 )
                 break
         # P5 SUB #R3: start the serial capture ONLY after the
@@ -1169,21 +1178,23 @@ class Orchestrator:
             self.adb.install_apks(rebuild=False)
         return action
 
-    def _do_remove_ble_bond(self, mac: str):
-        """Clear the phone-side BLE bond for the controller MAC.
+    def _do_clear_ble_bond_via_intent(self, mac: str, app_package: str):
+        """Clear the phone-side BLE bond by firing the app's
+        test-only `ClearBleBondReceiver`.
 
-        P5 followup: see `Adb.remove_ble_bond` docstring. The
-        firmware_update dispatch composes a `remove_ble_bond`
-        precondition (only when `mac` is non-empty) and invokes
-        it after `install_built_apks` + before the serial
-        capture + am instrument. The bond is on the PHONE
-        (the controller's NVS is wiped by `flash_old`); a
-        stale link key there triggers
-        `HCI_ERR_KEY_MISSING` on the first auto-connect and
-        stalls the test.
+        P5 followup: see `Adb.clear_ble_bond_via_intent`
+        docstring + the receiver's own docstring. The
+        firmware_update dispatch composes a
+        `clear_ble_bond_via_intent` precondition (only when
+        `mac` is non-empty) and invokes it after
+        `install_built_apks` + before the serial capture +
+        am instrument. The bond is on the PHONE (the
+        controller's NVS is wiped by `flash_old`); a stale
+        link key there triggers `HCI_ERR_KEY_MISSING` on the
+        first auto-connect and stalls the test.
         """
         def action() -> None:
-            ok = self.adb.remove_ble_bond(mac)
+            ok = self.adb.clear_ble_bond_via_intent(mac, app_package)
             if not ok:
                 # Log + continue. The bond might genuinely be
                 # absent (first run, or already removed by a
@@ -1192,7 +1203,7 @@ class Orchestrator:
                 # doesn't come up.
                 print(
                     f"[orchestrator] WARNING: "
-                    f"adb shell pm clear com.android.bluetooth "
+                    f"am broadcast ClearBleBondReceiver for {mac} "
                     f"returned non-zero; continuing anyway"
                 )
         return action

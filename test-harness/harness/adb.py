@@ -182,33 +182,47 @@ class Adb:
         self._run("shell", "pm", "grant", package, "android.permission.BLUETOOTH_SCAN")
         self._run("shell", "pm", "grant", package, "android.permission.BLUETOOTH_CONNECT")
 
-    def remove_ble_bond(self, mac: str) -> bool:
-        """Clear the phone-side BLE bond(s) for the controller.
+    def clear_ble_bond_via_intent(self, mac: str, app_package: str) -> bool:
+        """Clear the BLE bond for the given MAC by firing the
+        test-only `ClearBleBondReceiver` in the app.
 
-        Runs `adb shell pm clear com.android.bluetooth`. This
-        is a coarse tool — it clears ALL bonds (including
-        user-paired devices like headphones), forces the
-        Bluetooth system app to reinitialize, and resets all
-        Bluetooth settings. The mac parameter is currently
-        unused (kept for dispatch API stability); once the
-        Bluetooth app reinitializes the test's auto-connect
-        path handles the fresh "Just Works" pairing (the
-        firmware uses `BLE_HS_IO_NO_INPUT_OUTPUT`, so no OS
-        dialog appears).
+        Runs:
+            adb shell am broadcast \
+                -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND \
+                -p <app_package> \
+                --es mac <MAC>
 
-        Why this approach (and not the obvious
-        `cmd bluetooth_manager remove-bond <MAC>`): the
-        `cmd bluetooth_manager` shell interface on Android 16
-        (SM-A536B A536BXXSMGZE1) is stripped to
-        enable/disable/enableBle/disableBle/wait-for-state.
-        No bond-management commands. Bond removal is
-        restricted to apps with BLUETOOTH_CONNECT. The only
-        shell-side path that actually clears bonds is
-        `pm clear com.android.bluetooth`.
+        The receiver (in `app/.../debug/ClearBleBondReceiver.kt`)
+        calls `BluetoothDevice.removeBond(mac)` on the app's
+        process, which is the only API that actually clears
+        the persistent bond store on Android 16
+        (`cmd bluetooth_manager remove-bond` was removed in
+        newer Android; `pm clear com.android.bluetooth`
+        returns Success but the bond is re-loaded from
+        `/data/misc/bluetooth/` on next Bluetooth app start —
+        confirmed on SM-A536B A536BXXSMGZE1, the WH-1000XM3
+        bond survives a `pm clear` and is briefly shown as
+        "(No uuid)" before the UUIDs repopulate).
+
+        The receiver is **production-safe**: it is never
+        fired by production code; the action name is
+        namespaced under `de.aarondietz.beetmeister.debug.*`
+        so a grep makes the test-only intent obvious; and the
+        worst-case misuse is an unpair of the user's BLE
+        peripheral (low impact, user-recoverable by
+        re-pairing). See `ClearBleBondReceiver.kt` for the
+        full production-safety analysis.
+
+        `am broadcast` is async; the receiver uses the
+        synchronous `onReceive` (no `goAsync()`), and the
+        broadcast typically completes within a few hundred ms.
+        We add a short `--receiver-foreground` flag to
+        prioritize the delivery and a 5 s `am` command
+        timeout. The returncode is from `am broadcast`
+        itself (command-level), not from the receiver.
 
         Used by the firmware_update dispatch's
-        `remove_ble_bond` precondition to clear the phone-side
-        bond stored from a previous firmware run. After
+        `clear_ble_bond_via_intent` precondition. After
         `flash_old` wipes the controller's NVS, the phone's
         stored link key is stale; the next BLE auto-connect
         tries to encrypt with it and gets HCI_ERR_KEY_MISSING
@@ -218,15 +232,6 @@ class Adb:
         (the button text doesn't match the [Pair|Pairing|OK|
         Allow] candidates), so the test times out at
         `gate.tapScan`.
-
-        Side effect: the user must re-pair any other
-        previously-bonded BT devices (e.g. headphones) after
-        a test run. Documented in the config example; the
-        field is opt-in by leaving `ble_mac` empty.
-
-        Idempotent: clearing a Bluetooth app with no stored
-        bonds is a no-op. Returns True if `pm clear` returned
-        rc=0.
 
         P5 followup: addresses the actual root cause of the
         P5.3 firmware_update E2E block. The original handover
@@ -238,7 +243,10 @@ class Adb:
         with `HCI_ERR_KEY_MISSING`).
         """
         proc = self._run(
-            "shell", "pm", "clear", "com.android.bluetooth",
+            "shell", "am", "broadcast",
+            "-a", "de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND",
+            "-p", app_package,
+            "--es", "mac", mac,
             timeout=15.0,
         )
         return proc.returncode == 0

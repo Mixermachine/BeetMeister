@@ -43,6 +43,26 @@
             android:name=".service.BeetMaintenanceForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <!--
+            Test-only broadcast hook. Fired by the test-harness
+            orchestrator's firmware_update dispatch via
+            adb shell am broadcast, BEFORE the test's
+            am instrument launches the app. Clears the
+            phone-side BLE bond for the controller so the
+            app's auto-connect triggers a fresh Just Works
+            pair instead of trying to encrypt with a stale
+            link key (which would fail with HCI_ERR_KEY_MISSING
+            and stall the test). See ClearBleBondReceiver.kt
+            for the full rationale and production-safety
+            analysis.
+        -->
+        <receiver
+            android:name=".debug.ClearBleBondReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

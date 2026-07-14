@@ -45,23 +45,27 @@ serial_port = "COM4"
 baud = 115200
 
 # The controller's BLE MAC. Required for the firmware_update
-# dispatch's `remove_ble_bond` precondition: after `flash_old`
-# wipes the controller's NVS, the phone's stored link key is
-# stale and the next auto-connect gets HCI_ERR_KEY_MISSING,
-# which stalls the test. Empty = skip the precondition (with a
-# warning) — useful when you're iterating on the dispatch logic
-# without a controller, but the firmware_update suite will not
-# pass E2E without a MAC. Format: "AA:BB:CC:DD:EE:FF" (uppercase,
-# colon-separated, as printed by `Bluetooth MAC: ...` in the
-# controller's boot log).
+# dispatch's `clear_ble_bond_via_intent` precondition: after
+# `flash_old` wipes the controller's NVS, the phone's stored
+# link key is stale and the next auto-connect gets
+# HCI_ERR_KEY_MISSING, which stalls the test. Empty = skip
+# the precondition (with a warning) — useful when you're
+# iterating on the dispatch logic without a controller, but
+# the firmware_update suite will not pass E2E without a MAC.
+# Format: "AA:BB:CC:DD:EE:FF" (uppercase, colon-separated,
+# as printed by `Bluetooth MAC: ...` in the controller's
+# boot log).
 #
 # **Side effect:** the precondition runs
-# `adb shell pm clear com.android.bluetooth` (the only
-# Android-16 shell path for bond removal; the more obvious
-# `cmd bluetooth_manager remove-bond <MAC>` was removed in
-# newer Android). This clears ALL phone-side Bluetooth bonds
-# (the controller's stale one AND any user-paired devices like
-# headphones). Re-pair those by hand after the test run.
+# `adb shell am broadcast -a de.aarondietz.beetmeister.debug.action.CLEAR_BLE_BOND ...`,
+# which fires the app's test-only `ClearBleBondReceiver`.
+# The receiver calls `BluetoothDevice.removeBond(<MAC>)` for
+# JUST the controller — the only API that actually clears
+# the persistent bond store on Android 16. User-paired
+# devices (e.g. headphones) are NOT touched. The receiver
+# is production-safe (never fired by production code; see
+# the receiver's docstring in
+# `app/app/src/main/java/de/aarondietz/beetmeister/debug/ClearBleBondReceiver.kt`).
 ble_mac = ""
 
 [firmware]
