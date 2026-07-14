@@ -34,6 +34,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from harness import partition_map
 from harness.config import HarnessConfig
@@ -265,7 +266,22 @@ def ensure_old_firmware_built(
         shutil.copy2(built_boot, boot_path)
         shutil.copy2(built_pt, pt_path)
         image_info = _image_metadata(bin_path, config)
-        build_label = image_info.get("Build version", pinned_tag)
+        # P5 finding SUB #R29: prefer the BTMT `build_label` from
+        # `read_beet_metadata.py` (same source as the controller
+        # reports at runtime) over `esptool image_info`'s `Build
+        # version` field. The v0.3.0 .bin's BTMT build_label is
+        # `dev-7827368` (the git commit the v0.3.0 tag points at),
+        # while esptool's `App version` is `v0.3.0` (the tag name)
+        # and `Build version` is absent. The Kotlin test asserts
+        # the controller's reported label, so version.txt must
+        # match the BTMT value or the test will see a mismatch
+        # like `expected 'v0.3.0' got 'dev-7827368'`.
+        bin_metadata = _read_beet_metadata(bin_path)
+        build_label = (
+            bin_metadata.get("build_label")
+            or image_info.get("Build version")
+            or pinned_tag
+        )
         # P5 finding SUB #R24: the previous implementation read
         # `runtime_protocol_version` from the `bundled-firmware-stamp.json`
         # that the current branch's Gradle build writes. That stamp
@@ -421,18 +437,37 @@ def _read_runtime_protocol_version(worktree_dir: Path) -> int:
         return 0
 
 
-def _read_runtime_protocol_from_bin(bin_path: Path) -> int:
-    """Read runtime_protocol_version from a cached .bin's BTMT metadata.
+def _read_beet_metadata(bin_path: Path) -> dict[str, Any]:
+    """Read the full BTMT metadata block from a cached .bin.
 
-    P5 finding SUB #R24: the previous implementation read from
-    `bundled-firmware-stamp.json` which is only written by the
-    current branch's Gradle build. The v0.3.0 worktree's `idf.py
-    build` doesn't write that stamp, so the read returned 0 and
-    the firmware_update test failed. The actual protocol version
-    is embedded in the .bin's BTMT metadata block (type 6,
-    TLV_RUNTIME_PROTOCOL_VERSION). Parse it directly from the
-    cached .bin.
+    Returns a dict with `build_label`, `firmware_version`,
+    `runtime_protocol_version`, etc. Empty dict on any error
+    (missing script, parse failure, non-zero exit). Mirrors
+    `_read_runtime_protocol_from_bin` but returns the whole
+    metadata object so callers can pick what they need.
     """
+    read_script = (
+        Path(__file__).parent.parent.parent
+        / "firmware" / "esp-idf" / "components" / "beet_firmware"
+        / "tools" / "read_beet_metadata.py"
+    )
+    if not read_script.is_file():
+        return {}
+    try:
+        result = subprocess.run(
+            [sys.executable, str(read_script), str(bin_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return {}
+        return json.loads(result.stdout)
+    except (ValueError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def _read_runtime_protocol_from_bin(bin_path: Path) -> int:
     read_script = (
         Path(__file__).parent.parent.parent
         / "firmware" / "esp-idf" / "components" / "beet_firmware"
