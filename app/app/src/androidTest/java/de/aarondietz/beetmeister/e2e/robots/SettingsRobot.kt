@@ -113,57 +113,28 @@ internal class SettingsRobot(
      * that tag.
      *
      * The Settings screen is a LazyColumn wrapped in a
-     * `BeetPullToRefreshBox` (the `SettingsTestTags.Container`).
-     * The `PullToRefreshBox` breaks the scrollable-ancestor chain
-     * in the semantics tree, so neither `performScrollTo` on the
-     * container nor `performScrollToIndex` on a child finds the
-     * LazyColumn's scrollable state. The fix is to drive a
-     * bottom-to-top `swipe` gesture on any composed child of the
-     * LazyColumn. The child's swipe event bubbles up through the
-     * `nestedScroll` connection to the LazyColumn, scrolling it
-     * while the `PullToRefreshBox` only intercepts downward
-     * top-of-list swipes. We pick a dynamic anchor (the first
-     * Settings card whose tag is currently composed) because the
-     * scroll position persists across `@Test`s in a class-shared
-     * activity — the ControllerInfoCard may have scrolled off the
-     * top after a prior test. 20 iterations covers the full
-     * Settings list on the A53.
+     * `BeetPullToRefreshBox`. The `PullToRefreshBox` breaks the
+     * scrollable-ancestor chain in the semantics tree, so
+     * `performScrollTo` on the container and swipes on children
+     * don't reliably reach the LazyColumn. The fix: the LazyColumn
+     * itself is tagged with [SettingsTestTags.List] (added in P5
+     * SUB #R15), and we drive `performScrollToIndex` on the
+     * LazyColumn directly. We sweep a 20-element index range
+     * (the Settings list has ~5-6 cards; 20 covers any
+     * reasonable expansion) and check `onAllNodesWithTag` after
+     * each jump. The scroll position persists across `@Test`s
+     * in a class-shared activity, so we sweep the full range
+     * each time.
      */
     private fun scrollToTag(tag: String) {
-        repeat(20) {
+        val listNode = composeRule.onNodeWithTag(SettingsTestTags.List)
+        for (i in 0..20) {
             val found = composeRule
                 .onAllNodesWithTag(tag)
                 .fetchSemanticsNodes()
                 .isNotEmpty()
-            if (found) return@repeat
-            // Pick the first currently-composed Settings card as
-            // the swipe anchor. The anchor list is ordered by
-            // LazyColumn item index (ControllerInfoCard, then
-            // WateringInterval, MaxActivePumps, ValveConfig,
-            // PairName, FirmwareUpdate). When the list is
-            // scrolled to the bottom, only the later cards are
-            // composed — we swipe on whichever is visible.
-            val anchorTag = listOf(
-                SettingsTestTags.FirmwareUpdateOpenButton,
-                SettingsTestTags.ValveConfigSave,
-                SettingsTestTags.MaxActivePumpsSave,
-                SettingsTestTags.WateringIntervalSave,
-                SettingsTestTags.ControllerInfoCard,
-            ).firstOrNull { anchorTag ->
-                composeRule
-                    .onAllNodesWithTag(anchorTag)
-                    .fetchSemanticsNodes()
-                    .isNotEmpty()
-            } ?: return@repeat
-            val anchor = composeRule.onAllNodesWithTag(anchorTag).onFirst()
-            val bounds = anchor.fetchSemanticsNode().boundsInRoot
-            val centerX = (bounds.left + bounds.right) / 2f
-            anchor.performTouchInput {
-                swipe(
-                    start = Offset(centerX, bounds.bottom - 50f),
-                    end = Offset(centerX, bounds.top + 50f),
-                )
-            }
+            if (found) return
+            listNode.performScrollToIndex(i)
             composeRule.waitForIdle()
         }
     }

@@ -18,6 +18,7 @@ package de.aarondietz.beetmeister.ui.feature.settings
  */
 internal object SettingsTestTags {
     const val Container = "settings_container"
+    const val List = "settings_list"
     const val ControllerInfoCard = "settings_controller_info_card"
     const val ControllerInfoDeviceId = "settings_controller_info_device_id"
     const val ControllerInfoFirmwareVersion = "settings_controller_info_firmware_version"

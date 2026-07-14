@@ -232,6 +232,7 @@ internal fun SettingsScreen(
         modifier = modifier.testTag(SettingsTestTags.Container),
     ) {
         LazyColumn(
+            modifier = Modifier.testTag(SettingsTestTags.List),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
