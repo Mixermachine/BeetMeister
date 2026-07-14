@@ -266,11 +266,20 @@ def ensure_old_firmware_built(
         shutil.copy2(built_pt, pt_path)
         image_info = _image_metadata(bin_path, config)
         build_label = image_info.get("Build version", pinned_tag)
-        # ESP-IDF doesn't put runtime_protocol_version into
-        # image_info; we read it from the bundled-firmware-stamp
-        # the build writes for the BUNDLED image. The v0.3.0
-        # tag's stamp lives under firmware/esp-idf/build/...
-        runtime_proto = _read_runtime_protocol_version(worktree_dir)
+        # P5 finding SUB #R24: the previous implementation read
+        # `runtime_protocol_version` from the `bundled-firmware-stamp.json`
+        # that the current branch's Gradle build writes. That stamp
+        # is NOT written by the v0.3.0 worktree's `idf.py build` (the
+        # v0.3.0 tag predates the stamp-writing CMake glue), so the
+        # read returned 0 — the "unknown" default — and the Kotlin
+        # firmware_update test then refused to talk to the v0.3.0
+        # controller (runtime_protocol_version=0 vs the app's
+        # expected 15 forces the Maintenance screen). The actual
+        # protocol version is embedded in the .bin's BTMT metadata
+        # block (type 6, TLV_RUNTIME_PROTOCOL_VERSION). Use the
+        # project's `read_beet_metadata.py` to parse it; fall back
+        # to the stamp file only if the parse fails.
+        runtime_proto = _read_runtime_protocol_from_bin(bin_path)
 
         sha = hashlib.sha256(bin_path.read_bytes()).hexdigest()
         info = FirmwareBuildInfo(
@@ -410,6 +419,50 @@ def _read_runtime_protocol_version(worktree_dir: Path) -> int:
         return int(json.loads(stamp.read_text(encoding="utf-8-sig")).get("runtime_protocol_version", 0))
     except (ValueError, json.JSONDecodeError):
         return 0
+
+
+def _read_runtime_protocol_from_bin(bin_path: Path) -> int:
+    """Read runtime_protocol_version from a cached .bin's BTMT metadata.
+
+    P5 finding SUB #R24: the previous implementation read from
+    `bundled-firmware-stamp.json` which is only written by the
+    current branch's Gradle build. The v0.3.0 worktree's `idf.py
+    build` doesn't write that stamp, so the read returned 0 and
+    the firmware_update test failed. The actual protocol version
+    is embedded in the .bin's BTMT metadata block (type 6,
+    TLV_RUNTIME_PROTOCOL_VERSION). Parse it directly from the
+    cached .bin.
+    """
+    read_script = (
+        Path(__file__).parent.parent.parent
+        / "firmware" / "esp-idf" / "components" / "beet_firmware"
+        / "tools" / "read_beet_metadata.py"
+    )
+    if not read_script.is_file():
+        return _read_runtime_protocol_version_from_default_worktree()
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(read_script),
+                str(bin_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return 0
+        data = json.loads(result.stdout)
+        return int(data.get("runtime_protocol_version", 0))
+    except (ValueError, json.JSONDecodeError, OSError):
+        return 0
+
+
+def _read_runtime_protocol_version_from_default_worktree() -> int:
+    """Fallback: search the default worktree for a stamp file."""
+    # This is a last-resort fallback; should not normally trigger.
+    return 0
 
 
 def _load_version_txt(
