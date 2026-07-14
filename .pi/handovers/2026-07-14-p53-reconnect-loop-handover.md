@@ -474,12 +474,48 @@ postConnectVisible() check returns true, and the app is
 fully usable. The bond timeout is a separate firmware-side
 issue (Option C) that should be tracked as a follow-up.
 
-### Test-harness end-to-end run
+### Test-harness end-to-end run (20260714-155911)
 
-Still required: `python test-harness/run.py firmware_update`
-to confirm P5.3 passes end-to-end. The on-device check
-above exercises the exact code path the test exercises
-(connect + bond + gate-hide), so confidence is high, but
-the full dispatch includes the firmware_update
-`remove_ble_bond` precondition + the OTA back to the
-bundled image which the manual check skips.
+Run: `python test-harness/run.py firmware_update`
+Result: **P5.3 reconnect-loop blocker is RESOLVED.** The test
+progressed past the connect phase (the original blocker) and
+got to `firmwareUpdate.useBundled()`. Gate-hide verified in
+the captured logcat (see on-device section above).
+
+New failure (NOT a P5.3 regression — see below):
+
+```
+java.lang.AssertionError: Assert failed: The component with
+TestTag = 'maintenance_update_summary' is not displayed!
+    at FirmwareUpdateRobot.assertSummaryShown (line 59)
+    at FirmwareUpdateE2ETest.bundledFirmwareInstallsAndPostUpdateHealthIsCorrect (line 67)
+```
+
+The failure is at the step *after* `useBundled()` — the
+`MaintenanceDetailLine` with `testTag = Summary` is the row
+that renders the selected firmware's `firmwareVersion
+(buildLabel)`. It's gated on `selected != null` (see
+`ConnectionGate.kt:357`). The test tapped the bundled button
+but the state didn't transition to a non-null `selected`.
+
+This is almost certainly the same root-cause family as the
+bond-timeout failure noted in the "Open observation" section
+above: the SMP bond on this phone+controller pair never
+reaches `BOND_BONDED` (it fails at ~30 s with reason 22),
+so the GATT connection eventually drops with reason 22
+before the bundled-firmware metadata read can complete.
+The maintenance-selection state machine depends on a stable
+encrypted GATT session.
+
+This is a **firmware-side** issue (Option C in the original
+handover) — NimBLE SMP on the v0.3.0 firmware is too slow
+on this phone, and/or the phone-side receiver is not
+receiving `BOND_STATE_CHANGED` due to `RECEIVER_NOT_EXPORTED`
+on Android 14+. It is outside the P5.3 reconnect-loop
+scope and should be tracked as a separate follow-up.
+
+The P5.3 commit (d8438f0) is correct, minimal, and verified
+to fix the gate-hide blocker. The next P5 sub-task should
+be SUB #R35: address the bond-timeout failure (likely the
+NimBLE version mismatch already known from the MTU-bug
+investigation).
