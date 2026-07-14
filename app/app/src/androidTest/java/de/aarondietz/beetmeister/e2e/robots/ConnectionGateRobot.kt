@@ -105,7 +105,7 @@ internal class ConnectionGateRobot(
         .isNotEmpty()
 
     private fun postConnectVisible(): Boolean = composeRule
-        .onAllNodesWithText(POST_CONNECT_MARKER_TEXT, useUnmergedTree = true)
+        .onAllNodes(hasText(POST_CONNECT_MARKER_TEXT))
         .fetchSemanticsNodes()
         .isNotEmpty()
 
