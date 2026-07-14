@@ -679,3 +679,128 @@ The original P5 SUB #R36 question ("why does
 remaining `awaitReconnect` failure is a separate concern
 (firmware OTA reboot path) and should be tracked as its own
 sub-task.
+
+## P5 SUB #R37: investigate `awaitReconnect` failure
+
+Test run: `test-harness/runs/20260714-174550-firmware_update/`
+(commit `75fa21f`, e2e dur 157.5 s, failed at
+`FirmwareUpdateRobot.awaitReconnect` after 120 s timeout).
+
+### What the app does (from android-logcat.txt, PID 6513)
+
+1. 19:42:33 — `am instrument` starts the test
+2. 19:42:34–19:42:35 — bond + connect + service discovery
+3. 19:43:03.984 — **BLE disconnect** `onConnectionStateChange(status=8, newState=0)`
+   (BLE HS_ETIMEOUT / link supervision timeout)
+4. 19:43:04.820 — reconnect succeeds, services re-discovered
+5. 19:43:08.246 — user taps Install
+6. 19:43:08.395 — app sends `{"cmd":"begin_update",...}` to
+   maintenance control characteristic
+7. 19:43:08.460 — `onCharacteristicWrite maintenance control status=0`
+8. 19:43:08.688 — controller responds with status
+   `state=awaiting_data sessionId=1 nextOffset=0 failure=null`
+9. 19:43:08.690 — app enters `uploadMaintenanceData(sessionId=1 startOffset=0 total=730704)`
+10. 19:43:08.723 — `Skipping background event sync because maintenance update is active`
+11. **19:43:08.723 → 19:44:36.397 — NO `onCharacteristicWrite` callbacks
+    for the maintenance DATA characteristic (88 s of silence)**
+12. 19:44:36.397 — `disconnectGatt(reason=repository close)`
+13. 19:44:36.410 — `runMaintenanceUpdate caught error`
+    `kotlinx.coroutines.JobCancellationException: Job was cancelled;
+    job=CompletableDeferredImpl{Cancelled}`
+14. 19:44:36.430 — `runMaintenanceUpdate failed` (StandaloneCoroutine cancelled)
+
+### What the controller does (from controller-serial.txt)
+
+The controller serial was captured for only the first **30 s** of
+the test (the default `--max-seconds=30` in
+`artifacts/stage8/serial_reader.py`). The
+`begin_update` arrived at ~35 s into the test, so the
+controller's response to the begin_update + all data writes
+were **not captured** in the serial log. I committed
+`3512682` to extend the serial reader timeout to 600 s for
+all three `start_serial()` call-sites in the orchestrator,
+so the next run will have the full controller side.
+
+What the truncated serial *does* show:
+- Controller boots, advertises as `beetmeister-01`
+- Phone connects, MTU 247 negotiated
+- Phone subscribes to all 3 CCCD (state, command result, maintenance status)
+- Periodic `NOTIFY_TX type=13` (state frames) and
+  `GATT procedure initiated: indicate; att_handle=23`
+  (maintenance status indications) keep flowing
+- No `BEGIN_UPDATE`, no `esp_ota_begin`, no `esp_ota_write`,
+  no `esp_ota_end`, no `esp_restart` in the captured window
+  (because the OTA flow started after the 30 s cutoff)
+
+### Root cause analysis
+
+The app sends `begin_update`, the controller acknowledges
+with `awaiting_data`, the app starts uploading chunks — but
+**no `onCharacteristicWrite` callbacks fire for the
+maintenance DATA characteristic for 88 s**. The
+`writeCharacteristic()` call returns `true` (the write is
+queued by the Android BLE stack), but the controller never
+sends a write response.
+
+Two possibilities, both firmware-side:
+
+1. **OTA handle is in a bad state after the reconnect at
+   19:43:04.820.** The `begin_update` was queued
+   *before* the reconnect, then re-processed. If
+   `esp_ota_begin()` was called for a partition that was
+   never written to, the next `esp_ota_write()` in the
+   maintenance session service loop would fail silently
+   (or the data characteristic GATT access callback would
+   return `BLE_ATT_ERR_UNLIKELY` because
+   `s_ble.maintenance_session.ota_handle_active` is false).
+   The app would see no `onCharacteristicWrite` because the
+   NimBLE stack is buffering the writes and not sending
+   them, or because the writes are being rejected at the
+   GATT layer before reaching the controller.
+
+2. **The BLE link supervision timeout at 19:43:03.984 left
+   the NimBLE GATT server in a state where the data
+   characteristic's write response is not being
+   transmitted.** This is a known issue with some NimBLE
+   versions after a supervision timeout.
+
+Without the full controller serial, I can't disambiguate
+between these two. The next test run with
+`max_seconds=600` will capture the controller's response to
+the `begin_update` and the data writes, which will tell us
+which one is the real bug.
+
+### What I did not fix
+
+I did not commit a firmware-side fix. The `awaitReconnect`
+failure is a genuine firmware bug (or app/firmware
+interaction bug) that needs the full controller serial to
+diagnose. The committed test-harness change (`3512682`) is
+the diagnostic tool for the next run.
+
+### Recommended next step
+
+Re-run the test-harness with the new `max_seconds=600`
+setting. The controller serial will now cover the full OTA
+upload phase. Look for:
+
+- `BEGIN_UPDATE queued` log on the controller (should appear
+  ~35 s into the test)
+- `esp_ota_begin` / `esp_ota_write` logs (should appear as
+  the chunks are processed)
+- Any `data write rejected: ota_handle_active=0` log
+  (would confirm hypothesis #1)
+- Any NimBLE GATT errors (`GATT procedure initiated:
+  execute_write; att_handle=...` followed by error
+  responses) (would confirm hypothesis #2)
+
+If `data write rejected: ota_handle_active=0` appears,
+the fix is in `beet_ble_service_maintenance_session`:
+re-process any pending `begin_update` after a reconnect, or
+guard the data write callback to wait for the OTA handle to
+become active.
+
+If NimBLE GATT errors appear, the fix is in the NimBLE
+stack configuration or in the BLE reconnection logic
+(perhaps the GATT server needs to be re-registered after a
+reconnect).
