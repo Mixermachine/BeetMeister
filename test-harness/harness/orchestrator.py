@@ -1220,7 +1220,7 @@ class Orchestrator:
         (the `am instrument` call would have already
         dismissed it via the system back-stack).
         """
-        serial = self.config.device.serial
+        serial = self.config.device.adb_serial
         # Check if the dialog is present by looking for the
         # "Pair" text in the UI tree.
         check = subprocess.run(
