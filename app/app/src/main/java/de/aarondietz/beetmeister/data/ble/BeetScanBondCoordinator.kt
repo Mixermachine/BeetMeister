@@ -263,10 +263,27 @@ internal class BeetScanBondCoordinator(
                 }
                 when (bondState) {
                     BluetoothDevice.BOND_BONDED -> {
+                        // P5.3 fix: do not fire a second openGatt when the
+                        // BOND_BONDING "kick" openGatt already established a
+                        // live GATT connection. On the v0.3.0 firmware the
+                        // SMP bond takes 2-3 s, so the kick connection has
+                        // already reached phase=Connected before the bond
+                        // completes. A second openGatt would tear the live
+                        // connection down and reconnect, cancelling the
+                        // gate's 900 ms stability delay. Android re-encrypts
+                        // the existing connection transparently when the
+                        // bond completes, so no new openGatt is required.
                         pendingBondAddress = null
                         pendingBondGattKickAddress = null
                         bondMonitorJob = null
-                        host.requestOpenGatt(device)
+                        if (host.session.currentGatt == null) {
+                            host.requestOpenGatt(device)
+                        } else {
+                            Log.d(
+                                TAG,
+                                "Skipping BOND_BONDED openGatt: GATT connection already live address=${device.address}",
+                            )
+                        }
                         return@launch
                     }
                     BluetoothDevice.BOND_BONDING -> {
@@ -367,9 +384,22 @@ internal class BeetScanBondCoordinator(
                 updateConnection(BeetConnectionPhase.Bonding, strings.get(R.string.scan_pairing_in_progress_confirm))
             }
             BluetoothDevice.BOND_BONDED -> {
+                // P5.3 fix: see monitorBondState BOND_BONDED arm. The
+                // "kick" openGatt from BOND_BONDING may have already
+                // established a live GATT connection by the time the
+                // BOND_STATE_CHANGED broadcast arrives. Skip the second
+                // openGatt in that case to avoid a needless reconnect
+                // that would cancel the gate's stability delay.
                 pendingBondAddress = null
                 pendingBondGattKickAddress = null
-                host.requestOpenGatt(bondedDevice)
+                if (host.session.currentGatt == null) {
+                    host.requestOpenGatt(bondedDevice)
+                } else {
+                    Log.d(
+                        TAG,
+                        "Skipping BOND_BONDED openGatt from broadcast: GATT connection already live address=${bondedDevice.address}",
+                    )
+                }
             }
             BluetoothDevice.BOND_NONE -> {
                 if (previousBondState == BluetoothDevice.BOND_BONDING) {
