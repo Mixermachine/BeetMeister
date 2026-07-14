@@ -613,3 +613,69 @@ The next P5 sub-task should be:
 The bond flow is now correct. P5 SUB #R34 (double openGatt
 fix) and P5 SUB #R35 (broadcast receiver fix) are both
 verified working.
+
+## Fix applied (commit 75fa21f, P5 SUB #R36)
+
+P5 SUB #R36 applied: the `maintenance_update_summary` failure
+was a Compose threading bug, not a test infrastructure or
+firmware issue.
+
+### Root cause
+
+`BeetRepository.host.scope` was constructed with
+`SupervisorJob() + Dispatchers.IO`. Every `host.updateState {}`
+call in `BeetGattSessionCoordinator` (56 of them) ran on the
+IO thread. Compose's `SnapshotStateObserver` reads state on the
+UI thread during layout/draw; a cross-thread mutation triggers
+`IllegalArgumentException: Detected multithreaded access to
+SnapshotStateObserver`. The exception is caught by the Compose
+runtime and the recomposition is silently dropped — so
+`useBundled()`'s click 'succeeded' (the click was dispatched),
+the state mutation landed, but the Summary node was never
+composed into the semantics tree. `assertIsDisplayed()` then
+fails with "component not displayed", which was the original
+E2E failure.
+
+The on-fail screenshot always showed the system Bluetooth
+settings because the test was being killed by Samsung's
+FreecessHandler (background-process freezer) when the app was
+idle between test-harness setup steps — unrelated to the real
+bug, but masked the threading root cause.
+
+### Code changes
+
+Two files:
+
+1. `app/app/src/main/java/de/aarondietz/beetmeister/data/repository/BeetRepository.kt`:
+   changed `ioDispatcher` default from `Dispatchers.IO` to
+   `Dispatchers.Main.immediate`. The coordinator coroutines
+   are coordination/state-update glue; the actual BLE IO runs
+   on the Android Bluetooth stack's own threads. `delay()`
+   suspends without blocking, so the bond-monitor poll is
+   safe on Main. All 56 `updateState` call-sites now run on
+   the UI thread without needing individual `withContext` hops.
+
+2. `app/app/src/androidTest/java/de/aarondietz/beetmeister/e2e/robots/FirmwareUpdateRobot.kt`:
+   `assertSummaryShown()` now does a `waitUntil(10_000ms)` for
+   the Summary node to appear in the semantics tree before
+   asserting. The state update is async; the test was
+   checking the node before the coroutine landed it. Also
+   added `performScrollTo()` so the assertion doesn't fail on
+   viewport clipping.
+
+### Test-harness run (20260714-174550)
+
+- Connect phase: **passes** (P5 SUB #R34 + R35 still verified)
+- `useBundled()` + `assertSummaryShown()`: **now passes** (was failing)
+- `tapInstall()` + `awaitTransferStarted()`: **pass**
+- `awaitReconnect(120_000)`: **FAILS** — controller did not come
+  back online after the OTA transfer started. Controller serial
+  shows ongoing GATT notifications throughout (the controller
+  never rebooted). This is a **firmware-side** issue (NimBLE
+  SMP / OTA reboot flow), not an app-side issue.
+
+The original P5 SUB #R36 question ("why does
+`maintenance_update_summary` not show?") is **resolved**. The
+remaining `awaitReconnect` failure is a separate concern
+(firmware OTA reboot path) and should be tracked as its own
+sub-task.
