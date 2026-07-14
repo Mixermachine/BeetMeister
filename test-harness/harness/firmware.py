@@ -496,14 +496,20 @@ def flash_old(
                 f"Remove firmware_cache/ for {pinned_tag} and retry."
             )
 
-    # ESP32-S3 bootloader offset is 0x1000; partition table at 0x8000.
+    # ESP32-S3 bootloader offset is 0x0; partition table at 0x8000.
     # These are fixed chip defaults (NOT partition-CSV entries).
+    # P5 finding SUB #R23: the original code used 0x1000 which
+    # is the offset for the original ESP32 (non-S3). The ESP32-S3
+    # ROM bootloader looks for the 2nd-stage bootloader at 0x0,
+    # so flashing it at 0x1000 leaves the ROM bootloader unable
+    # to find a valid app image, causing the
+    # "Invalid image block, can't boot" boot loop.
     cmd = build_esptool_command(
         config,
         "--port", port,
         "--baud", str(config.controller.baud),
         "write_flash",
-        "0x1000", str(boot_path),
+        "0x0", str(boot_path),
         "0x8000", str(pt_path),
         f"0x{ota_0.offset:x}", str(bin_path),
     )
