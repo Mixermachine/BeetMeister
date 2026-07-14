@@ -118,13 +118,27 @@ internal class E2eConnectionFixture(
         val device = UiDevice.getInstance(
             InstrumentationRegistry.getInstrumentation(),
         )
-        // Try both AOSP and Samsung button labels.
+        // The dialog may not be present yet (the BLE auto-connect
+        // triggers it AFTER the test rule launches the Activity).
+        // Retry for up to 10 s: every 500 ms, check for the
+        // "Pair" button; if present, click it. The fresh_install /
+        // settings_update tests never show the dialog so the
+        // loop exits immediately on the first iteration.
         val candidates = listOf("Pair", "Pairing", "OK", "Allow")
-        for (label in candidates) {
-            val node = device.findObject(By.text(label))
-            if (node != null) {
-                node.click()
-                device.waitForIdle(2_000L)
+        val deadline = System.currentTimeMillis() + 10_000L
+        while (System.currentTimeMillis() < deadline) {
+            for (label in candidates) {
+                val node = device.findObject(By.text(label))
+                if (node != null) {
+                    node.click()
+                    device.waitForIdle(2_000L)
+                    return
+                }
+            }
+            try {
+                Thread.sleep(500L)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
                 return
             }
         }
