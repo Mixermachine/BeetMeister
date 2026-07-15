@@ -804,3 +804,54 @@ If NimBLE GATT errors appear, the fix is in the NimBLE
 stack configuration or in the BLE reconnection logic
 (perhaps the GATT server needs to be re-registered after a
 reconnect).
+
+### Diagnostic instrumentation added (commit f6a383a)
+
+Built v0.3.0 firmware with two new ESP_LOGI traces and
+replaced the cached binaries in
+`test-harness/firmware_cache/`:
+
+1. `beet_ble_maintenance_gatt_access` logs every op +
+   attr_handle. Tells us whether data writes are even
+   reaching the GATT server.
+
+2. `beet_ble_write_maintenance_data` logs every data write
+   entry with `active / ota_active / reboot_pending` flags.
+   Tells us which guard is rejecting the write (encryption,
+   session inactive, OTA handle not active, reboot pending,
+   or none of them).
+
+### Blocker: pre-existing test flakiness at `tapScan`
+
+After adding the diagnostic traces, ran the test-harness
+20 times. **All 20 attempts failed at `assertDeviceVisible`
+(30 s timeout).** Root cause is NOT the firmware update bug
+— it's a separate test-infrastructure flakiness:
+
+- The test-harness's `clear_ble_bond` precondition clears
+  the bond, so the app has to do a fresh bond on launch.
+- The fresh bond triggers an automatic direct connect
+  (`BeetScanBond: start() → connect(address=…)`), not a
+  scan.
+- Once the direct connect completes, the controller stops
+  advertising.
+- The test then taps Scan (because the gate is still up
+  during the Syncing phase), starts a scan, but the scan
+  can't find the controller because it's no longer
+  advertising.
+- 30 s later, `assertDeviceVisible` times out.
+
+This blocks the diagnostic for R37. The fix for the
+test flakiness is to make `gate.isAlreadyConnected()`
+recognize the in-progress direct connect (Syncing phase) as
+"already connected" and skip the scan step. That's a
+separate sub-task.
+
+### Workaround to unblock R37
+
+To get the diagnostic, run the firmware update flow
+manually on the phone (clear bond → pair → Settings →
+Firmware Update → Bundled → Install) while the serial
+reader is running with `--max-seconds 600`. The controller
+serial will then show the data write entry logs and
+identify which guard is rejecting the writes.
