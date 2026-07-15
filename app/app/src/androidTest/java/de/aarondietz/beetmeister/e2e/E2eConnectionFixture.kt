@@ -97,8 +97,27 @@ internal class E2eConnectionFixture(
         }
         dismissBluetoothPairingDialog()
         gate.tapScan()
+        // P5 finding SUB #R37b: the app's BLE auto-connect
+        // (Idle -> Connecting -> ... -> Connected) can race
+        // with tapScan(). If tapScan() exits before the
+        // auto-connect fires (scanButtonVisible = true,
+        // postConnectVisible = false), it punches the scan
+        // button and we fall through here. But the auto-
+        // connect may have completed by now, hiding the
+        // gate entirely. Check: if the post-connect shell
+        // is already up, skip the scan-result path.
+        if (gate.isAlreadyConnected()) {
+            screenshots.captureStep("afterConnect")
+            E2eConnectionState.isConnected = true
+            return
+        }
         gate.assertDeviceVisible()
-        gate.tapConnect()
+        // P5 finding SUB #R37b: auto-connect may have completed
+        // during assertDeviceVisible(). If the gate is gone,
+        // skip tapConnect().
+        if (!gate.isAlreadyConnected()) {
+            gate.tapConnect()
+        }
         gate.assertConnected()
         screenshots.captureStep("afterConnect")
         E2eConnectionState.isConnected = true

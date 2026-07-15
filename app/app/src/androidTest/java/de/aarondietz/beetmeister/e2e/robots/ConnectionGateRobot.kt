@@ -139,9 +139,13 @@ internal class ConnectionGateRobot(
                 composeRule
                     .onAllNodesWithTag(ConnectionGateTestTags.DeviceCard)
                     .fetchSemanticsNodes()
-                    .isNotEmpty()
+                    .isNotEmpty() || postConnectVisible()
             }
         }
+        // P5 finding SUB #R37b: if the auto-connect won the race
+        // during the wait, the post-connect shell is up and the
+        // gate is gone. Don't assert the now-gone DeviceCard.
+        if (postConnectVisible()) return
         composeRule
             .onAllNodesWithTag(ConnectionGateTestTags.DeviceCard)
             .assertCountEquals(1)
