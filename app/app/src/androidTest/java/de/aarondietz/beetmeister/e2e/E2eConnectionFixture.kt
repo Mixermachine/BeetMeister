@@ -95,6 +95,16 @@ internal class E2eConnectionFixture(
             E2eConnectionState.isConnected = true
             return
         }
+        // P5 SUB #R25/R37d: firmware_update dispatch flashes
+        // v0.3.0 which may enter MaintenanceRequired mode.
+        // In this forced mode the ConnectionGate never renders;
+        // the MaintenanceScreen appears instead and is ready
+        // for the firmware update flow. Skip scan/connect.
+        if (gate.maintenanceScreenVisible()) {
+            screenshots.captureStep("maintenanceRequired")
+            E2eConnectionState.isConnected = true
+            return
+        }
         dismissBluetoothPairingDialog()
         gate.tapScan()
         // P5 finding SUB #R37b: the app's BLE auto-connect

@@ -55,14 +55,30 @@ class FirmwareUpdateE2ETest {
     fun setUp() {
         fixture = E2eConnectionFixture(composeRule, testSlug = "firmwareUpdate")
         settings = SettingsRobot(composeRule)
-        fixture.connectOnce()
+        // P5 SUB #R37d: in MaintenanceRequired mode, the app
+        // auto-enters the forced MaintenanceScreen. The Activity
+        // may be recreated between @Before and @Test (an
+        // ActivityScenarioRule quirk), so we don't connect here.
+        // The @Test body handles both modes.
     }
 
     @Test(timeout = 600_000)
     fun bundledFirmwareInstallsAndPostUpdateHealthIsCorrect() {
-        settings.openSettings()
-        settings.assertCurrentFirmwareMatchesOldBuildLabel()
-        val firmwareUpdate: FirmwareUpdateRobot = settings.openFirmwareUpdate()
+        // Wait for the UI to settle (MaintenanceScreen or Gate).
+        // In MaintenanceRequired mode, the MaintenanceScreen
+        // renders immediately and auto-connects.
+        val firmwareUpdate: FirmwareUpdateRobot
+        composeRule.waitUntil(timeoutMillis = 30_000) {
+            fixture.gate.maintenanceScreenVisible() || fixture.gate.isAlreadyConnected()
+        }
+        if (fixture.gate.maintenanceScreenVisible()) {
+            firmwareUpdate = FirmwareUpdateRobot(composeRule)
+        } else {
+            fixture.connectOnce()
+            settings.openSettings()
+            settings.assertCurrentFirmwareMatchesOldBuildLabel()
+            firmwareUpdate = settings.openFirmwareUpdate()
+        }
         firmwareUpdate.useBundled()
         firmwareUpdate.assertSummaryShown()
         firmwareUpdate.tapInstall()

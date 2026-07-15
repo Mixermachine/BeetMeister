@@ -71,13 +71,18 @@ internal class BeetRepository(
 
     fun close() {
         Log.d(TAG, "close()")
-        // Guard: suppress close during an active maintenance update.
-        // The BLE connection carries the OTA transfer; closing
-        // mid-transfer leaves the controller stuck in OTA_IN_PROGRESS.
-        // This can fire when a stale ViewModel onCleared() races
-        // with an E2E test that navigated to the MaintenanceScreen.
-        if (_state.value.maintenanceUpdate.phase.isActiveMaintenancePhase()) {
-            Log.w(TAG, "close() suppressed — maintenance update is active")
+        // Guard: suppress close during maintenance flows.
+        // Activity recreation (ActivityScenarioRule) can trigger
+        // onCleared() during the E2E test. Don't kill the BLE
+        // connection while the Maintenance screen is active or an
+        // OTA transfer is in progress.
+        val currentPhase = _state.value.connection.phase
+        val updatePhase = _state.value.maintenanceUpdate.phase
+        if (currentPhase == BeetConnectionPhase.MaintenanceRequired ||
+            updatePhase.isActiveMaintenancePhase()
+        ) {
+            Log.w(TAG, "close() suppressed — maintenance is " +
+                "phase=$currentPhase updatePhase=$updatePhase")
             return
         }
         scanBondCoordinator.close()

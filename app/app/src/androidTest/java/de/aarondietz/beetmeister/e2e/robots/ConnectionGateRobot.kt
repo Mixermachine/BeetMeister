@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
 import de.aarondietz.beetmeister.ui.feature.connection.ConnectionGateTestTags
+import de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateTestTags
 
 /**
  * Robot for the BLE ConnectionGate (the pre-connect screen the user
@@ -192,6 +193,17 @@ internal class ConnectionGateRobot(
      * [assertConnected].
      */
     fun isAlreadyConnected(): Boolean = postConnectVisible()
+
+    /**
+     * Detects whether the forced MaintenanceRequired
+     * screen is current. In this mode the ConnectionGate
+     * never renders; the MaintenanceScreen takes over.
+     * Used by firmware_update E2E test to skip scan/connect.
+     */
+    fun maintenanceScreenVisible(): Boolean = composeRule
+        .onAllNodesWithTag(MaintenanceUpdateTestTags.Title)
+        .fetchSemanticsNodes()
+        .isNotEmpty()
 
     companion object {
         const val EXTRA_EXPECTED_DEVICE_NAME = "expected_device_name"
