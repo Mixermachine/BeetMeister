@@ -34,3 +34,7 @@ screen.png
 app/.idea/
 app/.gradle/
 app/.kotlin/
+
+# Pi agent scratch directories (not for commit)
+.pi/
+.pi-subagents/
