@@ -96,12 +96,19 @@ internal class E2eConnectionFixture(
             return
         }
         // P5 SUB #R25/R37d: firmware_update dispatch flashes
-        // v0.3.0 which may enter MaintenanceRequired mode.
-        // In this forced mode the ConnectionGate never renders;
-        // the MaintenanceScreen appears instead and is ready
-        // for the firmware update flow. Skip scan/connect.
+        // v0.3.0 which enters MaintenanceRequired mode.
+        // The ConnectionGate never renders; the forced
+        // MaintenanceScreen replaces it. Wait for the
+        // auto-connect to complete (maintenance info loaded)
+        // before returning, so the Activity is stable when
+        // @Test starts and won't be recreated by the rule.
         if (gate.maintenanceScreenVisible()) {
             screenshots.captureStep("maintenanceRequired")
+            dismissBluetoothPairingDialog()
+            composeRule.waitUntil(timeoutMillis = 30_000) {
+                gate.maintenanceScreenConnected()
+            }
+            screenshots.captureStep("afterConnect")
             E2eConnectionState.isConnected = true
             return
         }

@@ -205,6 +205,15 @@ internal class ConnectionGateRobot(
         .fetchSemanticsNodes()
         .isNotEmpty()
 
+    /**
+     * Whether the MaintenanceScreen is visible AND the
+     * controller is connected (maintenance info loaded).
+     */
+    fun maintenanceScreenConnected(): Boolean = composeRule
+        .onAllNodesWithTag(MaintenanceUpdateTestTags.CurrentFirmware)
+        .fetchSemanticsNodes()
+        .isNotEmpty()
+
     companion object {
         const val EXTRA_EXPECTED_DEVICE_NAME = "expected_device_name"
 

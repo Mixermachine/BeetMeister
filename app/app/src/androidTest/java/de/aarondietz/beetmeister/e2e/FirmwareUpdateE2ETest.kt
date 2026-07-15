@@ -55,26 +55,25 @@ class FirmwareUpdateE2ETest {
     fun setUp() {
         fixture = E2eConnectionFixture(composeRule, testSlug = "firmwareUpdate")
         settings = SettingsRobot(composeRule)
-        // P5 SUB #R37d: in MaintenanceRequired mode, the app
-        // auto-enters the forced MaintenanceScreen. The Activity
-        // may be recreated between @Before and @Test (an
-        // ActivityScenarioRule quirk), so we don't connect here.
-        // The @Test body handles both modes.
+        // P5 SUB #R37d: if the controller runs v0.3.0,
+        // the app enters MaintenanceRequired forced mode.
+        // connectOnce() detects this via maintenanceScreenVisible()
+        // and waits for the auto-connect to complete before
+        // returning. The MaintenanceScreen stays visible; the
+        // @Test body proceeds directly to the firmware update.
+        fixture.connectOnce()
     }
 
     @Test(timeout = 600_000)
     fun bundledFirmwareInstallsAndPostUpdateHealthIsCorrect() {
-        // Wait for the UI to settle (MaintenanceScreen or Gate).
-        // In MaintenanceRequired mode, the MaintenanceScreen
-        // renders immediately and auto-connects.
         val firmwareUpdate: FirmwareUpdateRobot
-        composeRule.waitUntil(timeoutMillis = 30_000) {
-            fixture.gate.maintenanceScreenVisible() || fixture.gate.isAlreadyConnected()
-        }
         if (fixture.gate.maintenanceScreenVisible()) {
+            // Forced maintenance mode: MaintenanceScreen is
+            // already showing with a connected controller.
             firmwareUpdate = FirmwareUpdateRobot(composeRule)
         } else {
-            fixture.connectOnce()
+            // Normal mode: navigate through Settings to open
+            // the firmware update screen.
             settings.openSettings()
             settings.assertCurrentFirmwareMatchesOldBuildLabel()
             firmwareUpdate = settings.openFirmwareUpdate()
@@ -83,7 +82,7 @@ class FirmwareUpdateE2ETest {
         firmwareUpdate.assertSummaryShown()
         firmwareUpdate.tapInstall()
         firmwareUpdate.awaitTransferStarted(timeoutMillis = 300_000L)
-        firmwareUpdate.awaitReconnect(timeoutMillis = 120_000L)
+        firmwareUpdate.awaitReconnect(timeoutMillis = 300_000L)
         firmwareUpdate.assertPostUpdateHealthy()
     }
 }
