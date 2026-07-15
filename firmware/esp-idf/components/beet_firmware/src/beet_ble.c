@@ -817,6 +817,15 @@ static int beet_ble_write_maintenance_data(
     const uint8_t *payload = NULL;
     size_t payload_len = 0U;
 
+    // P5 SUB #R37 debug: log every data write entry so we can see
+    // if the callback is even being invoked after a BLE reconnect.
+    ESP_LOGI(TAG, "data write entered conn_handle=%u om_len=%u active=%d ota_active=%d reboot_pending=%d",
+             (unsigned)conn_handle,
+             (unsigned)OS_MBUF_PKTLEN(ctxt->om),
+             (int)s_ble.maintenance_session.active,
+             (int)s_ble.maintenance_session.ota_handle_active,
+             (int)s_ble.maintenance_session.reboot_pending);
+
     if (beet_ble_require_encrypted(conn_handle) != 0) {
         ESP_LOGW(TAG, "data write rejected: conn_handle=%u not encrypted", conn_handle);
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
@@ -927,6 +936,14 @@ static int beet_ble_maintenance_gatt_access(
     void *arg)
 {
     (void)arg;
+
+    // P5 SUB #R37 debug: log every GATT access to the maintenance
+    // service so we can see if data writes are even reaching the
+    // GATT server after a BLE reconnect.
+    ESP_LOGI(TAG, "maint_gatt_access op=%d attr_handle=%u data_handle=%u ctrl_handle=%u",
+             (int)ctxt->op, (unsigned)attr_handle,
+             (unsigned)s_maintenance_data_handle,
+             (unsigned)s_maintenance_control_handle);
 
     switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_CHR:
