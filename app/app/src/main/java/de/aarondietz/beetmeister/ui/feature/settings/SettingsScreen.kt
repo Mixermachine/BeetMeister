@@ -87,6 +87,9 @@ internal fun SettingsScreen(
     var intervalMinutesText by remember { mutableStateOf("") }
     var maxPumpsDraft by remember { mutableStateOf<Int?>(null) }
     var activeInfo by remember { mutableStateOf<ValveSettingInfo?>(null) }
+    var userEditedMoveDuration by remember { mutableStateOf(false) }
+    var userEditedSettleDelay by remember { mutableStateOf(false) }
+    var userEditedOpenHold by remember { mutableStateOf(false) }
     var showRebootDialog by remember { mutableStateOf(false) }
     var showFactoryResetDialog by remember { mutableStateOf(false) }
 
@@ -100,10 +103,21 @@ internal fun SettingsScreen(
 
     LaunchedEffect(valveConfig) {
         if (valveConfig != null) {
+            android.util.Log.d("Settings", "LaunchedEffect(valveConfig) firing: " +
+                "userEditedMoveDuration=$userEditedMoveDuration " +
+                "userEditedSettleDelay=$userEditedSettleDelay " +
+                "userEditedOpenHold=$userEditedOpenHold " +
+                "vc.moveDuration=${valveConfig.moveDurationMillis}")
+            if (!userEditedMoveDuration) {
+                moveDurationText = valveConfig.moveDurationMillis.toString()
+            }
+            if (!userEditedSettleDelay) {
+                settleDelayText = valveConfig.settleDelayMillis.toString()
+            }
+            if (!userEditedOpenHold) {
+                openHoldText = valveConfig.openHoldMillis.toString()
+            }
             valveEnabled = valveConfig.valveEnabled
-            moveDurationText = valveConfig.moveDurationMillis.toString()
-            settleDelayText = valveConfig.settleDelayMillis.toString()
-            openHoldText = valveConfig.openHoldMillis.toString()
         }
     }
 
@@ -476,7 +490,7 @@ internal fun SettingsScreen(
                         ValveNumberField(
                             value = moveDurationText,
                             label = strings.get(R.string.settings_label_valve_move_duration),
-                            onValueChange = { moveDurationText = it },
+                            onValueChange = { moveDurationText = it; userEditedMoveDuration = true; android.util.Log.d("Settings", "moveDurationText changed to $it, userEdited=true") },
                             isError = moveDurationError != null,
                             supportingText = moveDurationError,
                             onInfoClick = { activeInfo = ValveSettingInfo.MoveDuration },
@@ -486,7 +500,7 @@ internal fun SettingsScreen(
                         ValveNumberField(
                             value = settleDelayText,
                             label = strings.get(R.string.settings_label_valve_settle_delay),
-                            onValueChange = { settleDelayText = it },
+                            onValueChange = { settleDelayText = it; userEditedSettleDelay = true; android.util.Log.d("Settings", "settleDelayText changed to $it, userEdited=true") },
                             isError = settleDelayError != null,
                             supportingText = settleDelayError,
                             onInfoClick = { activeInfo = ValveSettingInfo.SettleDelay },
@@ -496,7 +510,7 @@ internal fun SettingsScreen(
                         ValveNumberField(
                             value = openHoldText,
                             label = strings.get(R.string.settings_label_valve_open_hold),
-                            onValueChange = { openHoldText = it },
+                            onValueChange = { openHoldText = it; userEditedOpenHold = true; android.util.Log.d("Settings", "openHoldText changed to $it, userEdited=true") },
                             isError = openHoldError != null,
                             supportingText = openHoldError,
                             onInfoClick = { activeInfo = ValveSettingInfo.OpenHold },

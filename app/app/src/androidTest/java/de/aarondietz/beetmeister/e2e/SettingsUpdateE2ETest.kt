@@ -6,7 +6,6 @@ import de.aarondietz.beetmeister.e2e.robots.OverviewRobot
 import de.aarondietz.beetmeister.e2e.robots.PairDetailRobot
 import de.aarondietz.beetmeister.e2e.robots.SettingsRobot
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 
@@ -85,8 +84,6 @@ class SettingsUpdateE2ETest {
         settings.assertValveEnabled(enabled = false)
     }
 
-    @Ignore("P5 SUB #R37c: LaunchedEffect(valveConfig) resets field during" +
-        " performTextReplacement idle wait, disabling save button")
     @Test(timeout = 120_000)
     fun valveMoveDuration_canBeSetTo2000ms() {
         settings.openSettings()
@@ -94,8 +91,6 @@ class SettingsUpdateE2ETest {
         settings.assertValveMoveDuration(expectedMillisStr = "2000")
     }
 
-    @Ignore("P5 SUB #R37c: LaunchedEffect(valveConfig) resets field during" +
-        " performTextReplacement idle wait, disabling save button")
     @Test(timeout = 120_000)
     fun valveSettleDelay_canBeSetTo500ms() {
         settings.openSettings()
@@ -103,8 +98,6 @@ class SettingsUpdateE2ETest {
         settings.assertValveSettleDelay(expectedMillisStr = "500")
     }
 
-    @Ignore("P5 SUB #R37c: LaunchedEffect(valveConfig) resets field during" +
-        " performTextReplacement idle wait, disabling save button")
     @Test(timeout = 120_000)
     fun valveOpenHold_canBeSetTo2000ms() {
         settings.openSettings()

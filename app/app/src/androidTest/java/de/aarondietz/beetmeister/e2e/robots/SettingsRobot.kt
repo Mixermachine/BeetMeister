@@ -1,7 +1,6 @@
 package de.aarondietz.beetmeister.e2e.robots
 
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.assertIsDisplayed
@@ -335,15 +334,15 @@ internal class SettingsRobot(
         val node = composeRule
             .onNodeWithTag(fieldTag)
             .performScrollTo()
-        // P5 SUB #R37c: performTextReplacement includes
-        // waitForIdle() which lets LaunchedEffect(valveConfig)
-        // fire and reset the field to the old server value,
-        // disabling the save button. Use performSemanticsAction
-        // with SetText to set the text directly through the
-        // accessibility layer — no keyboard, no extra idle.
-        node.performSemanticsAction(SemanticsActions.SetText) {
-            it(androidx.compose.ui.text.AnnotatedString(value.toString()))
-        }
+        val before = node.fetchSemanticsNode().config
+            .getOrElse(androidx.compose.ui.semantics.SemanticsProperties.Text) { listOf() }
+            .joinToString("") { it.text }
+        android.util.Log.d("E2E", "setValveNumberField tag=$fieldTag before=$before")
+        node.performTextReplacement(value.toString())
+        val after = node.fetchSemanticsNode().config
+            .getOrElse(androidx.compose.ui.semantics.SemanticsProperties.Text) { listOf() }
+            .joinToString("") { it.text }
+        android.util.Log.d("E2E", "setValveNumberField tag=$fieldTag after=$after")
     }
 
     fun setValveMoveDuration(ms: Int) {

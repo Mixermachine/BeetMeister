@@ -17,6 +17,7 @@ import de.aarondietz.beetmeister.model.connection.BeetConnectionState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
+import de.aarondietz.beetmeister.model.update.isActiveMaintenancePhase
 import de.aarondietz.beetmeister.service.BeetMaintenanceForegroundService
 import de.aarondietz.beetmeister.strings.AndroidBeetStringResolver
 import de.aarondietz.beetmeister.strings.BeetStringResolver
@@ -70,6 +71,15 @@ internal class BeetRepository(
 
     fun close() {
         Log.d(TAG, "close()")
+        // Guard: suppress close during an active maintenance update.
+        // The BLE connection carries the OTA transfer; closing
+        // mid-transfer leaves the controller stuck in OTA_IN_PROGRESS.
+        // This can fire when a stale ViewModel onCleared() races
+        // with an E2E test that navigated to the MaintenanceScreen.
+        if (_state.value.maintenanceUpdate.phase.isActiveMaintenancePhase()) {
+            Log.w(TAG, "close() suppressed — maintenance update is active")
+            return
+        }
         scanBondCoordinator.close()
         gattSessionCoordinator.close()
         maintenanceServiceJob.cancel()
