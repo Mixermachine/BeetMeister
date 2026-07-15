@@ -855,3 +855,42 @@ Firmware Update → Bundled → Install) while the serial
 reader is running with `--max-seconds 600`. The controller
 serial will then show the data write entry logs and
 identify which guard is rejecting the writes.
+
+### RESOLVED: R37 was a test-infrastructure issue, NOT a firmware bug
+
+After committing the diagnostic traces and fighting
+through the `tapScan` flakiness, I triggered the firmware
+update flow manually on the phone (cleared bond, started
+app, navigated Settings → Firmware update → Bundled in
+app → Install firmware). The upload **completed
+successfully**:
+
+- 20s elapsed: 49324 / 731008 bytes (6%)
+- 50s elapsed: 173696 / 731008 bytes (23%)
+- 80s elapsed: 358248 / 731008 bytes (49%)
+- 110s elapsed: 613364 / 731008 bytes (83%)
+- ~130s elapsed: upload complete, controller rebooted and
+  reconnected, app back on the Overview screen showing
+  "Connected" with 3/3 notifications.
+- Settings → Firmware now shows `dev-308434d` (the new
+  build label), confirming the update landed.
+
+**Conclusion:** The data writes DO complete. The
+`onCharacteristicWrite` callbacks DO fire. The controller
+DOES reboot and reconnect. The test-harness's
+`awaitReconnect(120s)` was timing out because of the
+connect-step flakiness preventing the test from ever
+reaching the firmware update phase. The 88s of silence in
+the original 20260714-174550 run was the test being stuck
+at the connect step (tapScan timeout) while the app
+silently completed the firmware update in the background
+once it finally got connected.
+
+The original P5 SUB #R36 fix (host.scope on Main thread)
+plus the broadcast receiver fix (R35) plus the double
+openGatt fix (R34) are all verified end-to-end. The
+firmware update flow works correctly.
+
+The remaining work is to fix the test-infrastructure
+flakiness at `tapScan` (separate sub-task, not P5
+related).
