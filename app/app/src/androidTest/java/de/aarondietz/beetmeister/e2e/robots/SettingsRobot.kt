@@ -3,10 +3,12 @@ package de.aarondietz.beetmeister.e2e.robots
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
@@ -334,14 +336,20 @@ internal class SettingsRobot(
         val node = composeRule
             .onNodeWithTag(fieldTag)
             .performScrollTo()
-        val before = node.fetchSemanticsNode().config
-            .getOrElse(androidx.compose.ui.semantics.SemanticsProperties.Text) { listOf() }
-            .joinToString("") { it.text }
+        val before = readEditableText(fieldTag)
         android.util.Log.d("E2E", "setValveNumberField tag=$fieldTag before=$before")
-        node.performTextReplacement(value.toString())
-        val after = node.fetchSemanticsNode().config
-            .getOrElse(androidx.compose.ui.semantics.SemanticsProperties.Text) { listOf() }
-            .joinToString("") { it.text }
+        // P5 SUB #R37c: SetText via SemanticsActions bypasses IME
+        // path and directly sets the text. This triggers onValueChange
+        // on the OutlinedTextField. Combined with the app-side
+        // userEdited guard, the field stays set.
+        node.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetText) {
+            val annotated = androidx.compose.ui.text.AnnotatedString(value.toString())
+            android.util.Log.d("E2E", "SetText action for $value: $annotated")
+            it(annotated)
+            true
+        }
+        composeRule.waitForIdle()
+        val after = readEditableText(fieldTag)
         android.util.Log.d("E2E", "setValveNumberField tag=$fieldTag after=$after")
     }
 
@@ -406,12 +414,11 @@ internal class SettingsRobot(
         val node = composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigMoveDurationField)
         composeRule.waitUntil(timeoutMillis = 15_000) {
-            val text = readSemanticText(
-                SettingsTestTags.ValveConfigMoveDurationField
-            )
+            val text = readEditableText(SettingsTestTags.ValveConfigMoveDurationField)
+            android.util.Log.d("E2E", "assertValveMoveDuration checking: expected=$expectedMillisStr actual=$text")
             expectedMillisStr in text
         }
-        node.assertTextContains(expectedMillisStr)
+        node.assert(hasText(expectedMillisStr, substring = true))
     }
 
     fun assertValveSettleDelay(expectedMillisStr: String) {
@@ -419,12 +426,10 @@ internal class SettingsRobot(
         val node = composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSettleDelayField)
         composeRule.waitUntil(timeoutMillis = 15_000) {
-            val text = readSemanticText(
-                SettingsTestTags.ValveConfigSettleDelayField
-            )
+            val text = readEditableText(SettingsTestTags.ValveConfigSettleDelayField)
             expectedMillisStr in text
         }
-        node.assertTextContains(expectedMillisStr)
+        node.assert(hasText(expectedMillisStr, substring = true))
     }
 
     fun assertValveOpenHold(expectedMillisStr: String) {
@@ -432,12 +437,10 @@ internal class SettingsRobot(
         val node = composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigOpenHoldField)
         composeRule.waitUntil(timeoutMillis = 15_000) {
-            val text = readSemanticText(
-                SettingsTestTags.ValveConfigOpenHoldField
-            )
+            val text = readEditableText(SettingsTestTags.ValveConfigOpenHoldField)
             expectedMillisStr in text
         }
-        node.assertTextContains(expectedMillisStr)
+        node.assert(hasText(expectedMillisStr, substring = true))
     }
 
     // endregion
@@ -515,9 +518,30 @@ internal class SettingsRobot(
     // region helpers
 
     /**
+     * Reads the displayed value from an OutlinedTextField via
+     * SemanticsProperties.EditableText (the input content).
+     * Falls back to SemanticsProperties.Text for non-editable nodes.
+     */
+    private fun readEditableText(tag: String): String {
+        val config = composeRule.onNodeWithTag(tag).fetchSemanticsNode().config
+        // OutlinedTextField exposes its value through EditableText
+        val editable = config.getOrElseNullable(
+            androidx.compose.ui.semantics.SemanticsProperties.EditableText
+        ) { null }
+        if (editable != null) {
+            return editable.text
+        }
+        // Fallback: plain Text composable
+        return config.getOrElseNullable(SemanticsProperties.Text) { null }
+            ?.joinToString("") { it.text }
+            ?: ""
+    }
+
+    /**
      * Reads the `SemanticsProperties.Text` from the node tagged
      * [tag]. Used inside [composeRule.waitUntil] polling loops
      * so the BLE async state-update race is absorbed.
+     * Prefer [readEditableText] for text-field nodes.
      */
     private fun readSemanticText(tag: String): String {
         return composeRule
