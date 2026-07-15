@@ -1,7 +1,9 @@
 package de.aarondietz.beetmeister.e2e.robots
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextContains
@@ -13,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -242,10 +245,19 @@ internal class SettingsRobot(
      */
     fun assertCurrentWateringInterval(expectedFormatted: String) {
         scrollToTag(SettingsTestTags.WateringIntervalCurrent)
-        composeRule
+        val node = composeRule
             .onNodeWithTag(SettingsTestTags.WateringIntervalCurrent)
             .performScrollTo()
-            .assertTextEquals(expectedFormatted)
+        // P5 SUB #R37c: the controller's BLE write -> notification
+        // -> StateFlow -> recomposition is asynchronous.
+        // Poll until the expected text appears, then assert.
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            val text = readSemanticText(
+                SettingsTestTags.WateringIntervalCurrent
+            )
+            text == expectedFormatted
+        }
+        node.assertTextEquals(expectedFormatted)
     }
 
     // endregion
@@ -301,10 +313,17 @@ internal class SettingsRobot(
      */
     fun assertCurrentMaxActivePumps(expectedNumber: Int) {
         scrollToTag(SettingsTestTags.MaxActivePumpsCurrent)
-        composeRule
+        val node = composeRule
             .onNodeWithTag(SettingsTestTags.MaxActivePumpsCurrent)
             .performScrollTo()
-            .assertTextContains(expectedNumber.toString())
+        val expectedStr = expectedNumber.toString()
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            val text = readSemanticText(
+                SettingsTestTags.MaxActivePumpsCurrent
+            )
+            expectedStr in text
+        }
+        node.assertTextContains(expectedStr)
     }
 
     // endregion
@@ -313,10 +332,18 @@ internal class SettingsRobot(
 
     private fun setValveNumberField(fieldTag: String, value: Int) {
         scrollToTag(fieldTag)
-        composeRule
+        val node = composeRule
             .onNodeWithTag(fieldTag)
             .performScrollTo()
-            .performTextReplacement(value.toString())
+        // P5 SUB #R37c: performTextReplacement includes
+        // waitForIdle() which lets LaunchedEffect(valveConfig)
+        // fire and reset the field to the old server value,
+        // disabling the save button. Use performSemanticsAction
+        // with SetText to set the text directly through the
+        // accessibility layer — no keyboard, no extra idle.
+        node.performSemanticsAction(SemanticsActions.SetText) {
+            it(androidx.compose.ui.text.AnnotatedString(value.toString()))
+        }
     }
 
     fun setValveMoveDuration(ms: Int) {
@@ -377,23 +404,41 @@ internal class SettingsRobot(
      */
     fun assertValveMoveDuration(expectedMillisStr: String) {
         scrollToTag(SettingsTestTags.ValveConfigMoveDurationField)
-        composeRule
+        val node = composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigMoveDurationField)
-            .assertTextContains(expectedMillisStr)
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            val text = readSemanticText(
+                SettingsTestTags.ValveConfigMoveDurationField
+            )
+            expectedMillisStr in text
+        }
+        node.assertTextContains(expectedMillisStr)
     }
 
     fun assertValveSettleDelay(expectedMillisStr: String) {
         scrollToTag(SettingsTestTags.ValveConfigSettleDelayField)
-        composeRule
+        val node = composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigSettleDelayField)
-            .assertTextContains(expectedMillisStr)
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            val text = readSemanticText(
+                SettingsTestTags.ValveConfigSettleDelayField
+            )
+            expectedMillisStr in text
+        }
+        node.assertTextContains(expectedMillisStr)
     }
 
     fun assertValveOpenHold(expectedMillisStr: String) {
         scrollToTag(SettingsTestTags.ValveConfigOpenHoldField)
-        composeRule
+        val node = composeRule
             .onNodeWithTag(SettingsTestTags.ValveConfigOpenHoldField)
-            .assertTextContains(expectedMillisStr)
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            val text = readSemanticText(
+                SettingsTestTags.ValveConfigOpenHoldField
+            )
+            expectedMillisStr in text
+        }
+        node.assertTextContains(expectedMillisStr)
     }
 
     // endregion
@@ -434,9 +479,14 @@ internal class SettingsRobot(
      */
     fun assertValveEnabled(enabled: Boolean) {
         scrollToTag(SettingsTestTags.ValveEnabledValue)
-        composeRule
+        val node = composeRule
             .onNodeWithTag(SettingsTestTags.ValveEnabledValue)
-            .assertTextEquals(if (enabled) yesLabel else noLabel)
+        val expected = if (enabled) yesLabel else noLabel
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            val text = readSemanticText(SettingsTestTags.ValveEnabledValue)
+            text == expected
+        }
+        node.assertTextEquals(expected)
     }
 
     // endregion
@@ -459,6 +509,25 @@ internal class SettingsRobot(
             .onNodeWithTag(MaintenanceUpdateTestTags.Card)
             .assertIsDisplayed()
         return FirmwareUpdateRobot(composeRule)
+    }
+
+    // endregion
+
+    // region helpers
+
+    /**
+     * Reads the `SemanticsProperties.Text` from the node tagged
+     * [tag]. Used inside [composeRule.waitUntil] polling loops
+     * so the BLE async state-update race is absorbed.
+     */
+    private fun readSemanticText(tag: String): String {
+        return composeRule
+            .onNodeWithTag(tag)
+            .fetchSemanticsNode()
+            .config
+            .getOrElseNullable(SemanticsProperties.Text) { null }
+            ?.joinToString("") { it.text }
+            ?: ""
     }
 
     // endregion
