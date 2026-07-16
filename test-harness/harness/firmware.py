@@ -549,9 +549,13 @@ def flash_old(
 
     from harness import controller_reset
 
-    # Erase appcfg (P5 decision) + otadata (so ota_0 boots). Both
-    # go through the same esptool erase_region path so the env is
-    # sourced the same way as write_flash below.
+    # Erase appcfg only (P5 decision). Do NOT erase otadata
+    # separately — the esptool reset after erase_region causes
+    # the bootloader to re-write otadata pointing to the current
+    # partition, defeating the purpose. Instead, we write erased
+    # otadata (all 0xFF) as part of the same write_flash command
+    # below, so the bootloader only sees the new state after
+    # both otadata + app image are in place.
     erase_partitions: tuple[str, ...] = ("appcfg",)
     if config.firmware.erase_appcfg_before_flash:
         pass  # appcfg already in the list
@@ -560,7 +564,7 @@ def flash_old(
     results = controller_reset.erase_config_partitions(
         config, port,
         partitions=erase_partitions,
-        extra_erase=("otadata",),
+        extra_erase=(),  # otadata handled in write_flash below
     )
     bad = [r for r in results if not r.ok]
     if bad:
@@ -569,11 +573,10 @@ def flash_old(
             + ", ".join(f"{r.partition} rc={r.returncode}" for r in bad)
         )
 
-    # Resolve the ota_0 offset from the partition CSV (source of
-    # truth; never hard-coded).
+    # Resolve the ota_0 and otadata offsets from the partition CSV.
     csv_path = config.repo_root / "firmware" / "esp-idf" / "partitions" / "beetmeister.csv"
     layout = partition_map.load(csv_path)
-    ota_0, = partition_map.require(layout, "ota_0")
+    ota_0, otadata = partition_map.require(layout, "ota_0", "otadata")
 
     bin_path, _ = _cache_paths(config, pinned_tag)
     if not bin_path.exists():
@@ -598,17 +601,32 @@ def flash_old(
     # at a different offset than the current CSV. Instead, keep
     # the current bootloader + partition table and only replace
     # the app image at the current CSV's ota_0 offset.
-    cmd = build_esptool_command(
-        config,
-        "--port", port,
-        "--baud", str(config.controller.baud),
-        "write_flash",
-        f"0x{ota_0.offset:x}", str(bin_path),
-    )
-    flash = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if flash.returncode != 0:
-        raise RuntimeError(
-            f"esptool write_flash failed (rc={flash.returncode}): "
-            f"{flash.stderr.strip()[-2000:] or flash.stdout.strip()[-2000:]}"
+    #
+    # P5 finding SUB #R37d (cont): write an erased otadata block
+    # as part of the same esptool write_flash command. If we
+    # erase otadata in a separate esptool invocation, the chip
+    # resets between commands, the bootloader re-writes otadata
+    # pointing to the old active partition, and the new app image
+    # at ota_0 is ignored. By packing otadata + app into one
+    # write_flash, the chip only boots AFTER all changes are in
+    # place and sees only the new ota_0.
+    erased_otadata = bin_path.parent / "_erased_otadata.bin"
+    erased_otadata.write_bytes(b"\xff" * otadata.size)
+    try:
+        cmd = build_esptool_command(
+            config,
+            "--port", port,
+            "--baud", str(config.controller.baud),
+            "write_flash",
+            f"0x{otadata.offset:x}", str(erased_otadata),
+            f"0x{ota_0.offset:x}", str(bin_path),
         )
-    return info
+        flash = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if flash.returncode != 0:
+            raise RuntimeError(
+                f"esptool write_flash failed (rc={flash.returncode}): "
+                f"{flash.stderr.strip()[-2000:] or flash.stdout.strip()[-2000:]}"
+            )
+        return info
+    finally:
+        erased_otadata.unlink(missing_ok=True)
