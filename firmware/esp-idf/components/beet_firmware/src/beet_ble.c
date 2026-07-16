@@ -1576,7 +1576,14 @@ static void beet_ble_service_maintenance_session(void)
         return;
     }
 
-    while (s_ble.maintenance_session.chunk_queue_count > 0U) {
+    /* Process queued chunks in batches so the main loop can
+     * yield to NimBLE between batches. Without batching, the
+     * entire queue drains at once (esp_ota_write blocks), and
+     * the BLE stack cannot send ACKs for new writes, causing
+     * the write queue to back up and overflow. */
+    uint16_t chunks_processed_this_call = 0U;
+    while (s_ble.maintenance_session.chunk_queue_count > 0U &&
+           chunks_processed_this_call < 32U) {
         beet_ble_maintenance_chunk_t chunk;
 
         if (!beet_ble_peek_maintenance_chunk(&chunk)) {
@@ -1624,6 +1631,7 @@ static void beet_ble_service_maintenance_session(void)
             chunk.payload,
             chunk.payload_len);
         beet_ble_pop_maintenance_chunk();
+        chunks_processed_this_call++;
     }
 
     if (s_ble.maintenance_session.finish_request_pending) {
