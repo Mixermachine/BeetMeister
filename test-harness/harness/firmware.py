@@ -576,10 +576,8 @@ def flash_old(
     ota_0, = partition_map.require(layout, "ota_0")
 
     bin_path, _ = _cache_paths(config, pinned_tag)
-    boot_path, pt_path = _cache_artifact_paths(config, pinned_tag)
-    for p in (bin_path, boot_path, pt_path):
-        if not p.exists():
-            raise RuntimeError(
+    if not bin_path.exists():
+        raise RuntimeError(
                 f"cached firmware artifact missing: {p}. "
                 f"Remove firmware_cache/ for {pinned_tag} and retry."
             )
@@ -593,20 +591,18 @@ def flash_old(
     # to find a valid app image, causing the
     # "Invalid image block, can't boot" boot loop.
     #
-    # P5 finding SUB #R37d: do NOT flash the cached
-    # partition-table.bin. The old firmware's partition table may
-    # place ota_0 at a different offset than the current CSV.
-    # When the old partition table disagrees with the offset we
-    # actually write the .bin to (read from the current CSV), the
-    # bootloader looks for the app at the wrong address and fails.
-    # Instead, keep the current partition table and only replace
-    # bootloader + app image.
+    # P5 finding SUB #R37d: do NOT flash the cached bootloader
+    # or partition-table.bin. The old firmware's bootloader may
+    # be incompatible with the chip revision or flash mode of the
+    # bench controller. The old partition table may place ota_0
+    # at a different offset than the current CSV. Instead, keep
+    # the current bootloader + partition table and only replace
+    # the app image at the current CSV's ota_0 offset.
     cmd = build_esptool_command(
         config,
         "--port", port,
         "--baud", str(config.controller.baud),
         "write_flash",
-        "0x0", str(boot_path),
         f"0x{ota_0.offset:x}", str(bin_path),
     )
     flash = subprocess.run(cmd, capture_output=True, text=True, check=False)
