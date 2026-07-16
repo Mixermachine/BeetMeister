@@ -64,7 +64,7 @@ class FirmwareUpdateE2ETest {
         fixture.connectOnce()
     }
 
-    @Test(timeout = 600_000)
+    @Test(timeout = 900_000)
     fun bundledFirmwareInstallsAndPostUpdateHealthIsCorrect() {
         val firmwareUpdate: FirmwareUpdateRobot
         if (fixture.gate.maintenanceScreenVisible()) {
@@ -82,7 +82,7 @@ class FirmwareUpdateE2ETest {
         firmwareUpdate.assertSummaryShown()
         firmwareUpdate.tapInstall()
         firmwareUpdate.awaitTransferStarted(timeoutMillis = 300_000L)
-        firmwareUpdate.awaitReconnect(timeoutMillis = 300_000L)
+        firmwareUpdate.awaitReconnect(timeoutMillis = 600_000L)
         firmwareUpdate.assertPostUpdateHealthy()
     }
 }

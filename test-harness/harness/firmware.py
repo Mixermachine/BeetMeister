@@ -212,6 +212,14 @@ def ensure_old_firmware_built(
         # `set-target` step is idempotent (idempotent in the sense
         # that it re-writes the sdkconfig with the same target if
         # already set; we always call it to be safe).
+
+        # P5 R37d: patch v0.3.0 beet_ble.c to add BLE connection
+        # parameter update on OTA start. Without this, the upload
+        # speed is ~5.4 KB/s (default 30-50ms BLE interval). With
+        # it, the controller requests 7.5-15ms interval for ~3-4x
+        # faster OTA. The patch is idempotent (checks for marker).
+        _patch_ota_conn_params(idf_workspace / "components" / "beet_firmware" / "src" / "beet_ble.c")
+
         set_target_cmd = _build_idf_command(
             config, env_script, idf_py, "set-target", "esp32s3", cwd=idf_workspace,
         )
@@ -317,6 +325,83 @@ def ensure_old_firmware_built(
         # Defensive: if the worktree dir still exists (rare; happens
         # if `remove` failed), leave it for the next call to fail
         # loudly — never silently swallow a stuck worktree.
+
+
+def _patch_ota_conn_params(ble_c_path: Path) -> None:
+    """Patch v0.3.0 beet_ble.c to request faster BLE conn params on OTA.
+
+    Inserts the connection parameter update code right after
+    ``beet_ble_mark_activity()`` in the AWAITING_DATA transition.
+    Idempotent — checks for the marker comment first.
+    """
+    MARKER = b"/* P5 R37d conn param update for faster OTA"
+
+    original = ble_c_path.read_bytes()
+    if MARKER in original:
+        return  # already patched
+
+    # We need to insert the conn param update block right after
+    # ``beet_ble_mark_activity();`` in the begin-update ready path.
+    # The exact location is after the line that starts the status
+    # indication.
+
+    # 1. Add conn_param_update_requested flag to the struct.
+    old_struct = b"    bool status_indication_in_flight;"
+    new_struct = b"    bool status_indication_in_flight;\n    bool conn_param_update_requested;"
+    if old_struct not in original:
+        raise RuntimeError(
+            f"{ble_c_path}: cannot find struct field for patching "
+            f"(status_indication_in_flight missing)"
+        )
+    patched = original.replace(old_struct, new_struct, 1)
+    if patched == original:
+        raise RuntimeError(f"{ble_c_path}: struct patch had no effect")
+
+    # 2. Insert conn param update after beet_ble_mark_activity()
+    # in the AWAITING_DATA section.
+    marker = (
+        b"            beet_ble_mark_activity();\n"
+        b"            ESP_LOGI(TAG, \"begin update ready"
+    )
+    if marker not in patched:
+        raise RuntimeError(
+            f"{ble_c_path}: cannot find begin update ready marker "
+            f"(beet_ble_mark_activity + ESP_LOGI)"
+        )
+
+    conn_param_block = (
+        b"            /* P5 R37d conn param update for faster OTA */\n"
+        b"            if (s_ble.connected && s_ble.conn_handle != BLE_HS_CONN_HANDLE_NONE) {\n"
+        b"                struct ble_gap_upd_params upd_params = {\n"
+        b"                    .itvl_min = 6,                /* 7.5 ms */\n"
+        b"                    .itvl_max = 12,               /* 15 ms */\n"
+        b"                    .latency = 0,\n"
+        b"                    .supervision_timeout = 500,   /* 5 s */\n"
+        b"                    .min_ce_len = 0,\n"
+        b"                    .max_ce_len = 0xFFFF,\n"
+        b"                };\n"
+        b"                int rc = ble_gap_update_params(s_ble.conn_handle, &upd_params);\n"
+        b"                if (rc == 0) {\n"
+        b"                    s_ble.maintenance_session.conn_param_update_requested = true;\n"
+        b"                    ESP_LOGI(TAG, \"conn param update requested for OTA\");\n"
+        b"                } else {\n"
+        b"                    ESP_LOGW(TAG, \"conn param update request failed rc=%d\", rc);\n"
+        b"                }\n"
+        b"            }\n"
+    )
+
+    replacement = (
+        b"            beet_ble_mark_activity();\n"
+        + conn_param_block +
+        b"            ESP_LOGI(TAG, \"begin update ready"
+    )
+
+    patched = patched.replace(marker, replacement, 1)
+    if patched == original:
+        raise RuntimeError(f"{ble_c_path}: conn param patch had no effect")
+
+    ble_c_path.write_bytes(patched)
+    print(f"Patched {ble_c_path.name} with P5 R37d OTA conn param update")
 
 
 def _build_idf_command(
