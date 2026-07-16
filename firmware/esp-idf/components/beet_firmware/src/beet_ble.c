@@ -107,6 +107,7 @@ typedef struct {
     bool finish_request_pending;
     bool status_indication_pending;
     bool status_indication_in_flight;
+    bool conn_param_update_requested;
     beet_maintenance_status_t status;
     int64_t resume_expires_at_us;
     int64_t reboot_due_at_us;
@@ -1510,6 +1511,31 @@ static void beet_ble_service_maintenance_session(void)
                 0U,
                 s_ble.maintenance_session.status.session_id);
             beet_ble_mark_activity();
+            /* Request faster BLE connection parameters for OTA throughput.
+             * Default 30-50ms interval gives ~22 writes/s at 244 bytes =
+             * ~5.4 KB/s. At 7.5-15ms + longer CE window, throughput
+             * increases ~3-4x (the Android BLE stack may negotiate
+             * slightly wider, but any improvement is a win). This is a
+             * standard GAP procedure — no wire protocol change. */
+            if (s_ble.connected && s_ble.conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+                struct ble_gap_upd_params upd_params = {
+                    .itvl_min = 6,                /* 7.5 ms */
+                    .itvl_max = 12,               /* 15 ms */
+                    .latency = 0,                 /* no slave latency */
+                    .supervision_timeout = 500,   /* 5 s */
+                    .min_ce_len = 0,              /* any CE length accepted */
+                    .max_ce_len = 0xFFFF,         /* max CE window */
+                };
+                int rc = ble_gap_update_params(s_ble.conn_handle, &upd_params);
+                if (rc == 0) {
+                    s_ble.maintenance_session.conn_param_update_requested = true;
+                    ESP_LOGI(TAG, "conn param update requested for OTA conn_handle=%u interval=%.1f-%.1fms",
+                             (unsigned)s_ble.conn_handle, 7.5, 15.0);
+                } else {
+                    ESP_LOGW(TAG, "conn param update request failed conn_handle=%u rc=%d",
+                             (unsigned)s_ble.conn_handle, rc);
+                }
+            }
             ESP_LOGI(TAG, "begin update ready session_id=%lu partition=%s size=%lu",
                      (unsigned long)s_ble.maintenance_session.status.session_id,
                      target_partition->label,
