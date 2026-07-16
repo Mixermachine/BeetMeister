@@ -592,13 +592,21 @@ def flash_old(
     # so flashing it at 0x1000 leaves the ROM bootloader unable
     # to find a valid app image, causing the
     # "Invalid image block, can't boot" boot loop.
+    #
+    # P5 finding SUB #R37d: do NOT flash the cached
+    # partition-table.bin. The old firmware's partition table may
+    # place ota_0 at a different offset than the current CSV.
+    # When the old partition table disagrees with the offset we
+    # actually write the .bin to (read from the current CSV), the
+    # bootloader looks for the app at the wrong address and fails.
+    # Instead, keep the current partition table and only replace
+    # bootloader + app image.
     cmd = build_esptool_command(
         config,
         "--port", port,
         "--baud", str(config.controller.baud),
         "write_flash",
         "0x0", str(boot_path),
-        "0x8000", str(pt_path),
         f"0x{ota_0.offset:x}", str(bin_path),
     )
     flash = subprocess.run(cmd, capture_output=True, text=True, check=False)
