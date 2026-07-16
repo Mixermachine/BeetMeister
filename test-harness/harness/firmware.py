@@ -38,6 +38,9 @@ from typing import Any
 
 from harness import partition_map
 from harness.config import HarnessConfig
+from harness.logging_setup import get_logger
+
+log = get_logger()
 from harness.controller_reset import build_esptool_command
 
 
@@ -159,6 +162,7 @@ def ensure_old_firmware_built(
     the worktree, return the new info.
     """
     pinned_tag = pinned_tag or config.firmware.pinned_tag
+    log.debug("ensure_old_firmware_built: tag=%s", pinned_tag)
     bin_path, version_path = _cache_paths(config, pinned_tag)
 
     boot_path, pt_path = _cache_artifact_paths(config, pinned_tag)

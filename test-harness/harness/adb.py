@@ -32,6 +32,9 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from harness.config import HarnessConfig
+from harness.logging_setup import get_logger
+
+log = get_logger()
 
 
 @dataclass
@@ -271,6 +274,13 @@ class Adb:
         )
         return proc.returncode == 0
 
+    def force_stop(self, package: str) -> None:
+        """`adb shell am force-stop <package>`. Kills the app process.
+
+        Idempotent; no-op if the package is not running.
+        """
+        self._run("shell", "am", "force-stop", package, timeout=15.0)
+
     def unlock_guard(self) -> None:
         """Wake + unlock the device if it's on the lockscreen.
 
@@ -327,6 +337,7 @@ class Adb:
         cmd += [f"{self._config.device.test_package}/{runner}"]
 
         start = time.monotonic()
+        log.debug("am_instrument: cmd=%s timeout=%s", " ".join(cmd), timeout)
         proc = self._run(*cmd, timeout=timeout)
         duration = time.monotonic() - start
         result = AmInstrumentResult(
@@ -393,6 +404,7 @@ class Adb:
                 ":app:assembleDebugAndroidTest",
                 *extra_gradle_args,
             ]
+            log.debug("gradle build: cmd=%s", " ".join(cmd))
             proc = subprocess.run(
                 cmd,
                 cwd=str(app_dir_path),

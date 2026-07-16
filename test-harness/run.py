@@ -38,7 +38,11 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
+from harness import logging_setup as log_harness
 from harness.orchestrator import Orchestrator  # noqa: E402  (path mangling above)
+from harness.logging_setup import get_logger
+
+log = get_logger()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,34 +90,38 @@ def main(argv: list[str] | None = None) -> int:
         skip_smoke=args.skip_smoke,
     )
 
-    print()
-    print(f"=== run.py ===")
-    print(f"  run_dir     = {result.run_dir}")
-    print(f"  manifest    = {result.manifest_path}")
-    print(f"  passed      = {result.passed}")
+    log.info("=== run.py ===")
+    log.info("  run_dir     = %s", result.run_dir)
+    log.info("  manifest    = %s", result.manifest_path)
+    log.info("  passed      = %s", result.passed)
     if result.smoke is not None:
-        print(f"  smoke class = {result.smoke.class_name}")
-        print(f"  smoke pass  = {result.smoke.passed}")
-        print(f"  smoke dur   = {result.smoke.duration_s:.1f}s")
+        log.info("  smoke class = %s", result.smoke.class_name)
+        log.info("  smoke pass  = %s", result.smoke.passed)
+        log.info("  smoke dur   = %.1fs", result.smoke.duration_s)
     if result.e2e is not None:
-        print(f"  e2e class   = {result.e2e.class_name}")
-        print(f"  e2e pass    = {result.e2e.passed}")
-        print(f"  e2e dur     = {result.e2e.duration_s:.1f}s")
+        log.info("  e2e class   = %s", result.e2e.class_name)
+        log.info("  e2e pass    = %s", result.e2e.passed)
+        log.info("  e2e dur     = %.1fs", result.e2e.duration_s)
     if result.dispatch_plan is not None:
         plan = result.dispatch_plan
         n_pre = len(plan.preconditions)
         n_executed = sum(1 for s in plan.preconditions if s.executed)
-        print(f"  dispatch    = {plan.suite} "
-              f"({n_executed}/{n_pre} preconditions executed"
-              + (
-                  f", am instrument {'executed' if plan.am_instrument and plan.am_instrument.executed else 'NOT executed'}"
-                  if plan.am_instrument else ""
-              )
-              + ")")
-        print(f"  plan file   = {result.run_dir}/dispatch-plan.json")
+        executed_str = (
+            f"am instrument {'executed' if plan.am_instrument and plan.am_instrument.executed else 'NOT executed'}"
+            if plan.am_instrument else ""
+        )
+        log.info(
+            "  dispatch    = %s (%d/%d preconditions executed%s)",
+            plan.suite, n_executed, n_pre,
+            (", " + executed_str) if executed_str else "",
+        )
+        log.info("  plan file   = %s", result.run_dir / "dispatch-plan.json")
     if result.fail_reason:
-        print(f"  fail reason = {result.fail_reason}")
-    print()
+        log.info("  fail reason = %s", result.fail_reason)
+    # Also print the log file path so operator can find the debug log.
+    lf = log_harness.log_file_path()
+    if lf:
+        log.info("  log file    = %s", lf)
     return 0 if result.passed else 1
 
 

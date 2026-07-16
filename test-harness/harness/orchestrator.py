@@ -50,6 +50,9 @@ from typing import Any, Optional
 from harness import capture, controller_reset, firmware, run_folder, screenshots
 from harness.adb import Adb, AmInstrumentResult
 from harness.config import HarnessConfig, load
+from harness.logging_setup import configure_logging, get_logger
+
+log = get_logger()
 
 
 # --- Bundled-firmware stamp -------------------------------------------------
@@ -212,6 +215,8 @@ class Orchestrator:
             )
 
         run_dir, manifest = self._begin_run(suite)
+        configure_logging(run_dir)
+        log.info("run started suite=%s run_dir=%s", suite, run_dir)
         logcat_cap: Optional[capture.Capture] = None
         # serial_caps is a list (NOT a single value) because the
         # dispatch methods may need to start+stop+restart the
@@ -253,8 +258,10 @@ class Orchestrator:
 
             # 4. build + install APKs (unless skipped).
             if not skip_install:
+                log.debug("installing APKs (rebuild=True)")
                 self.adb.install_apks()
                 time.sleep(self.config.orchestrator.post_install_settle)
+                log.debug("APKs installed OK")
 
             # 5. parse generated stamp + runtime_protocol_version sanity check.
             bundled = self._parse_bundled_firmware_stamp()
@@ -270,6 +277,7 @@ class Orchestrator:
             # written.
             smoke_ok = True
             if not skip_smoke:
+                log.debug("smoke gate: starting %s", self.config.device.smoke_class)
                 smoke_result = self.adb.am_instrument(
                     class_name=self.config.device.smoke_class,
                     runner=self.config.device.test_runner,
@@ -284,6 +292,10 @@ class Orchestrator:
                 )
                 run_folder.write(manifest)
                 smoke_ok = smoke_result.passed
+                log.debug(
+                    "smoke gate: passed=%s dur=%.1fs",
+                    smoke_result.passed, smoke_result.duration_s,
+                )
                 if not smoke_ok:
                     manifest.fail_reason = (
                         f"smoke gate failed ({self.config.device.smoke_class}); "
@@ -299,7 +311,9 @@ class Orchestrator:
                     # install + capture + smoke pipeline works
                     # end-to-end.
                     manifest.pass_ = True
+                    log.info("dry-run complete (P3 stop point)")
                 else:
+                    log.debug("dispatch: suite=%s class=%s", suite, class_name)
                     # The serial capture is started INSIDE the
                     # dispatch (each _dispatch_* method does
                     # it after its preconditions) so the
@@ -941,6 +955,17 @@ class Orchestrator:
                         app_package,
                     ),
                 )
+                # P5 finding SUB #R37e: clear_ble_bond launches the
+                # app process (DebugActionActivity) which auto-connects
+                # BLE to the controller. The process stays alive with
+                # the BLE connection active. When createAndroidComposeRule
+                # later launches MainActivity in the same process, the
+                # BLE connection state leaks and the compose tree
+                # renders neither the gate nor the post-connect shell
+                # (connected=1 but ConnectionGate's state machine is
+                # confused). Force-stop the app so the E2E test gets
+                # a clean process.
+                self.adb.force_stop(app_package)
                 break
         # P5 SUB #R3: start the serial capture ONLY after the
         # preconditions (flash + uninstall + install) are done.
@@ -1148,6 +1173,7 @@ class Orchestrator:
         """
         action()
         step.executed = True
+        log.debug("precondition executed: %s", step.name)
 
     def _run_precondition_returning_info(
         self,
@@ -1175,6 +1201,7 @@ class Orchestrator:
         else:
             result = action_or_value
         step.executed = True
+        log.debug("precondition executed: %s", step.name)
         return result
 
     def _do_uninstall(self, app_package: str):
@@ -1210,11 +1237,9 @@ class Orchestrator:
                 # previous dispatch). The am instrument will
                 # surface a real failure if the link still
                 # doesn't come up.
-                print(
-                    f"[orchestrator] WARNING: "
-                    f"am start ClearBleBondActivity for {mac} "
-                    f"returned non-zero; continuing anyway"
-                )
+                log.warning(
+                    "am start ClearBleBondActivity for %s returned non-zero; continuing anyway",
+                    mac)
         return action
 
     def _do_flash_old(self):
@@ -1292,6 +1317,10 @@ class Orchestrator:
                 f"the dispatch composition is broken."
             )
         self._dismiss_bluetooth_pairing_dialog()
+        log.debug(
+            "am_instrument: class=%s beet_run_e2e=True extras=%s",
+            step.class_name, dict(step.extras),
+        )
         result = self.adb.am_instrument(
             class_name=step.class_name,
             runner=self.config.device.test_runner,
