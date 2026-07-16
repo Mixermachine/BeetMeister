@@ -238,7 +238,7 @@ class Orchestrator:
             run_folder.write(manifest)
 
             # 2-3. start captures.
-            logcat_cap = capture.start_logcat(run_dir, device_serial)
+            logcat_cap = capture.start_logcat(run_dir, device_serial, max_seconds=900.0)
             # P5 finding SUB #R3: serial capture is started AFTER
             # the preconditions (below, in the dispatch entry) so
             # it doesn't conflict with esptool erase_region /
