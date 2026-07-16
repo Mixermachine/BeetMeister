@@ -334,42 +334,31 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
     ``beet_ble_mark_activity()`` in the AWAITING_DATA transition.
     Idempotent — checks for the marker comment first.
     """
+    import re
+
     MARKER = b"/* P5 R37d conn param update for faster OTA"
 
     original = ble_c_path.read_bytes()
     if MARKER in original:
         return  # already patched
 
-    # We need to insert the conn param update block right after
-    # ``beet_ble_mark_activity();`` in the begin-update ready path.
-    # The exact location is after the line that starts the status
-    # indication.
-
     # 1. Add conn_param_update_requested flag to the struct.
-    old_struct = b"    bool status_indication_in_flight;"
-    new_struct = b"    bool status_indication_in_flight;\n    bool conn_param_update_requested;"
-    if old_struct not in original:
-        raise RuntimeError(
-            f"{ble_c_path}: cannot find struct field for patching "
-            f"(status_indication_in_flight missing)"
-        )
-    patched = original.replace(old_struct, new_struct, 1)
-    if patched == original:
-        raise RuntimeError(f"{ble_c_path}: struct patch had no effect")
+    old_struct = rb"\n    bool status_indication_in_flight;"
+    if not re.search(old_struct, original):
+        raise RuntimeError(f"{ble_c_path}: struct field 'status_indication_in_flight' not found")
+    new_struct = b"\n    bool status_indication_in_flight;\n    bool conn_param_update_requested;"
+    patched = re.sub(old_struct, new_struct, original, count=1)
 
     # 2. Insert conn param update after beet_ble_mark_activity()
-    # in the AWAITING_DATA section.
-    marker = (
-        b"            beet_ble_mark_activity();\n"
-        b"            ESP_LOGI(TAG, \"begin update ready"
-    )
-    if marker not in patched:
-        raise RuntimeError(
-            f"{ble_c_path}: cannot find begin update ready marker "
-            f"(beet_ble_mark_activity + ESP_LOGI)"
-        )
+    # in the AWAITING_DATA section. Use the unique "begin update ready"
+    # ESP_LOGI as the anchor (appears exactly once).
+    anchor = rb'(beet_ble_mark_activity\(\);\s+ESP_LOGI\(TAG,\s*"begin update ready)'
+    m = re.search(anchor, patched)
+    if not m:
+        raise RuntimeError(f"{ble_c_path}: cannot find begin update ready anchor")
 
     conn_param_block = (
+        b"beet_ble_mark_activity();\n"
         b"            /* P5 R37d conn param update for faster OTA */\n"
         b"            if (s_ble.connected && s_ble.conn_handle != BLE_HS_CONN_HANDLE_NONE) {\n"
         b"                struct ble_gap_upd_params upd_params = {\n"
@@ -388,18 +377,10 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
         b"                    ESP_LOGW(TAG, \"conn param update request failed rc=%d\", rc);\n"
         b"                }\n"
         b"            }\n"
-    )
-
-    replacement = (
-        b"            beet_ble_mark_activity();\n"
-        + conn_param_block +
         b"            ESP_LOGI(TAG, \"begin update ready"
     )
 
-    patched = patched.replace(marker, replacement, 1)
-    if patched == original:
-        raise RuntimeError(f"{ble_c_path}: conn param patch had no effect")
-
+    patched = re.sub(anchor, conn_param_block, patched, count=1)
     ble_c_path.write_bytes(patched)
     print(f"Patched {ble_c_path.name} with P5 R37d OTA conn param update")
 
