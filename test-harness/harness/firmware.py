@@ -350,10 +350,10 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
     new_cap = b'#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 256U'
     patched = re.sub(old_cap, new_cap, original, count=1)
 
-    old_types = rb'    uint8_t chunk_queue_head;\n    uint8_t chunk_queue_tail;\n    uint8_t chunk_queue_count;'
+    old_types = rb'uint8_t\s+chunk_queue_head;\s*uint8_t\s+chunk_queue_tail;\s*uint8_t\s+chunk_queue_count;'
     if not re.search(old_types, patched):
         raise RuntimeError(f"{ble_c_path}: chunk queue types not found")
-    new_types = b'    uint16_t chunk_queue_head;\n    uint16_t chunk_queue_tail;\n    uint16_t chunk_queue_count;'
+    new_types = b'uint16_t chunk_queue_head;\n    uint16_t chunk_queue_tail;\n    uint16_t chunk_queue_count;'
     patched = re.sub(old_types, new_types, patched, count=1)
 
     # 2. Add conn_param_update_requested flag to the struct.
