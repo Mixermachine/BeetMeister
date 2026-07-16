@@ -342,7 +342,15 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
     if MARKER in original:
         return  # already patched
 
-    # 1. Add conn_param_update_requested flag to the struct.
+    # 1. Increase chunk queue capacity (8 -> 64) to handle faster
+    # write throughput after conn param update.
+    old_cap = rb'#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 8U'
+    if not re.search(old_cap, original):
+        raise RuntimeError(f"{ble_c_path}: chunk queue capacity define not found")
+    new_cap = b'#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 64U'
+    patched = re.sub(old_cap, new_cap, original, count=1)
+
+    # 2. Add conn_param_update_requested flag to the struct.
     old_struct = rb"\n    bool status_indication_in_flight;"
     if not re.search(old_struct, original):
         raise RuntimeError(f"{ble_c_path}: struct field 'status_indication_in_flight' not found")
