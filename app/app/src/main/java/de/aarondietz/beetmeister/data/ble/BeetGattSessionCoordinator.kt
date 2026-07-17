@@ -38,6 +38,7 @@ import de.aarondietz.beetmeister.model.update.BeetMaintenanceStatus
 import de.aarondietz.beetmeister.model.update.BeetMaintenanceUpdatePhase
 import de.aarondietz.beetmeister.model.update.isActiveMaintenancePhase
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -1465,8 +1466,7 @@ internal class BeetGattSessionCoordinator(
                                 )
                             }
                             waitForMaintenanceDisconnect()
-                            scheduleMaintenanceReconnect(reconnectDevice)
-                            delay(MAINTENANCE_RECONNECT_DELAY_MS)
+                            reconnectAfterReboot(reconnectDevice)
                         }
 
                         "completed" -> {
@@ -1794,12 +1794,48 @@ internal class BeetGattSessionCoordinator(
         }
         maintenanceReconnectJob?.cancel()
         maintenanceReconnectJob = host.scope.launch {
-            delay(MAINTENANCE_RECONNECT_DELAY_MS)
-            if (host.state.value.maintenanceUpdate.phase in
-                setOf(BeetMaintenanceUpdatePhase.Reconnecting, BeetMaintenanceUpdatePhase.Rebooting)
-            ) {
-                Log.d(TAG, "scheduleMaintenanceReconnect opening address=${reconnectDevice.address}")
+            val isRebooting = host.state.value.maintenanceUpdate.phase == BeetMaintenanceUpdatePhase.Rebooting
+            val maxAttempts = if (isRebooting) MAX_REBOOT_RECONNECT_ATTEMPTS else 1
+            var attempt = 0
+            var delayMs = MAINTENANCE_RECONNECT_DELAY_MS
+            while (attempt < maxAttempts) {
+                delay(delayMs)
+                if (!isActive) return@launch
+                val phase = host.state.value.maintenanceUpdate.phase
+                if (phase != BeetMaintenanceUpdatePhase.Reconnecting &&
+                    phase != BeetMaintenanceUpdatePhase.Rebooting
+                ) {
+                    return@launch
+                }
+                attempt++
+                if (isRebooting && attempt > 1) {
+                    host.updateState { state ->
+                        state.copy(
+                            maintenanceUpdate = state.maintenanceUpdate.copy(
+                                retryCount = attempt,
+                                statusDetail = strings.get(
+                                    R.string.maintenance_rebooting_reconnect,
+                                    attempt,
+                                    maxAttempts,
+                                ),
+                            ),
+                        )
+                    }
+                }
+                Log.d(TAG, "scheduleMaintenanceReconnect opening address=${reconnectDevice.address} attempt=$attempt")
                 host.requestOpenGatt(reconnectDevice)
+                delayMs = (delayMs * 2).coerceAtMost(16_000L)
+            }
+            if (attempt >= maxAttempts && isRebooting) {
+                Log.e(TAG, "scheduleMaintenanceReconnect exhausted $maxAttempts attempts")
+                host.updateState { state ->
+                    state.copy(
+                        maintenanceUpdate = state.maintenanceUpdate.copy(
+                            phase = BeetMaintenanceUpdatePhase.Failed,
+                            errorDetail = strings.get(R.string.maintenance_reconnect_timeout),
+                        ),
+                    )
+                }
             }
         }
     }
@@ -1811,6 +1847,47 @@ internal class BeetGattSessionCoordinator(
                 return
             }
             delay(100L)
+        }
+        error(strings.get(R.string.maintenance_reconnect_timeout))
+    }
+
+    private suspend fun reconnectAfterReboot(device: BluetoothDevice) {
+        var attempt = 0
+        var delayMs = 1000L
+        while (attempt < MAX_REBOOT_RECONNECT_ATTEMPTS) {
+            throwIfMaintenanceAbortRequested()
+            delay(delayMs)
+            attempt++
+            host.updateState { state ->
+                state.copy(
+                    maintenanceUpdate = state.maintenanceUpdate.copy(
+                        retryCount = attempt,
+                        statusDetail = strings.get(
+                            R.string.maintenance_rebooting_reconnect,
+                            attempt,
+                            MAX_REBOOT_RECONNECT_ATTEMPTS,
+                        ),
+                    ),
+                )
+            }
+            host.requestOpenGatt(device)
+            val settleDeadline = System.currentTimeMillis() + 8_000L
+            while (System.currentTimeMillis() < settleDeadline) {
+                throwIfMaintenanceAbortRequested()
+                val phase = host.state.value.connection.phase
+                if (phase == BeetConnectionPhase.MaintenanceRequired || phase == BeetConnectionPhase.Connected) {
+                    Log.d(TAG, "reconnectAfterReboot success attempt=$attempt delay=${delayMs}ms phase=$phase")
+                    return
+                }
+                if (phase != BeetConnectionPhase.Connecting &&
+                    phase != BeetConnectionPhase.Bonding &&
+                    phase != BeetConnectionPhase.DiscoveringServices) {
+                    break
+                }
+                delay(400L)
+            }
+            Log.d(TAG, "reconnectAfterReboot attempt $attempt failed, backoff ${delayMs}ms")
+            delayMs = (delayMs * 2).coerceAtMost(16_000L)
         }
         error(strings.get(R.string.maintenance_reconnect_timeout))
     }
@@ -2398,6 +2475,7 @@ internal class BeetGattSessionCoordinator(
         private const val MAINTENANCE_GATT_STABILITY_MS = 600L
         private const val MAINTENANCE_WAKELOCK_TIMEOUT_MS = 20L * 60L * 1000L
         private const val MAX_MAINTENANCE_RECONNECT_ATTEMPTS = 3
+        private const val MAX_REBOOT_RECONNECT_ATTEMPTS = 8
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DEFAULT_MTU = 23
