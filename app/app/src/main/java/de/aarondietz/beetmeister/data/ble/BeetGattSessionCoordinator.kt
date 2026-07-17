@@ -188,16 +188,23 @@ internal class BeetGattSessionCoordinator(
         val lastBytes = maintenanceLastProgressBytes
         val elapsedMs = now - lastAt
         val deltaBytes = bytesTransferred - lastBytes
-        if (elapsedMs >= 1000L && deltaBytes > 0) {
-            val instantaneousRate = deltaBytes.toDouble() / (elapsedMs.toDouble() / 1000.0)
-            maintenanceSmoothedBytesPerSecond = maintenanceSmoothedBytesPerSecond?.let { existing ->
-                (existing * 0.7) + (instantaneousRate * 0.3)
-            } ?: instantaneousRate
+        if (bytesTransferred < lastBytes) {
             maintenanceLastProgressAtMs = now
             maintenanceLastProgressBytes = bytesTransferred
-        } else if (bytesTransferred < lastBytes) {
-            maintenanceLastProgressAtMs = now
-            maintenanceLastProgressBytes = bytesTransferred
+        } else if (elapsedMs >= 1000L && deltaBytes > 0) {
+            if (elapsedMs > MAINTENANCE_PROGRESS_GAP_RESET_MS) {
+                // Long gap (reconnect / BLE hiccup) — reset the baseline
+                // instead of computing a contaminated instantaneous rate.
+                maintenanceLastProgressAtMs = now
+                maintenanceLastProgressBytes = bytesTransferred
+            } else {
+                val instantaneousRate = deltaBytes.toDouble() / (elapsedMs.toDouble() / 1000.0)
+                maintenanceSmoothedBytesPerSecond = maintenanceSmoothedBytesPerSecond?.let { existing ->
+                    (existing * 0.7) + (instantaneousRate * 0.3)
+                } ?: instantaneousRate
+                maintenanceLastProgressAtMs = now
+                maintenanceLastProgressBytes = bytesTransferred
+            }
         }
         val elapsedSeconds = maintenanceElapsedSeconds(now)
         val estimatedRemainingSeconds =
@@ -2474,6 +2481,9 @@ internal class BeetGattSessionCoordinator(
         private const val MAINTENANCE_RECONNECT_DELAY_MS = 1_000L
         private const val MAINTENANCE_GATT_STABILITY_MS = 600L
         private const val MAINTENANCE_WAKELOCK_TIMEOUT_MS = 20L * 60L * 1000L
+        // Reset speed baseline when progress gap exceeds this
+        // (e.g. after a mid-OTA disconnect + reconnect).
+        private const val MAINTENANCE_PROGRESS_GAP_RESET_MS = 10_000L
         private const val MAX_MAINTENANCE_RECONNECT_ATTEMPTS = 3
         private const val MAX_REBOOT_RECONNECT_ATTEMPTS = 8
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
