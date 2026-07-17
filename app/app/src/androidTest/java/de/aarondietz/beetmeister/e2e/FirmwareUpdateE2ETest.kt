@@ -82,7 +82,7 @@ class FirmwareUpdateE2ETest {
         firmwareUpdate.assertSummaryShown()
         firmwareUpdate.tapInstall()
         firmwareUpdate.awaitTransferStarted(timeoutMillis = 300_000L)
-        firmwareUpdate.awaitReconnect(timeoutMillis = 600_000L)
-        firmwareUpdate.assertPostUpdateHealthy()
+        firmwareUpdate.awaitReconnect(timeoutMillis = 420_000L)
+        firmwareUpdate.assertPostUpdateHealthy(fixture)
     }
 }
