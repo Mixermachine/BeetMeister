@@ -401,44 +401,124 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
 
         patched = re.sub(anchor, conn_param_block, patched, count=1)
 
-    # 3. Add per-call chunk batching limit (32 chunks). The v0.3.0
-    # code drains the entire queue in one blocking loop — when the
-    # queue capacity is 256 (step 1), this blocks the controller
-    # task for far too long, preventing the finish-request from
-    # being processed and the "rebooting" indication from being
-    # transmitted. Idempotent — checks for separate marker.
-    BATCH_MARKER = b"/* P5 R37d chunk batching"
-    if BATCH_MARKER not in patched:
+    # 3. Replace the original single-chunk drain loop with a 4 KB
+    # sector-buffered write.  One esp_ota_write per full sector
+    # replaces ~17 individual calls, keeps the BLE host task
+    # responsive, and prevents NimBLE queue overflow.  Idempotent
+    # — checks for the marker comment first.
+    SECTOR_MARKER = b"/* P5 R37d sector-buffered OTA write"
+    if SECTOR_MARKER not in patched:
         old_while = rb'    while \(s_ble\.maintenance_session\.chunk_queue_count > 0U\) \{'
         if not re.search(old_while, patched):
             raise RuntimeError(f"{ble_c_path}: chunk processing while loop not found")
-        new_while = (
-            b'    /* P5 R37d chunk batching: process at most 32 chunks per\n'
-            b'     * call so the controller task yields to NimBLE between\n'
-            b'     * batches, keeping BLE responsive for writes and indications. */\n'
-            b'    uint16_t chunks_processed_this_call = 0U;\n'
-            b'    while (s_ble.maintenance_session.chunk_queue_count > 0U &&\n'
-            b'           chunks_processed_this_call < 32U) {'
-        )
-        patched = re.sub(old_while, new_while, patched, count=1)
 
-        # Add increment after beet_ble_pop_maintenance_chunk()
-        old_pop_close = (
-            rb'        beet_ble_pop_maintenance_chunk\(\);\n'
+        # We replace everything from the old while loop up to and
+        # including the closing brace before
+        #   if (s_ble.maintenance_session.finish_request_pending)
+        old_drain = (
+            rb'    while \(s_ble\.maintenance_session\.chunk_queue_count > 0U\) \{\n'
+            rb'(?:.*\n)*?'
             rb'    \}\n'
             rb'\n'
             rb'    if \(s_ble\.maintenance_session\.finish_request_pending\)'
         )
-        if not re.search(old_pop_close, patched):
-            raise RuntimeError(f"{ble_c_path}: chunk pop + finish_request anchor not found")
-        new_pop_close = (
+        if not re.search(old_drain, patched):
+            raise RuntimeError(f"{ble_c_path}: full drain loop + finish_request anchor not found")
+
+        new_drain = (
+            b'    /* P5 R37d sector-buffered OTA write: coalesce queued chunks\n'
+            b'     * into full 4 KB flash-sector writes.  One esp_ota_write\n'
+            b'     * per sector replaces ~17 individual small writes and\n'
+            b'     * their combined erase overhead.  The BLE host task\n'
+            b'     * regains the CPU between sectors, keeping NimBLE\n'
+            b'     * responsive and preventing BLE HCI timeouts. */\n'
+            b'    uint8_t flush_buf[4096U];\n'
+            b'    size_t flush_len = 0U;\n'
+            b'\n'
+            b'    while (s_ble.maintenance_session.chunk_queue_count > 0U) {\n'
+            b'        beet_ble_maintenance_chunk_t chunk;\n'
+            b'\n'
+            b'        if (!beet_ble_peek_maintenance_chunk(&chunk)) {\n'
+            b'            break;\n'
+            b'        }\n'
+            b'        if (chunk.session_id != s_ble.maintenance_session.status.session_id ||\n'
+            b'            chunk.offset + chunk.payload_len > s_ble.maintenance_session.status.total_bytes) {\n'
+            b'            uint32_t failed_session_id = s_ble.maintenance_session.status.session_id;\n'
+            b'\n'
+            b'            beet_ble_set_maintenance_terminal_status(\n'
+            b'                BEET_MAINTENANCE_STATE_FAILED,\n'
+            b'                BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,\n'
+            b'                true,\n'
+            b'                true,\n'
+            b'                failed_session_id);\n'
+            b'            s_ble.maintenance_session.ota_handle_active = false;\n'
+            b'            beet_ble_clear_maintenance_session();\n'
+            b'            beet_ble_emit_maintenance_event(\n'
+            b'                BEET_SYSTEM_EVENT_UPDATE_FAILED,\n'
+            b'                (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,\n'
+            b'                failed_session_id);\n'
+            b'            (void)beet_ble_send_maintenance_status_indication();\n'
+            b'            return;\n'
+            b'        }\n'
+            b'        if (flush_len + chunk.payload_len > sizeof(flush_buf)) {\n'
+            b'            if (esp_ota_write(s_ble.maintenance_session.ota_handle,\n'
+            b'                             flush_buf, flush_len) != ESP_OK) {\n'
+            b'                uint32_t failed_session_id = s_ble.maintenance_session.status.session_id;\n'
+            b'\n'
+            b'                beet_ble_set_maintenance_terminal_status(\n'
+            b'                    BEET_MAINTENANCE_STATE_FAILED,\n'
+            b'                    BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,\n'
+            b'                    true,\n'
+            b'                    true,\n'
+            b'                    failed_session_id);\n'
+            b'                s_ble.maintenance_session.ota_handle_active = false;\n'
+            b'                beet_ble_clear_maintenance_session();\n'
+            b'                beet_ble_emit_maintenance_event(\n'
+            b'                    BEET_SYSTEM_EVENT_UPDATE_FAILED,\n'
+            b'                    (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,\n'
+            b'                    failed_session_id);\n'
+            b'                (void)beet_ble_send_maintenance_status_indication();\n'
+            b'                return;\n'
+            b'            }\n'
+            b'            beet_ble_image_sha256_update(\n'
+            b'                &s_ble.maintenance_session.image_sha256_context,\n'
+            b'                flush_buf,\n'
+            b'                flush_len);\n'
+            b'            flush_len = 0U;\n'
+            b'        }\n'
+            b'        memcpy(flush_buf + flush_len, chunk.payload, chunk.payload_len);\n'
+            b'        flush_len += chunk.payload_len;\n'
             b'        beet_ble_pop_maintenance_chunk();\n'
-            b'        chunks_processed_this_call++;\n'
+            b'    }\n'
+            b'    if (flush_len > 0U) {\n'
+            b'        if (esp_ota_write(s_ble.maintenance_session.ota_handle,\n'
+            b'                         flush_buf, flush_len) != ESP_OK) {\n'
+            b'            uint32_t failed_session_id = s_ble.maintenance_session.status.session_id;\n'
+            b'\n'
+            b'            beet_ble_set_maintenance_terminal_status(\n'
+            b'                BEET_MAINTENANCE_STATE_FAILED,\n'
+            b'                BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,\n'
+            b'                true,\n'
+            b'                true,\n'
+            b'                failed_session_id);\n'
+            b'            s_ble.maintenance_session.ota_handle_active = false;\n'
+            b'            beet_ble_clear_maintenance_session();\n'
+            b'            beet_ble_emit_maintenance_event(\n'
+            b'                BEET_SYSTEM_EVENT_UPDATE_FAILED,\n'
+            b'                (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,\n'
+            b'                failed_session_id);\n'
+            b'            (void)beet_ble_send_maintenance_status_indication();\n'
+            b'            return;\n'
+            b'        }\n'
+            b'        beet_ble_image_sha256_update(\n'
+            b'            &s_ble.maintenance_session.image_sha256_context,\n'
+            b'            flush_buf,\n'
+            b'            flush_len);\n'
             b'    }\n'
             b'\n'
             b'    if (s_ble.maintenance_session.finish_request_pending)'
         )
-        patched = re.sub(old_pop_close, new_pop_close, patched, count=1)
+        patched = re.sub(old_drain, new_drain, patched, count=1)
 
     ble_c_path.write_bytes(patched)
     print(f"Patched {ble_c_path.name} with P5 R37d OTA conn param update")

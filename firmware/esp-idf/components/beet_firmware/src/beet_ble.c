@@ -48,6 +48,7 @@ static const char *TAG = "beet_ble";
 #define BEET_BLE_SYNC_READ_RATE_MAX_PER_WINDOW 12U
 #define BEET_BLE_STATE_STREAM_MIN_INTERVAL_US (1000000LL)
 #define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 256U
+#define BEET_BLE_OTA_SECTOR_BYTES 4096U
 #define BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US (30LL * 1000000LL)
 #define BEET_BLE_PAIRING_CODE_MAX 1000000U
 #define BEET_BLE_BOND_SCAN_CAPACITY 16U
@@ -1576,14 +1577,15 @@ static void beet_ble_service_maintenance_session(void)
         return;
     }
 
-    /* Process queued chunks in batches so the main loop can
-     * yield to NimBLE between batches. Without batching, the
-     * entire queue drains at once (esp_ota_write blocks), and
-     * the BLE stack cannot send ACKs for new writes, causing
-     * the write queue to back up and overflow. */
-    uint16_t chunks_processed_this_call = 0U;
-    while (s_ble.maintenance_session.chunk_queue_count > 0U &&
-           chunks_processed_this_call < 32U) {
+    /* Coalesce queued chunks into full 4 KB flash-sector writes.
+     * One esp_ota_write per sector replaces ~17 individual small
+     * writes and their combined erase overhead.  The BLE host task
+     * regains the CPU between sectors, keeping NimBLE responsive
+     * and preventing BLE HCI timeouts. */
+    uint8_t flush_buf[BEET_BLE_OTA_SECTOR_BYTES];
+    size_t flush_len = 0U;
+
+    while (s_ble.maintenance_session.chunk_queue_count > 0U) {
         beet_ble_maintenance_chunk_t chunk;
 
         if (!beet_ble_peek_maintenance_chunk(&chunk)) {
@@ -1608,7 +1610,44 @@ static void beet_ble_service_maintenance_session(void)
             (void)beet_ble_send_maintenance_status_indication();
             return;
         }
-        if (esp_ota_write(s_ble.maintenance_session.ota_handle, chunk.payload, chunk.payload_len) != ESP_OK) {
+
+        /* Flush before this chunk would overflow the sector buffer. */
+        if (flush_len + chunk.payload_len > sizeof(flush_buf)) {
+            if (esp_ota_write(s_ble.maintenance_session.ota_handle,
+                             flush_buf, flush_len) != ESP_OK) {
+                uint32_t failed_session_id = s_ble.maintenance_session.status.session_id;
+
+                beet_ble_set_maintenance_terminal_status(
+                    BEET_MAINTENANCE_STATE_FAILED,
+                    BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                    true,
+                    true,
+                    failed_session_id);
+                s_ble.maintenance_session.ota_handle_active = false;
+                beet_ble_clear_maintenance_session();
+                beet_ble_emit_maintenance_event(
+                    BEET_SYSTEM_EVENT_UPDATE_FAILED,
+                    (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                    failed_session_id);
+                (void)beet_ble_send_maintenance_status_indication();
+                return;
+            }
+            beet_ble_image_sha256_update(
+                &s_ble.maintenance_session.image_sha256_context,
+                flush_buf,
+                flush_len);
+            flush_len = 0U;
+        }
+
+        memcpy(flush_buf + flush_len, chunk.payload, chunk.payload_len);
+        flush_len += chunk.payload_len;
+        beet_ble_pop_maintenance_chunk();
+    }
+
+    /* Final partial sector. */
+    if (flush_len > 0U) {
+        if (esp_ota_write(s_ble.maintenance_session.ota_handle,
+                         flush_buf, flush_len) != ESP_OK) {
             uint32_t failed_session_id = s_ble.maintenance_session.status.session_id;
 
             beet_ble_set_maintenance_terminal_status(
@@ -1628,10 +1667,8 @@ static void beet_ble_service_maintenance_session(void)
         }
         beet_ble_image_sha256_update(
             &s_ble.maintenance_session.image_sha256_context,
-            chunk.payload,
-            chunk.payload_len);
-        beet_ble_pop_maintenance_chunk();
-        chunks_processed_this_call++;
+            flush_buf,
+            flush_len);
     }
 
     if (s_ble.maintenance_session.finish_request_pending) {
