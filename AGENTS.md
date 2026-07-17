@@ -1,76 +1,40 @@
-# Repository Guidelines
+# Rules
 
-## Project Structure & Module Organization
+## Where stuff lives
+- `app/`: Android (Kotlin+Compose). Code:`app/app/src/main`, unit:`app/app/src/test`, instr:`app/app/src/androidTest`.
+- `firmware/esp-idf/`: ESP32-S3. Logic:`components/beet_firmware`, entry:`main/`, partitions:`partitions/`.
+- `firmware/tests/host/`: pure-logic, BLE JSON codec, event-ring tests. No hardware.
+- `docs/`: normative specs + planning docs. Update when behavior/contracts change.
+- `hardware/`: wiring, Fritzing, electrical docs.
+- `.agents/skills/`: repo-local Codex skills. Not `skills/`.
 
-- `app/`: Android app (`:app`) written in Kotlin + Compose. Main code lives in `app/app/src/main`, unit tests in `app/app/src/test`, instrumentation tests in `app/app/src/androidTest`.
-- `firmware/esp-idf/`: ESP-IDF project for the ESP32-S3 controller. Core logic is in `components/beet_firmware`, app entry is in `main/`, partition maps in `partitions/`.
-- `firmware/tests/host/`: non-hardware firmware tests for pure logic, BLE JSON codecs, and event-ring helpers.
-- `docs/`: normative specs and planning docs. Update these when behavior or contracts change.
-- `hardware/`: wiring, Fritzing artifacts, and electrical documentation.
-- `.agents/skills/`: repo-local Codex skills. Keep new skills here, not under `skills/`.
+## Build & test
+- Android: `app/` → `./gradlew :app:assembleDebug`, tests:`:app:testDebugUnitTest`
+- Firmware: root=`firmware/esp-idf`. Use esp-idf-installation skill (build, flash, monitor, repair).
+- Host tests: `scripts/dev/run-firmware-host-tests.ps1`
+- QEMU smoke: `scripts/dev/run-firmware-qemu-smoke.ps1` (if QEMU installed)
 
-## Build, Test, and Development Commands
+## Style
+- Kotlin: `UpperCamelCase` composables/types, `lowerCamelCase` fns/fields. Standard.
+- C: `snake_case` fns/statics, `BEET_*` macros. Short helpers. Minimal comments.
 
-- Android app:
-  - from `app/`, use the Gradle wrapper to build the debug APK (`:app:assembleDebug`)
-  - from `app/`, run JVM unit tests (`:app:testDebugUnitTest`)
-- Firmware:
-  - use `$esp-idf-installation` in `.agents/skills/esp-idf-installation` for build, flash, monitor, and ESP-IDF repair workflows
-  - firmware project root is `firmware/esp-idf`
-- Non-hardware firmware tests:
-  - use `scripts/dev/run-firmware-host-tests.ps1` for host-side validation
-  - use `scripts/dev/run-firmware-qemu-smoke.ps1` for QEMU smoke when QEMU is installed
+## Protocol versions
+- BLE runtime change (command, field, result shape, wire-behavior) → bump `runtime_protocol_version` in `config/protocol_versions.properties`.
+- Maintenance wire change (command names, required fields, compact aliases, field meanings, status shapes, or other on-wire behavior) → user approval first.
+- No protocol-surface merge or ship without version + docs update.
 
-## Coding Style & Naming Conventions
+## Tests
+- App unit → `app/app/src/test`. Firmware host → `firmware/tests/host`.
+- Prefer pure-logic extraction over hardware mocking for firmware tests.
+- `invoke-idf.ps1 build` before flash.
 
-- Use ASCII by default.
-- Kotlin: standard Kotlin/Compose style, `UpperCamelCase` for composables/types, `lowerCamelCase` for functions/fields.
-- C firmware: `snake_case` for functions/statics, `BEET_*` for constants/macros, short focused helpers, minimal comments.
-- Keep JSON field names and BLE/MQTT contract strings aligned with the docs.
+## Commits & PRs
+- Short imperative subjects, follow existing history style (e.g. `Add shared control interface and NimBLE transport`). Focused by subsystem.
+- PR body: what changed, affected areas (`app`, `firmware`, `docs`, `hardware`), test/build evidence, screenshots for UI/OLED/Fritzing when relevant.
 
-## Protocol Versioning Rules
+## Hygiene
+- No temp files, build outputs, caches, or local machine config (e.g. `local.properties`).
 
-- Any runtime BLE command, field, result shape, or wire-behavior change requires a `runtime_protocol_version` bump in `config/protocol_versions.properties`.
-- Any maintenance protocol wire change requires explicit user approval first.
-- Maintenance protocol wire changes include command names, required fields, compact aliases, field meanings, status shapes, and other on-wire behavior.
-- Do not merge or ship protocol-surface changes without updating the shared version source and any affected docs.
-
-## Testing Guidelines
-
-- Add app unit tests under `app/app/src/test` and firmware host tests under `firmware/tests/host`.
-- Prefer pure logic extraction over hardware mocking when adding firmware tests.
-- Validate firmware with `invoke-idf.ps1 build` before flashing.
-- Do not treat bench diagnostics as a substitute for automated tests.
-
-## Commit & Pull Request Guidelines
-
-- Follow the existing history style: short imperative subject lines, e.g. `Add shared control interface and NimBLE transport`.
-- Keep commits focused by subsystem.
-- PRs should include:
-  - what changed
-  - affected areas (`app`, `firmware`, `docs`, `hardware`)
-  - test/build evidence
-  - screenshots for UI/OLED/Fritzing changes when relevant
-
-## Repository Hygiene
-
-- If you create a real repo file, add it to git tracking in the same task.
-- Do not commit temporary files, build outputs, caches, or local machine config such as `local.properties`.
-
-## Never block forever on serial/console readers
-
-`artifacts/stage8/serial_reader.py` is a long-lived stream reader. It will
-**not** return on its own while the port stays open. If you invoke it through
-the bash tool without a bound, the tool call will hang and stall the session.
-
-Rules for yourself:
-
-- Always pass `--max-seconds` (or `--idle-exit`) when launching
-  `serial_reader.py` from this agent. Example:
-  `python artifacts/stage8/serial_reader.py COM4 --max-seconds 15`.
-- For one-shot captures prefer `--idle-exit 3` so it stops as soon as the
-  device goes quiet.
-- Prefer the project's own `invoke-idf.ps1 monitor` / `idf.py monitor` path
-  (see `$esp-idf-installation`) over `serial_reader.py` when possible.
-- If a serial call ever does hang, do not keep waiting on it. Stop the call,
-  capture what already streamed to a file, and move on.
+## Serial readers
+- Never run `serial_reader.py` or similar stream readers without `--max-seconds` or `--idle-exit` — will hang session.
+- Prefer `invoke-idf.ps1 monitor` / `idf.py monitor` (esp-idf-installation skill) over `serial_reader.py`.

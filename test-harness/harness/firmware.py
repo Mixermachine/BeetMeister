@@ -343,62 +343,103 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
     MARKER = b"/* P5 R37d conn param update for faster OTA"
 
     original = ble_c_path.read_bytes()
-    if MARKER in original:
-        return  # already patched
+    already_had_conn_param_patch = MARKER in original
+    patched = original
 
-    # 1. Increase chunk queue capacity (8 -> 256) and widen index
-    # types (uint8_t -> uint16_t) to handle faster BLE writes.
-    old_cap = rb'#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 8U'
-    if not re.search(old_cap, original):
-        raise RuntimeError(f"{ble_c_path}: chunk queue capacity define not found")
-    new_cap = b'#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 256U'
-    patched = re.sub(old_cap, new_cap, original, count=1)
+    if not already_had_conn_param_patch:
+        # 1. Increase chunk queue capacity (8 -> 256) and widen index
+        # types (uint8_t -> uint16_t) to handle faster BLE writes.
+        old_cap = rb'#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 8U'
+        if not re.search(old_cap, original):
+            raise RuntimeError(f"{ble_c_path}: chunk queue capacity define not found")
+        new_cap = b'#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 256U'
+        patched = re.sub(old_cap, new_cap, original, count=1)
 
-    old_types = rb'uint8_t\s+chunk_queue_head;\s*uint8_t\s+chunk_queue_tail;\s*uint8_t\s+chunk_queue_count;'
-    if not re.search(old_types, patched):
-        raise RuntimeError(f"{ble_c_path}: chunk queue types not found")
-    new_types = b'uint16_t chunk_queue_head;\n    uint16_t chunk_queue_tail;\n    uint16_t chunk_queue_count;'
-    patched = re.sub(old_types, new_types, patched, count=1)
+        old_types = rb'uint8_t\s+chunk_queue_head;\s*uint8_t\s+chunk_queue_tail;\s*uint8_t\s+chunk_queue_count;'
+        if not re.search(old_types, patched):
+            raise RuntimeError(f"{ble_c_path}: chunk queue types not found")
+        new_types = b'uint16_t chunk_queue_head;\n    uint16_t chunk_queue_tail;\n    uint16_t chunk_queue_count;'
+        patched = re.sub(old_types, new_types, patched, count=1)
 
-    # 2. Add conn_param_update_requested flag to the struct.
-    old_struct = rb"\n    bool status_indication_in_flight;"
-    if not re.search(old_struct, original):
-        raise RuntimeError(f"{ble_c_path}: struct field 'status_indication_in_flight' not found")
-    new_struct = b"\n    bool status_indication_in_flight;\n    bool conn_param_update_requested;"
-    patched = re.sub(old_struct, new_struct, original, count=1)
+        # 2. Add conn_param_update_requested flag to the struct.
+        old_struct = rb"\n    bool status_indication_in_flight;"
+        if not re.search(old_struct, original):
+            raise RuntimeError(f"{ble_c_path}: struct field 'status_indication_in_flight' not found")
+        new_struct = b"\n    bool status_indication_in_flight;\n    bool conn_param_update_requested;"
+        patched = re.sub(old_struct, new_struct, original, count=1)
 
-    # 2. Insert conn param update after beet_ble_mark_activity()
-    # in the AWAITING_DATA section. Use the unique "begin update ready"
-    # ESP_LOGI as the anchor (appears exactly once).
-    anchor = rb'(beet_ble_mark_activity\(\);\s+ESP_LOGI\(TAG,\s*"begin update ready)'
-    m = re.search(anchor, patched)
-    if not m:
-        raise RuntimeError(f"{ble_c_path}: cannot find begin update ready anchor")
+        # 2. Insert conn param update after beet_ble_mark_activity()
+        # in the AWAITING_DATA section. Use the unique "begin update ready"
+        # ESP_LOGI as the anchor (appears exactly once).
+        anchor = rb'(beet_ble_mark_activity\(\);\s+ESP_LOGI\(TAG,\s*"begin update ready)'
+        m = re.search(anchor, patched)
+        if not m:
+            raise RuntimeError(f"{ble_c_path}: cannot find begin update ready anchor")
 
-    conn_param_block = (
-        b"beet_ble_mark_activity();\n"
-        b"            /* P5 R37d conn param update for faster OTA */\n"
-        b"            if (s_ble.connected && s_ble.conn_handle != BLE_HS_CONN_HANDLE_NONE) {\n"
-        b"                struct ble_gap_upd_params upd_params = {\n"
-        b"                    .itvl_min = 6,                /* 7.5 ms */\n"
-        b"                    .itvl_max = 12,               /* 15 ms */\n"
-        b"                    .latency = 0,\n"
-        b"                    .supervision_timeout = 500,   /* 5 s */\n"
-        b"                    .min_ce_len = 0,\n"
-        b"                    .max_ce_len = 0xFFFF,\n"
-        b"                };\n"
-        b"                int rc = ble_gap_update_params(s_ble.conn_handle, &upd_params);\n"
-        b"                if (rc == 0) {\n"
-        b"                    s_ble.maintenance_session.conn_param_update_requested = true;\n"
-        b"                    ESP_LOGI(TAG, \"conn param update requested for OTA\");\n"
-        b"                } else {\n"
-        b"                    ESP_LOGW(TAG, \"conn param update request failed rc=%d\", rc);\n"
-        b"                }\n"
-        b"            }\n"
-        b"            ESP_LOGI(TAG, \"begin update ready"
-    )
+        conn_param_block = (
+            b"beet_ble_mark_activity();\n"
+            b"            /* P5 R37d conn param update for faster OTA */\n"
+            b"            if (s_ble.connected && s_ble.conn_handle != BLE_HS_CONN_HANDLE_NONE) {\n"
+            b"                struct ble_gap_upd_params upd_params = {\n"
+            b"                    .itvl_min = 6,                /* 7.5 ms */\n"
+            b"                    .itvl_max = 12,               /* 15 ms */\n"
+            b"                    .latency = 0,\n"
+            b"                    .supervision_timeout = 500,   /* 5 s */\n"
+            b"                    .min_ce_len = 0,\n"
+            b"                    .max_ce_len = 0xFFFF,\n"
+            b"                };\n"
+            b"                int rc = ble_gap_update_params(s_ble.conn_handle, &upd_params);\n"
+            b"                if (rc == 0) {\n"
+            b"                    s_ble.maintenance_session.conn_param_update_requested = true;\n"
+            b"                    ESP_LOGI(TAG, \"conn param update requested for OTA\");\n"
+            b"                } else {\n"
+            b"                    ESP_LOGW(TAG, \"conn param update request failed rc=%d\", rc);\n"
+            b"                }\n"
+            b"            }\n"
+            b"            ESP_LOGI(TAG, \"begin update ready"
+        )
 
-    patched = re.sub(anchor, conn_param_block, patched, count=1)
+        patched = re.sub(anchor, conn_param_block, patched, count=1)
+
+    # 3. Add per-call chunk batching limit (32 chunks). The v0.3.0
+    # code drains the entire queue in one blocking loop — when the
+    # queue capacity is 256 (step 1), this blocks the controller
+    # task for far too long, preventing the finish-request from
+    # being processed and the "rebooting" indication from being
+    # transmitted. Idempotent — checks for separate marker.
+    BATCH_MARKER = b"/* P5 R37d chunk batching"
+    if BATCH_MARKER not in patched:
+        old_while = rb'    while \(s_ble\.maintenance_session\.chunk_queue_count > 0U\) \{'
+        if not re.search(old_while, patched):
+            raise RuntimeError(f"{ble_c_path}: chunk processing while loop not found")
+        new_while = (
+            b'    /* P5 R37d chunk batching: process at most 32 chunks per\n'
+            b'     * call so the controller task yields to NimBLE between\n'
+            b'     * batches, keeping BLE responsive for writes and indications. */\n'
+            b'    uint16_t chunks_processed_this_call = 0U;\n'
+            b'    while (s_ble.maintenance_session.chunk_queue_count > 0U &&\n'
+            b'           chunks_processed_this_call < 32U) {'
+        )
+        patched = re.sub(old_while, new_while, patched, count=1)
+
+        # Add increment after beet_ble_pop_maintenance_chunk()
+        old_pop_close = (
+            rb'        beet_ble_pop_maintenance_chunk\(\);\n'
+            rb'    \}\n'
+            rb'\n'
+            rb'    if \(s_ble\.maintenance_session\.finish_request_pending\)'
+        )
+        if not re.search(old_pop_close, patched):
+            raise RuntimeError(f"{ble_c_path}: chunk pop + finish_request anchor not found")
+        new_pop_close = (
+            b'        beet_ble_pop_maintenance_chunk();\n'
+            b'        chunks_processed_this_call++;\n'
+            b'    }\n'
+            b'\n'
+            b'    if (s_ble.maintenance_session.finish_request_pending)'
+        )
+        patched = re.sub(old_pop_close, new_pop_close, patched, count=1)
+
     ble_c_path.write_bytes(patched)
     print(f"Patched {ble_c_path.name} with P5 R37d OTA conn param update")
 
