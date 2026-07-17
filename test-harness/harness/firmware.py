@@ -366,7 +366,7 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
         if not re.search(old_struct, original):
             raise RuntimeError(f"{ble_c_path}: struct field 'status_indication_in_flight' not found")
         new_struct = b"\n    bool status_indication_in_flight;\n    bool conn_param_update_requested;"
-        patched = re.sub(old_struct, new_struct, original, count=1)
+        patched = re.sub(old_struct, new_struct, patched, count=1)
 
         # 2. Insert conn param update after beet_ble_mark_activity()
         # in the AWAITING_DATA section. Use the unique "begin update ready"
@@ -408,8 +408,12 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
     # — checks for the marker comment first.
     SECTOR_MARKER = b"/* P5 R37d sector-buffered OTA write"
     if SECTOR_MARKER not in patched:
+        # Normalize CRLF → LF so regexes match regardless of git
+        # core.autocrlf settings on the build machine.
+        normalized = patched.replace(b'\r\n', b'\n')
+
         old_while = rb'    while \(s_ble\.maintenance_session\.chunk_queue_count > 0U\) \{'
-        if not re.search(old_while, patched):
+        if not re.search(old_while, normalized):
             raise RuntimeError(f"{ble_c_path}: chunk processing while loop not found")
 
         # We replace everything from the old while loop up to and
@@ -422,7 +426,7 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
             rb'\n'
             rb'    if \(s_ble\.maintenance_session\.finish_request_pending\)'
         )
-        if not re.search(old_drain, patched):
+        if not re.search(old_drain, normalized):
             raise RuntimeError(f"{ble_c_path}: full drain loop + finish_request anchor not found")
 
         new_drain = (
@@ -518,7 +522,7 @@ def _patch_ota_conn_params(ble_c_path: Path) -> None:
             b'\n'
             b'    if (s_ble.maintenance_session.finish_request_pending)'
         )
-        patched = re.sub(old_drain, new_drain, patched, count=1)
+        patched = re.sub(old_drain, new_drain, normalized, count=1)
 
     ble_c_path.write_bytes(patched)
     print(f"Patched {ble_c_path.name} with P5 R37d OTA conn param update")
