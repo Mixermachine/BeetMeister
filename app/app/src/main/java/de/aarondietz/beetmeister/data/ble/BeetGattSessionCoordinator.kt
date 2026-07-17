@@ -1426,7 +1426,6 @@ internal class BeetGattSessionCoordinator(
         maintenanceReconnectAttempts = 0
         maintenanceExpectedRebootDisconnect = false
         maintenanceAbortRequested = false
-        var resumeAllowed = false
         try {
             while (true) {
                 try {
@@ -1439,7 +1438,6 @@ internal class BeetGattSessionCoordinator(
                     val status = startOrResumeMaintenanceSession(
                         selectedPackage = selectedPackage,
                         selectedFirmware = selectedFirmware,
-                        resumeAllowed = resumeAllowed,
                         fullImageAlreadyTransferred = fullImageAlreadyTransferred,
                     )
                     Log.d(
@@ -1469,7 +1467,6 @@ internal class BeetGattSessionCoordinator(
                             waitForMaintenanceDisconnect()
                             scheduleMaintenanceReconnect(reconnectDevice)
                             delay(MAINTENANCE_RECONNECT_DELAY_MS)
-                            resumeAllowed = true
                         }
 
                         "completed" -> {
@@ -1529,7 +1526,6 @@ internal class BeetGattSessionCoordinator(
                         )
                     }
                     scheduleMaintenanceReconnect()
-                    resumeAllowed = true
                     delay(MAINTENANCE_RECONNECT_DELAY_MS)
                 }
             }
@@ -1573,18 +1569,16 @@ internal class BeetGattSessionCoordinator(
     private suspend fun startOrResumeMaintenanceSession(
         selectedPackage: BeetFirmwareImagePackage,
         selectedFirmware: BeetFirmwarePackageSummary,
-        resumeAllowed: Boolean,
         fullImageAlreadyTransferred: Boolean,
     ): BeetMaintenanceStatus {
-        Log.d(TAG, "startOrResumeMaintenanceSession(resumeAllowed=$resumeAllowed)")
+        Log.d(TAG, "startOrResumeMaintenanceSession query_status")
         val initialStatus = sendMaintenanceControl(BeetJsonCodec.maintenanceQueryStatus())
-        Log.d(TAG, "startOrResumeMaintenanceSession query_status result state=${initialStatus.state} resumeAllowed=$resumeAllowed")
         Log.d(
             TAG,
             "startOrResumeMaintenanceSession initial state=${initialStatus.state} " +
                 "sessionId=${initialStatus.sessionId} nextOffset=${initialStatus.nextOffset}",
         )
-        if (resumeAllowed && fullImageAlreadyTransferred && initialStatus.state == "idle") {
+        if (fullImageAlreadyTransferred && initialStatus.state == "idle") {
             val refreshedMaintenanceInfo = readFreshMaintenanceInfo()
             if (isSelectedFirmwareInstalled(selectedFirmware, refreshedMaintenanceInfo)) {
                 Log.i(
