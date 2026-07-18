@@ -36,6 +36,12 @@
     <string name="nav_calibration">Calibration</string>
     <string name="nav_events">Events</string>
     <string name="nav_settings">Settings</string>
+    <string name="nav_battery_history">Battery</string>
+
+    <!-- Battery History -->
+    <string name="battery_history_title">Battery Voltage History</string>
+    <string name="battery_history_insufficient_data">Not enough data yet.
+Connect to your BeetMeister controller and wait for events to accumulate.</string>
 
     <string name="header_connected_controller">Connected controller</string>
     <string name="header_live_ble_session">Live BLE session</string>
@@ -444,9 +450,12 @@
     <string name="maintenance_progress_percent" localizePipeContext="Percent completion during firmware upload. %1$d is the integer percentage.">%1$d%% complete.</string>
     <string name="maintenance_progress_elapsed" localizePipeContext="Elapsed firmware update time. %1$s is an already formatted duration string.">Elapsed: %1$s.</string>
     <string name="maintenance_progress_remaining" localizePipeContext="Estimated remaining firmware update time. %1$s is an already formatted duration string.">Estimated remaining: %1$s.</string>
+    <string name="maintenance_progress_speed" localizePipeContext="Transfer speed during firmware upload. %1$.1f is the speed in kilobytes per second.">%1$.1f kB/s</string>
+    <string name="maintenance_progress_time" localizePipeContext="Combined elapsed and estimated remaining firmware update time. %1$s is elapsed time, %2$s is estimated remaining time.">Elapsed: %1$s / Est: %2$s</string>
     <string name="maintenance_reconnecting_attempt" localizePipeContext="Reconnect progress during maintenance upload. %1$d is the current attempt and %2$d is the maximum retries.">Reconnecting to resume update (%1$d/%2$d).</string>
     <string name="maintenance_reconnect_timeout">Could not reconnect to resume the firmware update.</string>
     <string name="maintenance_rebooting_after_update">Firmware uploaded. Controller is rebooting.</string>
+    <string name="maintenance_rebooting_reconnect" localizePipeContext="Post-reboot reconnect progress. %1$d is current attempt and %2$d is max attempts.">Controller is rebooting. Reconnecting (attempt %1$d of %2$d)…</string>
     <string name="maintenance_update_completed">Firmware update completed.</string>
     <string name="maintenance_selected_already_installed">Selected firmware is already installed.</string>
     <string name="maintenance_chunk_write_failed" localizePipeContext="Chunk write failure with numeric Android GATT status. %1$d is the raw status code.">Firmware chunk write failed with BLE status %1$d.</string>

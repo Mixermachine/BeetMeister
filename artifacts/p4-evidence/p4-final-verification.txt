@@ -1,0 +1,52 @@
+=============================================
+P4 final verification: all 4 dry-run modes
+=============================================
+
+--- --dry-run fresh_install ---
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-163217-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-163217-fresh_install\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 6.7s
+
+exit=0
+
+--- --dry-run firmware_update ---
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-163238-firmware_update
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-163238-firmware_update\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 6.9s
+
+exit=0
+
+--- --dry-run settings_update ---
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-163258-settings_update
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-163258-settings_update\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 6.6s
+
+exit=0
+
+--- --dry-run-dispatch fresh_install (already verified, re-check) ---
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-163320-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-163320-fresh_install\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 6.7s
+  dispatch    = fresh_install (0/5 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-163320-fresh_install/dispatch-plan.json
+
+exit=0

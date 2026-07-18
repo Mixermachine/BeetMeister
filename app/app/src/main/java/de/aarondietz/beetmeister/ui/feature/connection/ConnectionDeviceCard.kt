@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.R
@@ -34,7 +35,8 @@ internal fun DeviceCard(device: BeetDiscoveredDevice, selected: Boolean, onConne
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onConnect),
+            .clickable(onClick = onConnect)
+            .testTag(ConnectionGateTestTags.DeviceCard),
         colors = CardDefaults.elevatedCardColors(
             containerColor = if (selected) Color(0xFFE8F1E3) else Color(0xFFFDFBF6),
         ),
@@ -46,8 +48,16 @@ internal fun DeviceCard(device: BeetDiscoveredDevice, selected: Boolean, onConne
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text(device.name, fontWeight = FontWeight.SemiBold)
-                    Text(device.address, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        device.name,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.testTag(ConnectionGateTestTags.DeviceName),
+                    )
+                    Text(
+                        device.address,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag(ConnectionGateTestTags.DeviceAddress),
+                    )
                 }
                 Icon(Icons.Default.BluetoothSearching, contentDescription = null, tint = Color(0xFF59734E))
             }
@@ -67,7 +77,10 @@ internal fun DeviceCard(device: BeetDiscoveredDevice, selected: Boolean, onConne
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
-            Button(onClick = onConnect) {
+            Button(
+                onClick = onConnect,
+                modifier = Modifier.testTag(ConnectionGateTestTags.DeviceConnectButton),
+            ) {
                 Text(strings.get(if (selected) R.string.common_connecting else R.string.common_connect))
             }
         }

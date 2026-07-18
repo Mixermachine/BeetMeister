@@ -1,0 +1,57 @@
+=============================================
+P4 dry-run-dispatch: firmware_update (retry)
+=============================================
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-162902-firmware_update
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-162902-firmware_update\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 6.7s
+  dispatch    = firmware_update (0/3 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-162902-firmware_update/dispatch-plan.json
+
+
+=== exit code: 0 ===
+
+=== dispatch-plan.json ===
+{
+  "am_instrument": {
+    "cmd": "adb -s RZCT50CGLKA shell am instrument -w -e expected_old_build_label v0.3.0 -e expected_new_build_label dev-58c83c7 -e beetRunE2e true -e class de.aarondietz.beetmeister.e2e.FirmwareUpdateE2ETest de.aarondietz.beetmeister.test/de.aarondietz.beetmeister.e2e.BeetE2eAwareJUnitRunner",
+    "description": "am instrument for de.aarondietz.beetmeister.e2e.FirmwareUpdateE2ETest with expected_old_build_label='v0.3.0' + expected_new_build_label='dev-58c83c7'",
+    "executed": false,
+    "name": "am_instrument_firmware_update"
+  },
+  "extras": {
+    "expected_new_build_label": "dev-58c83c7",
+    "expected_old_build_label": "v0.3.0"
+  },
+  "preconditions": [
+    {
+      "cmd": "firmware.flash_old(config, port='COM4', pinned_tag='v0.3.0')  # (dry-run-dispatch placeholder; the real run will parse 'v0.3.0''s .bin metadata via esptool image_info)",
+      "description": "firmware.flash_old(port=COM4): erase appcfg + otadata, then write_flash bootloader (0x1000) + partition-table (0x8000) + beetmeister.bin (ota_0) from firmware_cache/",
+      "executed": false,
+      "name": "flash_old_v0.3.0"
+    },
+    {
+      "cmd": "adb -s RZCT50CGLKA uninstall de.aarondietz.beetmeister",
+      "description": "adb uninstall de.aarondietz.beetmeister",
+      "executed": false,
+      "name": "uninstall_app"
+    },
+    {
+      "cmd": "Adb.install_apks(rebuild=False)  # APKs from C:/git/BeetMeister/app/app/build/outputs/apk",
+      "description": "adb install -r the app + androidTest APKs (no rebuild)",
+      "executed": false,
+      "name": "install_built_apks"
+    }
+  ],
+  "screenshot_pull": {
+    "cmd": "adb -s RZCT50CGLKA pull /sdcard/Android/data/de.aarondietz.beetmeister/files/e2e_screenshots/firmwareUpdate 'C:\\git\\BeetMeister\\test-harness\\runs\\20260713-162902-firmware_update\\screenshots\\firmwareUpdate'",
+    "description": "adb pull Kotlin in-test screenshots from /sdcard/Android/data/<package>/files/e2e_screenshots/firmwareUpdate/ into the run folder",
+    "executed": false,
+    "name": "pull_in_test_screenshots"
+  },
+  "suite": "firmware_update"
+}

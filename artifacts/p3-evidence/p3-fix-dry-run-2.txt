@@ -1,0 +1,14 @@
+=============================================
+P3 fix-verify 2: full dry-run after _finish fix
+=============================================
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-141317-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-141317-fresh_install\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 8.1s
+
+
+=== exit code: 0 ===

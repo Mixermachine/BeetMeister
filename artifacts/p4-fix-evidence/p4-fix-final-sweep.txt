@@ -1,0 +1,28 @@
+=============================================
+P4 fix final regression sweep
+=============================================
+
+--- 1) P3 path: --dry-run fresh_install (regression) ---
+  smoke pass  = True
+  smoke dur   = 7.0s
+
+  exit=0
+
+--- 2) P4 dry-run-dispatch: all 3 suites ---
+  --dry-run-dispatch fresh_install: exit=0, dispatch=
+  --dry-run-dispatch firmware_update: exit=0, dispatch=
+  --dry-run-dispatch settings_update: exit=0, dispatch=
+
+--- 3) --dry-run-dispatch fresh_install with empty port (CRIT #1 path) ---
+  empty port: passed=True, dispatch plan composed, no crash
+  preconditions in plan: ['uninstall_app', 'skip_erase_no_port', 'install_built_apks']
+
+--- 4) pytest --collect-only ---
+test-harness/test_fresh_install.py::test_fresh_install
+test-harness/test_firmware_update.py::test_firmware_update
+test-harness/test_settings.py::test_settings_update
+
+3 tests collected in 0.01s
+
+--- 5) 9 harness modules import ---
+OK: 9 modules import

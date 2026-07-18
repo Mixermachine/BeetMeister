@@ -1,0 +1,9 @@
+CRIT #1 fix test: empty controller port
+  plan.preconditions would include: [uninstall, skip_erase_no_port, install]
+  uninstall_app.executed:     True
+  skip_erase_no_port.exec:    False (should be False: skipped by name filter)
+  install_built_apks.exec:    True
+  am_instrument.executed:     True
+  e2e_result.passed:          True
+  adb calls:                  [('uninstall', 'de.aarondietz.beetmeister'), ('install_apks', False)]
+  CRIT #1 fix: OK (no AssertionError on skip_erase_no_port)

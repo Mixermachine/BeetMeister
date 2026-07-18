@@ -31,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.controller.BeetPairState
@@ -83,11 +84,14 @@ internal fun PairDetailScreen(
     }
 
     LazyColumn(
-        modifier = modifier,
+        modifier = modifier.testTag(PairDetailTestTags.Container),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            TextButton(onClick = onBack) { Text(strings.get(R.string.common_back)) }
+            TextButton(
+                onClick = onBack,
+                modifier = Modifier.testTag(PairDetailTestTags.BackButton),
+            ) { Text(strings.get(R.string.common_back)) }
         }
         item {
             ElevatedCard(
@@ -104,12 +108,17 @@ internal fun PairDetailScreen(
                             if (pairName != null && pairName.isNotBlank()) pairName
                             else strings.get(R.string.common_pair_number, pairState.pairIndex),
                             style = MaterialTheme.typography.headlineSmall,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag(PairDetailTestTags.Name),
                         )
-                        IconButton(onClick = {
-                            renameText = pairName ?: ""
-                            showRenameDialog = true
-                        }) {
+                        IconButton(
+                            onClick = {
+                                renameText = pairName ?: ""
+                                showRenameDialog = true
+                            },
+                            modifier = Modifier.testTag(PairDetailTestTags.RenameButton),
+                        ) {
                             Icon(imageVector = Icons.Default.Create, contentDescription = strings.get(R.string.pair_detail_rename_title))
                         }
                     }
@@ -189,6 +198,7 @@ internal fun PairDetailScreen(
                     PairEnabledToggleButton(
                         pairEnabled = pairState.enabled,
                         onToggle = { onToggleEnabled(pairState.pairIndex) },
+                        modifier = Modifier.testTag(PairDetailTestTags.EnabledToggle),
                     )
                 }
             }
@@ -282,6 +292,7 @@ internal fun RenamePairDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.testTag(PairDetailTestTags.RenameDialog),
         title = { Text(strings.get(R.string.pair_detail_rename_title)) },
         text = {
             OutlinedTextField(
@@ -289,15 +300,22 @@ internal fun RenamePairDialog(
                 onValueChange = onRenameTextChange,
                 label = { Text(strings.get(R.string.pair_detail_rename_label)) },
                 singleLine = true,
+                modifier = Modifier.testTag(PairDetailTestTags.RenameDialogTextField),
             )
         },
         confirmButton = {
-            TextButton(onClick = onSave) {
+            TextButton(
+                onClick = onSave,
+                modifier = Modifier.testTag(PairDetailTestTags.RenameDialogSave),
+            ) {
                 Text(strings.get(R.string.pair_detail_rename_save))
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag(PairDetailTestTags.RenameDialogCancel),
+            ) {
                 Text(strings.get(R.string.common_cancel))
             }
         },

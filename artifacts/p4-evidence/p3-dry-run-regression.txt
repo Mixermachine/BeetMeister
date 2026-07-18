@@ -1,0 +1,14 @@
+=============================================
+P3 dry-run (regression: --dry-run still green)
+=============================================
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-162955-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-162955-fresh_install\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 6.8s
+
+
+=== exit code: 0 ===

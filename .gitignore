@@ -21,6 +21,20 @@ firmware/esp-idf/build*/
 /10832
 /17976
 
+# Phase 1 E2E harness scratch output.
+# uiautomator dump captures, the accidental `> nul` artefact, and
+# Python `__pycache__/` directories can recur any time someone runs
+# `adb shell uiautomator dump` or imports a Python helper module
+# from scripts/ci/ during harness dev. They are not source.
+__pycache__/
+/nul
+ui*.xml
+screen.png
+
 app/.idea/
 app/.gradle/
 app/.kotlin/
+
+# Pi agent scratch directories (not for commit)
+.pi/
+.pi-subagents/

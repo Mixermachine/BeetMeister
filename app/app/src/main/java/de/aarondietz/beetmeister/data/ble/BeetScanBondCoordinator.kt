@@ -263,10 +263,27 @@ internal class BeetScanBondCoordinator(
                 }
                 when (bondState) {
                     BluetoothDevice.BOND_BONDED -> {
+                        // P5.3 fix: do not fire a second openGatt when the
+                        // BOND_BONDING "kick" openGatt already established a
+                        // live GATT connection. On the v0.3.0 firmware the
+                        // SMP bond takes 2-3 s, so the kick connection has
+                        // already reached phase=Connected before the bond
+                        // completes. A second openGatt would tear the live
+                        // connection down and reconnect, cancelling the
+                        // gate's 900 ms stability delay. Android re-encrypts
+                        // the existing connection transparently when the
+                        // bond completes, so no new openGatt is required.
                         pendingBondAddress = null
                         pendingBondGattKickAddress = null
                         bondMonitorJob = null
-                        host.requestOpenGatt(device)
+                        if (host.session.currentGatt == null) {
+                            host.requestOpenGatt(device)
+                        } else {
+                            Log.d(
+                                TAG,
+                                "Skipping BOND_BONDED openGatt: GATT connection already live address=${device.address}",
+                            )
+                        }
                         return@launch
                     }
                     BluetoothDevice.BOND_BONDING -> {
@@ -317,7 +334,15 @@ internal class BeetScanBondCoordinator(
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            host.appContext.registerReceiver(systemReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            // Android 14+ blocks implicit system broadcasts (including
+            // BLUETOOTH_DEVICE_ACTION_BOND_STATE_CHANGED) from being delivered
+            // to non-exported receivers. The polling loop is the fallback, so
+            // bonding still completes, but the broadcast arm never fires —
+            // and on the test-harness phone (Android 14) the BOND_BONDED arm
+            // never logged a single time across all runs. Register as exported
+            // so the system (the only sender of these protected broadcasts)
+            // can deliver them. BLUETOOTH_CONNECT is already required and held.
+            host.appContext.registerReceiver(systemReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             @Suppress("DEPRECATION")
             host.appContext.registerReceiver(systemReceiver, filter)
@@ -367,9 +392,22 @@ internal class BeetScanBondCoordinator(
                 updateConnection(BeetConnectionPhase.Bonding, strings.get(R.string.scan_pairing_in_progress_confirm))
             }
             BluetoothDevice.BOND_BONDED -> {
+                // P5.3 fix: see monitorBondState BOND_BONDED arm. The
+                // "kick" openGatt from BOND_BONDING may have already
+                // established a live GATT connection by the time the
+                // BOND_STATE_CHANGED broadcast arrives. Skip the second
+                // openGatt in that case to avoid a needless reconnect
+                // that would cancel the gate's stability delay.
                 pendingBondAddress = null
                 pendingBondGattKickAddress = null
-                host.requestOpenGatt(bondedDevice)
+                if (host.session.currentGatt == null) {
+                    host.requestOpenGatt(bondedDevice)
+                } else {
+                    Log.d(
+                        TAG,
+                        "Skipping BOND_BONDED openGatt from broadcast: GATT connection already live address=${bondedDevice.address}",
+                    )
+                }
             }
             BluetoothDevice.BOND_NONE -> {
                 if (previousBondState == BluetoothDevice.BOND_BONDING) {

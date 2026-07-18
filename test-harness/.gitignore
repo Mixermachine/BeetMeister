@@ -1,0 +1,23 @@
+# Local user config (per-machine, absolute paths). Copy
+# config.example.toml -> config.toml on each dev machine.
+config.toml
+
+# Build cache for the on-demand old-firmware build (P3 firmware.py).
+# Holds beetmeister-v0.3.0.bin + version.txt once built.
+firmware_cache/
+
+# Per-run evidence folders. The orchestrator writes one folder per
+# invocation of run.py. Each folder is fully self-contained
+# (logcat.txt, controller-serial.txt, instrumentation.txt,
+# screenshots/, manifest.json) and is the reportable artifact.
+runs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ESP-IDF temporary worktree used by firmware.ensure_old_firmware_built
+# while building the pinned v0.3.0 image. The worktree is removed
+# after the build, so this only catches a partial-failure residue.
+_build_old/

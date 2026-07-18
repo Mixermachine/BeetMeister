@@ -1,0 +1,51 @@
+=============================================
+P4 final: all 3 dry-run-dispatch modes + pytest
+=============================================
+
+--- --dry-run-dispatch fresh_install ---
+  smoke pass  = True
+  smoke dur   = 6.7s
+  dispatch    = fresh_install (0/5 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-163349-fresh_install/dispatch-plan.json
+
+exit=0
+
+--- --dry-run-dispatch firmware_update ---
+  smoke pass  = True
+  smoke dur   = 6.7s
+  dispatch    = firmware_update (0/3 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-163410-firmware_update/dispatch-plan.json
+
+exit=0
+
+--- --dry-run-dispatch settings_update ---
+  smoke pass  = True
+  smoke dur   = 6.8s
+  dispatch    = settings_update (0/1 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-163430-settings_update/dispatch-plan.json
+
+exit=0
+
+--- pytest --collect-only ---
+test-harness/test_fresh_install.py::test_fresh_install
+test-harness/test_firmware_update.py::test_firmware_update
+test-harness/test_settings.py::test_settings_update
+
+3 tests collected in 0.01s
+
+--- 9 harness modules import ---
+OK: 9 modules import
+
+--- dispatch-plan.json files for all 3 suites (last lines of each) ---
+    fresh_install:
+      preconditions: ['uninstall_app', 'erase_appcfg', 'erase_events', 'erase_sysevents', 'install_built_apks']
+      extras:        {}
+      am_instrument: am_instrument_fresh_install
+    firmware_update:
+      preconditions: ['flash_old_v0.3.0', 'uninstall_app', 'install_built_apks']
+      extras:        {'expected_new_build_label': 'dev-58c83c7', 'expected_old_build_label': 'v0.3.0'}
+      am_instrument: am_instrument_firmware_update
+    settings_update:
+      preconditions: ['install_built_apks']
+      extras:        {}
+      am_instrument: am_instrument_settings_update

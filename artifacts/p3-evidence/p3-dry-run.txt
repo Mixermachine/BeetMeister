@@ -1,0 +1,14 @@
+=============================================
+P3 dry-run evidence - 2026-07-13T15:43:53+02:00
+device: SM-A536B (serial RZCT50CGLKA)
+=============================================
+
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-134354-fresh_install
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-134354-fresh_install\manifest.json
+  passed      = False
+  fail reason = orchestrator exception: JSONDecodeError('Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 (char 0)')
+
+
+=== exit code: 1 ===

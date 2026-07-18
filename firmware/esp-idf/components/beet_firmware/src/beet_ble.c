@@ -47,7 +47,8 @@ static const char *TAG = "beet_ble";
 #define BEET_BLE_REAL_COMMAND_RATE_MAX_PER_WINDOW 4U
 #define BEET_BLE_SYNC_READ_RATE_MAX_PER_WINDOW 12U
 #define BEET_BLE_STATE_STREAM_MIN_INTERVAL_US (1000000LL)
-#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 8U
+#define BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY 256U
+#define BEET_BLE_OTA_SECTOR_BYTES 4096U
 #define BEET_BLE_PAIRING_DISPLAY_TIMEOUT_US (30LL * 1000000LL)
 #define BEET_BLE_PAIRING_CODE_MAX 1000000U
 #define BEET_BLE_BOND_SCAN_CAPACITY 16U
@@ -107,6 +108,7 @@ typedef struct {
     bool finish_request_pending;
     bool status_indication_pending;
     bool status_indication_in_flight;
+    bool conn_param_update_requested;
     beet_maintenance_status_t status;
     int64_t resume_expires_at_us;
     int64_t reboot_due_at_us;
@@ -114,9 +116,9 @@ typedef struct {
     esp_ota_handle_t ota_handle;
     beet_ble_sha256_context_t image_sha256_context;
     beet_maintenance_begin_update_request_t begin_request;
-    uint8_t chunk_queue_head;
-    uint8_t chunk_queue_tail;
-    uint8_t chunk_queue_count;
+    uint16_t chunk_queue_head;
+    uint16_t chunk_queue_tail;
+    uint16_t chunk_queue_count;
     beet_ble_maintenance_chunk_t chunk_queue[BEET_BLE_MAINTENANCE_CHUNK_QUEUE_CAPACITY];
 } beet_ble_maintenance_session_state_t;
 
@@ -817,6 +819,15 @@ static int beet_ble_write_maintenance_data(
     const uint8_t *payload = NULL;
     size_t payload_len = 0U;
 
+    // P5 SUB #R37 debug: log every data write entry so we can see
+    // if the callback is even being invoked after a BLE reconnect.
+    ESP_LOGI(TAG, "data write entered conn_handle=%u om_len=%u active=%d ota_active=%d reboot_pending=%d",
+             (unsigned)conn_handle,
+             (unsigned)OS_MBUF_PKTLEN(ctxt->om),
+             (int)s_ble.maintenance_session.active,
+             (int)s_ble.maintenance_session.ota_handle_active,
+             (int)s_ble.maintenance_session.reboot_pending);
+
     if (beet_ble_require_encrypted(conn_handle) != 0) {
         ESP_LOGW(TAG, "data write rejected: conn_handle=%u not encrypted", conn_handle);
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
@@ -927,6 +938,14 @@ static int beet_ble_maintenance_gatt_access(
     void *arg)
 {
     (void)arg;
+
+    // P5 SUB #R37 debug: log every GATT access to the maintenance
+    // service so we can see if data writes are even reaching the
+    // GATT server after a BLE reconnect.
+    ESP_LOGI(TAG, "maint_gatt_access op=%d attr_handle=%u data_handle=%u ctrl_handle=%u",
+             (int)ctxt->op, (unsigned)attr_handle,
+             (unsigned)s_maintenance_data_handle,
+             (unsigned)s_maintenance_control_handle);
 
     switch (ctxt->op) {
     case BLE_GATT_ACCESS_OP_READ_CHR:
@@ -1493,6 +1512,31 @@ static void beet_ble_service_maintenance_session(void)
                 0U,
                 s_ble.maintenance_session.status.session_id);
             beet_ble_mark_activity();
+            /* Request faster BLE connection parameters for OTA throughput.
+             * Default 30-50ms interval gives ~22 writes/s at 244 bytes =
+             * ~5.4 KB/s. At 7.5-15ms + longer CE window, throughput
+             * increases ~3-4x (the Android BLE stack may negotiate
+             * slightly wider, but any improvement is a win). This is a
+             * standard GAP procedure — no wire protocol change. */
+            if (s_ble.connected && s_ble.conn_handle != BLE_HS_CONN_HANDLE_NONE) {
+                struct ble_gap_upd_params upd_params = {
+                    .itvl_min = 6,                /* 7.5 ms */
+                    .itvl_max = 12,               /* 15 ms */
+                    .latency = 0,                 /* no slave latency */
+                    .supervision_timeout = 500,   /* 5 s */
+                    .min_ce_len = 0,              /* any CE length accepted */
+                    .max_ce_len = 0xFFFF,         /* max CE window */
+                };
+                int rc = ble_gap_update_params(s_ble.conn_handle, &upd_params);
+                if (rc == 0) {
+                    s_ble.maintenance_session.conn_param_update_requested = true;
+                    ESP_LOGI(TAG, "conn param update requested for OTA conn_handle=%u interval=%.1f-%.1fms",
+                             (unsigned)s_ble.conn_handle, 7.5, 15.0);
+                } else {
+                    ESP_LOGW(TAG, "conn param update request failed conn_handle=%u rc=%d",
+                             (unsigned)s_ble.conn_handle, rc);
+                }
+            }
             ESP_LOGI(TAG, "begin update ready session_id=%lu partition=%s size=%lu",
                      (unsigned long)s_ble.maintenance_session.status.session_id,
                      target_partition->label,
@@ -1533,6 +1577,14 @@ static void beet_ble_service_maintenance_session(void)
         return;
     }
 
+    /* Coalesce queued chunks into full 4 KB flash-sector writes.
+     * One esp_ota_write per sector replaces ~17 individual small
+     * writes and their combined erase overhead.  The BLE host task
+     * regains the CPU between sectors, keeping NimBLE responsive
+     * and preventing BLE HCI timeouts. */
+    uint8_t flush_buf[BEET_BLE_OTA_SECTOR_BYTES];
+    size_t flush_len = 0U;
+
     while (s_ble.maintenance_session.chunk_queue_count > 0U) {
         beet_ble_maintenance_chunk_t chunk;
 
@@ -1558,7 +1610,44 @@ static void beet_ble_service_maintenance_session(void)
             (void)beet_ble_send_maintenance_status_indication();
             return;
         }
-        if (esp_ota_write(s_ble.maintenance_session.ota_handle, chunk.payload, chunk.payload_len) != ESP_OK) {
+
+        /* Flush before this chunk would overflow the sector buffer. */
+        if (flush_len + chunk.payload_len > sizeof(flush_buf)) {
+            if (esp_ota_write(s_ble.maintenance_session.ota_handle,
+                             flush_buf, flush_len) != ESP_OK) {
+                uint32_t failed_session_id = s_ble.maintenance_session.status.session_id;
+
+                beet_ble_set_maintenance_terminal_status(
+                    BEET_MAINTENANCE_STATE_FAILED,
+                    BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                    true,
+                    true,
+                    failed_session_id);
+                s_ble.maintenance_session.ota_handle_active = false;
+                beet_ble_clear_maintenance_session();
+                beet_ble_emit_maintenance_event(
+                    BEET_SYSTEM_EVENT_UPDATE_FAILED,
+                    (uint16_t)BEET_MAINTENANCE_FAILURE_UPDATE_INTERNAL_ERROR,
+                    failed_session_id);
+                (void)beet_ble_send_maintenance_status_indication();
+                return;
+            }
+            beet_ble_image_sha256_update(
+                &s_ble.maintenance_session.image_sha256_context,
+                flush_buf,
+                flush_len);
+            flush_len = 0U;
+        }
+
+        memcpy(flush_buf + flush_len, chunk.payload, chunk.payload_len);
+        flush_len += chunk.payload_len;
+        beet_ble_pop_maintenance_chunk();
+    }
+
+    /* Final partial sector. */
+    if (flush_len > 0U) {
+        if (esp_ota_write(s_ble.maintenance_session.ota_handle,
+                         flush_buf, flush_len) != ESP_OK) {
             uint32_t failed_session_id = s_ble.maintenance_session.status.session_id;
 
             beet_ble_set_maintenance_terminal_status(
@@ -1578,9 +1667,8 @@ static void beet_ble_service_maintenance_session(void)
         }
         beet_ble_image_sha256_update(
             &s_ble.maintenance_session.image_sha256_context,
-            chunk.payload,
-            chunk.payload_len);
-        beet_ble_pop_maintenance_chunk();
+            flush_buf,
+            flush_len);
     }
 
     if (s_ble.maintenance_session.finish_request_pending) {

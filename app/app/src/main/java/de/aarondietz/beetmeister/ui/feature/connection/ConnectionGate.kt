@@ -105,7 +105,8 @@ internal fun ConnectionGate(
         modifier = modifier
             .fillMaxSize()
             .background(Brush.verticalGradient(colors = listOf(Color(0xFFE8F1E3), Color(0xFFF7F3E8))))
-            .padding(24.dp),
+            .padding(24.dp)
+            .testTag(ConnectionGateTestTags.Container),
     ) {
         Column(
             modifier = Modifier
@@ -125,7 +126,9 @@ internal fun ConnectionGate(
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color(0xFF4E6150),
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 12.dp, bottom = 24.dp),
+                modifier = Modifier
+                    .padding(top = 12.dp, bottom = 24.dp)
+                    .testTag(ConnectionGateTestTags.StatusText),
             )
 
             if (isBusy) {
@@ -134,7 +137,10 @@ internal fun ConnectionGate(
             }
 
             when (state.connection.phase) {
-                BeetConnectionPhase.PermissionsRequired -> FilledTonalButton(onClick = onRequestPermissions) {
+                BeetConnectionPhase.PermissionsRequired -> FilledTonalButton(
+                    onClick = onRequestPermissions,
+                    modifier = Modifier.testTag(ConnectionGateTestTags.PermissionsButton),
+                ) {
                     Text(
                         strings.get(
                             if (permissionsPermanentlyDenied) {
@@ -146,15 +152,24 @@ internal fun ConnectionGate(
                     )
                 }
 
-                BeetConnectionPhase.BluetoothDisabled -> FilledTonalButton(onClick = onRequestBluetooth) {
+                BeetConnectionPhase.BluetoothDisabled -> FilledTonalButton(
+                    onClick = onRequestBluetooth,
+                    modifier = Modifier.testTag(ConnectionGateTestTags.EnableBluetoothButton),
+                ) {
                     Text(strings.get(R.string.connection_turn_on_bluetooth))
                 }
 
                 BeetConnectionPhase.Idle,
                 BeetConnectionPhase.Disconnected,
                 BeetConnectionPhase.Error -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    FilledTonalButton(onClick = onScan) { Text(strings.get(R.string.connection_scan)) }
-                    OutlinedButton(onClick = onScan) { Text(strings.get(R.string.connection_retry)) }
+                    FilledTonalButton(
+                        onClick = onScan,
+                        modifier = Modifier.testTag(ConnectionGateTestTags.ScanButton),
+                    ) { Text(strings.get(R.string.connection_scan)) }
+                    OutlinedButton(
+                        onClick = onScan,
+                        modifier = Modifier.testTag(ConnectionGateTestTags.RetryButton),
+                    ) { Text(strings.get(R.string.connection_retry)) }
                 }
 
                 BeetConnectionPhase.MaintenanceRequired -> Unit
@@ -188,7 +203,9 @@ internal fun ConnectionGate(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(ConnectionGateTestTags.DeviceList),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(state.discoveredDevices, key = { device -> device.address }) { device ->
@@ -383,34 +400,41 @@ internal fun MaintenanceUpdatePanel(
                     modifier = Modifier.testTag(MaintenanceUpdateTestTags.StatusDetail),
                 )
             }
-            if (updateActive && update.totalBytes > 0
-            ) {
+            if (updateActive && update.totalBytes > 0) {
                 val progressPercent = ((update.bytesTransferred.toDouble() / update.totalBytes.toDouble()) * 100.0)
                     .toInt()
                     .coerceIn(0, 100)
-                Text(
-                    strings.get(R.string.maintenance_progress_percent, progressPercent),
-                    color = Color(0xFF4E6150),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    strings.get(
-                        R.string.maintenance_progress_elapsed,
-                        formatDuration(update.elapsedSeconds, strings),
-                    ),
-                    color = Color(0xFF4E6150),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                update.estimatedRemainingSeconds?.let { remaining ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
                     Text(
-                        strings.get(
-                            R.string.maintenance_progress_remaining,
-                            formatDuration(remaining, strings),
-                        ),
+                        strings.get(R.string.maintenance_progress_percent, progressPercent),
                         color = Color(0xFF4E6150),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    if (update.elapsedSeconds > 0) {
+                        val kbps = (update.bytesTransferred / 1024.0) / update.elapsedSeconds
+                        Text(
+                            strings.get(R.string.maintenance_progress_speed, kbps),
+                            color = Color(0xFF4E6150),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
+                val elapsedStr = formatDuration(update.elapsedSeconds, strings)
+                val timeText = update.estimatedRemainingSeconds?.let { remaining ->
+                    strings.get(
+                        R.string.maintenance_progress_time,
+                        elapsedStr,
+                        formatDuration(remaining, strings),
+                    )
+                } ?: strings.get(R.string.maintenance_progress_elapsed, elapsedStr)
+                Text(
+                    timeText,
+                    color = Color(0xFF4E6150),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
             update.errorDetail?.let { detail ->
                 Text(

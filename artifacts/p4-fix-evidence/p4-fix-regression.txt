@@ -1,0 +1,58 @@
+=============================================
+P4 fixes verification
+=============================================
+
+--- Regression: 3 dry-run-dispatch modes ---
+
+--- --dry-run-dispatch fresh_install ---
+  smoke pass  = True
+  smoke dur   = 7.2s
+  dispatch    = fresh_install (0/5 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-202130-fresh_install/dispatch-plan.json
+
+exit=0
+
+--- --dry-run-dispatch firmware_update ---
+  smoke pass  = True
+  smoke dur   = 7.0s
+  dispatch    = firmware_update (0/3 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-202402-firmware_update/dispatch-plan.json
+
+exit=0
+
+--- --dry-run-dispatch settings_update ---
+  smoke pass  = True
+  smoke dur   = 7.0s
+  dispatch    = settings_update (0/1 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-202424-settings_update/dispatch-plan.json
+
+exit=0
+
+--- Regression: --dry-run fresh_install ---
+  smoke pass  = True
+  smoke dur   = 6.9s
+
+exit=0
+
+--- pytest --collect-only ---
+test-harness/test_fresh_install.py::test_fresh_install
+test-harness/test_firmware_update.py::test_firmware_update
+test-harness/test_settings.py::test_settings_update
+
+3 tests collected in 0.01s
+
+--- 9 harness modules import ---
+OK: 9 modules import
+
+--- All 3 dispatch plans (post-fix) ---
+    fresh_install:
+    firmware_update:
+      preconditions: ['flash_old_v0.3.0', 'uninstall_app', 'install_built_apks']
+      extras:        {'expected_new_build_label': 'dev-e30f0e0', 'expected_old_build_label': 'v0.3.0'}
+      am extras:     {'expected_new_build_label': 'dev-e30f0e0', 'expected_old_build_label': 'v0.3.0'}
+      am class:      de.aarondietz.beetmeister.e2e.FirmwareUpdateE2ETest
+    settings_update:
+      preconditions: ['install_built_apks']
+      extras:        {}
+      am extras:     {}
+      am class:      de.aarondietz.beetmeister.e2e.SettingsUpdateE2ETest

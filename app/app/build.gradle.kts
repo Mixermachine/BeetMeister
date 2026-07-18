@@ -28,7 +28,7 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "de.aarondietz.beetmeister.e2e.BeetE2eAwareJUnitRunner"
         buildConfigField("int", "BEET_MAINTENANCE_PROTOCOL_VERSION", beetMaintenanceProtocolVersion)
         buildConfigField("int", "BEET_RUNTIME_PROTOCOL_VERSION", beetRuntimeProtocolVersion)
     }
@@ -106,6 +106,7 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(libs.moshi)
     implementation(libs.moshi.kotlin)
+    implementation(libs.charty)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -126,6 +127,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.uiautomator)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)

@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
@@ -60,7 +61,7 @@ internal fun OverviewScreen(
 ) {
     val strings = rememberBeetStringResolver()
     LazyColumn(
-        modifier = modifier,
+        modifier = modifier.testTag(OverviewTestTags.List),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -100,7 +101,9 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
     }
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F1E4)),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(OverviewTestTags.SystemValuesCard),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(strings.get(R.string.overview_title_system_values), style = MaterialTheme.typography.titleLarge)
@@ -165,7 +168,8 @@ private fun PairOverviewCard(
         colors = CardDefaults.elevatedCardColors(containerColor = tone),
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (pair.enabled) 1f else 0.7f),
+            .alpha(if (pair.enabled) 1f else 0.7f)
+            .testTag(OverviewTestTags.PairCard),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -177,8 +181,13 @@ private fun PairOverviewCard(
                     if (pairName != null && pairName.isNotBlank()) pairName
                     else strings.get(R.string.common_pair_number, pair.pairIndex),
                     style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.testTag(OverviewTestTags.PairName),
                 )
-                AssistChip(onClick = {}, label = { Text(pairStateLabel(pair.state, strings)) })
+                AssistChip(
+                    onClick = {},
+                    label = { Text(pairStateLabel(pair.state, strings)) },
+                    modifier = Modifier.testTag(OverviewTestTags.PairState),
+                )
             }
             Spacer(modifier = Modifier.height(10.dp))
             ValueGridRow(
@@ -186,6 +195,8 @@ private fun PairOverviewCard(
                 formatPercent(pair.moisturePercent, strings),
                 strings.get(R.string.overview_label_sensor),
                 formatMillivolts(pair.sensorMillivolts, strings),
+                leftValueModifier = Modifier.testTag(OverviewTestTags.PairMoisture),
+                rightValueModifier = Modifier.testTag(OverviewTestTags.PairSensor),
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_source),
@@ -210,12 +221,20 @@ private fun PairOverviewCard(
             }
             Spacer(modifier = Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = onDetails) { Text(strings.get(R.string.common_details)) }
+                Button(
+                    onClick = onDetails,
+                    modifier = Modifier.testTag(OverviewTestTags.PairDetailsButton),
+                ) { Text(strings.get(R.string.common_details)) }
                 PairErrorClearButton(
                     canClearError = pair.sensorValid && (pair.blocked || pair.state == "FAULT"),
                     onClear = onClearError,
+                    modifier = Modifier.testTag(OverviewTestTags.PairClearErrorButton),
                 )
-                PairEnabledToggleButton(pairEnabled = pair.enabled, onToggle = onToggleEnabled)
+                PairEnabledToggleButton(
+                    pairEnabled = pair.enabled,
+                    onToggle = onToggleEnabled,
+                    modifier = Modifier.testTag(OverviewTestTags.PairEnableToggle),
+                )
             }
         }
     }

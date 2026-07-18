@@ -1,0 +1,70 @@
+=== FreshInstallE2ETest with -e expected_device_name beetmeister-test ===
+----
+
+de.aarondietz.beetmeister.e2e.FreshInstallE2ETest:
+Error in settingsControllerInfoShowsDeviceIdFirmwareAndProtocol(de.aarondietz.beetmeister.e2e.FreshInstallE2ETest):
+androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 30000 ms
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.waitUntil(ComposeUiTest.android.kt:887)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule.waitUntil(AndroidComposeTestRule.android.kt:482)
+	at de.aarondietz.beetmeister.e2e.robots.ConnectionGateRobot.tapScan(ConnectionGateRobot.kt:52)
+	at de.aarondietz.beetmeister.e2e.E2eConnectionFixture.connectOnce(E2eConnectionFixture.kt:93)
+	at de.aarondietz.beetmeister.e2e.FreshInstallE2ETest.setUp(FreshInstallE2ETest.kt:57)
+
+Error in overviewShowsAllEightPairsWithMoisture(de.aarondietz.beetmeister.e2e.FreshInstallE2ETest):
+androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 30000 ms
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.waitUntil(ComposeUiTest.android.kt:887)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule.waitUntil(AndroidComposeTestRule.android.kt:482)
+	at de.aarondietz.beetmeister.e2e.robots.ConnectionGateRobot.tapScan(ConnectionGateRobot.kt:52)
+	at de.aarondietz.beetmeister.e2e.E2eConnectionFixture.connectOnce(E2eConnectionFixture.kt:93)
+	at de.aarondietz.beetmeister.e2e.FreshInstallE2ETest.setUp(FreshInstallE2ETest.kt:57)
+
+
+Time: 63.434
+There were 2 failures:
+1) settingsControllerInfoShowsDeviceIdFirmwareAndProtocol(de.aarondietz.beetmeister.e2e.FreshInstallE2ETest)
+androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 30000 ms
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.waitUntil(ComposeUiTest.android.kt:887)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule.waitUntil(AndroidComposeTestRule.android.kt:482)
+	at de.aarondietz.beetmeister.e2e.robots.ConnectionGateRobot.tapScan(ConnectionGateRobot.kt:52)
+	at de.aarondietz.beetmeister.e2e.E2eConnectionFixture.connectOnce(E2eConnectionFixture.kt:93)
+	at de.aarondietz.beetmeister.e2e.FreshInstallE2ETest.setUp(FreshInstallE2ETest.kt:57)
+2) overviewShowsAllEightPairsWithMoisture(de.aarondietz.beetmeister.e2e.FreshInstallE2ETest)
+androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 30000 ms
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.waitUntil(ComposeUiTest.android.kt:887)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule.waitUntil(AndroidComposeTestRule.android.kt:482)
+	at de.aarondietz.beetmeister.e2e.robots.ConnectionGateRobot.tapScan(ConnectionGateRobot.kt:52)
+	at de.aarondietz.beetmeister.e2e.E2eConnectionFixture.connectOnce(E2eConnectionFixture.kt:93)
+	at de.aarondietz.beetmeister.e2e.FreshInstallE2ETest.setUp(FreshInstallE2ETest.kt:57)
+
+FAILURES!!!
+Tests run: 2,  Failures: 2
+
+
+
+=== FirmwareUpdateE2ETest with -e expected_old_build_label v0.3.0 -e expected_new_build_label v0.4.0 ===
+----
+
+de.aarondietz.beetmeister.e2e.FirmwareUpdateE2ETest:
+Error in bundledFirmwareInstallsAndPostUpdateHealthIsCorrect(de.aarondietz.beetmeister.e2e.FirmwareUpdateE2ETest):
+androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 30000 ms
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.waitUntil(ComposeUiTest.android.kt:887)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule.waitUntil(AndroidComposeTestRule.android.kt:482)
+	at de.aarondietz.beetmeister.e2e.robots.ConnectionGateRobot.tapScan(ConnectionGateRobot.kt:52)
+	at de.aarondietz.beetmeister.e2e.E2eConnectionFixture.connectOnce(E2eConnectionFixture.kt:93)
+	at de.aarondietz.beetmeister.e2e.FirmwareUpdateE2ETest.setUp(FirmwareUpdateE2ETest.kt:58)
+
+
+Time: 31.984
+There was 1 failure:
+1) bundledFirmwareInstallsAndPostUpdateHealthIsCorrect(de.aarondietz.beetmeister.e2e.FirmwareUpdateE2ETest)
+androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 30000 ms
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$AndroidComposeUiTestImpl.waitUntil(ComposeUiTest.android.kt:887)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule.waitUntil(AndroidComposeTestRule.android.kt:482)
+	at de.aarondietz.beetmeister.e2e.robots.ConnectionGateRobot.tapScan(ConnectionGateRobot.kt:52)
+	at de.aarondietz.beetmeister.e2e.E2eConnectionFixture.connectOnce(E2eConnectionFixture.kt:93)
+	at de.aarondietz.beetmeister.e2e.FirmwareUpdateE2ETest.setUp(FirmwareUpdateE2ETest.kt:58)
+
+FAILURES!!!
+Tests run: 1,  Failures: 1
+
+

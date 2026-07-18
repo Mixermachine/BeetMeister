@@ -1,0 +1,42 @@
+=============================================
+P4 dry-run-dispatch: settings_update
+=============================================
+
+=== run.py ===
+  run_dir     = C:\git\BeetMeister\test-harness\runs\20260713-162929-settings_update
+  manifest    = C:\git\BeetMeister\test-harness\runs\20260713-162929-settings_update\manifest.json
+  passed      = True
+  smoke class = de.aarondietz.beetmeister.ui.feature.connection.MaintenanceUpdateInstrumentationTest
+  smoke pass  = True
+  smoke dur   = 6.5s
+  dispatch    = settings_update (0/1 preconditions executed, am instrument NOT executed)
+  plan file   = C:\git\BeetMeister\test-harness\runs\20260713-162929-settings_update/dispatch-plan.json
+
+
+=== exit code: 0 ===
+
+=== dispatch-plan.json ===
+{
+  "am_instrument": {
+    "cmd": "adb -s RZCT50CGLKA shell am instrument -w -e beetRunE2e true -e class de.aarondietz.beetmeister.e2e.SettingsUpdateE2ETest de.aarondietz.beetmeister.test/de.aarondietz.beetmeister.e2e.BeetE2eAwareJUnitRunner",
+    "description": "am instrument for de.aarondietz.beetmeister.e2e.SettingsUpdateE2ETest (FULL CLASS, 1 call; class-shared @Before fires once for all 7 @Test siblings)",
+    "executed": false,
+    "name": "am_instrument_settings_update"
+  },
+  "extras": {},
+  "preconditions": [
+    {
+      "cmd": "Adb.install_apks(rebuild=False)  # APKs from C:/git/BeetMeister/app/app/build/outputs/apk",
+      "description": "adb install -r the app + androidTest APKs (no rebuild; start from a green install state)",
+      "executed": false,
+      "name": "install_built_apks"
+    }
+  ],
+  "screenshot_pull": {
+    "cmd": "adb -s RZCT50CGLKA pull /sdcard/Android/data/de.aarondietz.beetmeister/files/e2e_screenshots/settingsUpdate 'C:\\git\\BeetMeister\\test-harness\\runs\\20260713-162929-settings_update\\screenshots\\settingsUpdate'",
+    "description": "adb pull Kotlin in-test screenshots from /sdcard/Android/data/<package>/files/e2e_screenshots/settingsUpdate/ into the run folder",
+    "executed": false,
+    "name": "pull_in_test_screenshots"
+  },
+  "suite": "settings_update"
+}

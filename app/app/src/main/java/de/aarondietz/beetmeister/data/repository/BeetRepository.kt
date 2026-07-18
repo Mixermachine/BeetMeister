@@ -17,6 +17,7 @@ import de.aarondietz.beetmeister.model.connection.BeetConnectionState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
+import de.aarondietz.beetmeister.model.update.isActiveMaintenancePhase
 import de.aarondietz.beetmeister.service.BeetMaintenanceForegroundService
 import de.aarondietz.beetmeister.strings.AndroidBeetStringResolver
 import de.aarondietz.beetmeister.strings.BeetStringResolver
@@ -33,7 +34,17 @@ import kotlinx.coroutines.flow.update
 
 internal class BeetRepository(
     context: Context,
-    ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    // P5 SUB #R36: default to Dispatchers.Main.immediate so all
+    // host.scope.launch coroutines run on the UI thread. State updates
+    // happen via _state.update { ... } which Compose's SnapshotStateObserver
+    // reads on the UI thread during layout/draw. Running the updates on
+    // Dispatchers.IO triggers "Detected multithreaded access to
+    // SnapshotStateObserver" and the recomposition never lands — the
+    // maintenance summary node stays missing in E2E. BLE IO itself is
+    // handled by the Android Bluetooth stack on its own threads, so the
+    // coordinator coroutines are just coordination/state-update glue;
+    // running them on Main is safe (delay() suspends, doesn't block).
+    ioDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
 ) : BeetRepositoryCallbacks {
     override val appContext: Context = context.applicationContext
     private val bluetoothManager = appContext.getSystemService(android.bluetooth.BluetoothManager::class.java)
@@ -60,6 +71,20 @@ internal class BeetRepository(
 
     fun close() {
         Log.d(TAG, "close()")
+        // Guard: suppress close during maintenance flows.
+        // Activity recreation (ActivityScenarioRule) can trigger
+        // onCleared() during the E2E test. Don't kill the BLE
+        // connection while the Maintenance screen is active or an
+        // OTA transfer is in progress.
+        val currentPhase = _state.value.connection.phase
+        val updatePhase = _state.value.maintenanceUpdate.phase
+        if (currentPhase == BeetConnectionPhase.MaintenanceRequired ||
+            updatePhase.isActiveMaintenancePhase()
+        ) {
+            Log.w(TAG, "close() suppressed — maintenance is " +
+                "phase=$currentPhase updatePhase=$updatePhase")
+            return
+        }
         scanBondCoordinator.close()
         gattSessionCoordinator.close()
         maintenanceServiceJob.cancel()
