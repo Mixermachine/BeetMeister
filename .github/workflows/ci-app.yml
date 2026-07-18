@@ -74,7 +74,7 @@ jobs:
         run: ./scripts/dev/verify-firmware-release-config.ps1 -SdkconfigPath ./firmware/esp-idf/build/sdkconfig.release.generated
 
       - name: Upload bundled firmware
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: bundled-firmware
           path: firmware/esp-idf/build/beetmeister.bin
@@ -123,7 +123,7 @@ jobs:
 
       - name: Upload debug APK
         # v4
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: app-debug-apk
           path: app/app/build/outputs/apk/debug/*.apk
@@ -131,7 +131,7 @@ jobs:
 
       - name: Upload unit test reports
         # v4
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: app-unit-test-reports
           path: |
