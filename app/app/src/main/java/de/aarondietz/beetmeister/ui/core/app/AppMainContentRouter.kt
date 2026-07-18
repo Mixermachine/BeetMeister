@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import de.aarondietz.beetmeister.ui.feature.calibration.CalibrationSaveDraft
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
+import de.aarondietz.beetmeister.ui.feature.battery.BatteryHistoryScreen
 import de.aarondietz.beetmeister.ui.feature.calibration.CalibrationScreen
 import de.aarondietz.beetmeister.ui.feature.events.EventDetailScreen
 import de.aarondietz.beetmeister.ui.feature.events.EventsScreen
@@ -114,6 +115,11 @@ internal fun AppMainContentRouter(
                 onShowEventTableChange(true)
             },
             onRefresh = onRefreshHistorySummary,
+            modifier = modifier.fillMaxSize(),
+        )
+
+        topLevelScreen == TopLevelScreen.BatteryHistory -> BatteryHistoryScreen(
+            state = state,
             modifier = modifier.fillMaxSize(),
         )
 

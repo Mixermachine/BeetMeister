@@ -106,6 +106,7 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(libs.moshi)
     implementation(libs.moshi.kotlin)
+    implementation(libs.charty)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)

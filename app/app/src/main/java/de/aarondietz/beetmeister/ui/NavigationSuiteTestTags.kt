@@ -16,6 +16,7 @@ internal object NavigationSuiteTestTags {
     const val CalibrationNavItem = "nav_calibration_item"
     const val EventsNavItem = "nav_events_item"
     const val SettingsNavItem = "nav_settings_item"
+    const val BatteryHistoryNavItem = "nav_battery_history_item"
 
     /**
      * Returns the nav-item test tag for a given destination. Used by
@@ -27,5 +28,6 @@ internal object NavigationSuiteTestTags {
         TopLevelScreen.Calibration -> CalibrationNavItem
         TopLevelScreen.Events -> EventsNavItem
         TopLevelScreen.Settings -> SettingsNavItem
+        TopLevelScreen.BatteryHistory -> BatteryHistoryNavItem
     }
 }
