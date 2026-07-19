@@ -821,40 +821,79 @@ static int beet_ble_write_maintenance_data(
 
     // P5 SUB #R37 debug: log every data write entry so we can see
     // if the callback is even being invoked after a BLE reconnect.
+#ifdef BEET_HOST_TEST
+    fprintf(stderr, "[HOST-TEST] data write entered conn=%u om_len=%u active=%d ota=%d reboot=%d\n",
+            (unsigned)conn_handle, (unsigned)OS_MBUF_PKTLEN(ctxt->om),
+            (int)s_ble.maintenance_session.active,
+            (int)s_ble.maintenance_session.ota_handle_active,
+            (int)s_ble.maintenance_session.reboot_pending);
+    fflush(stderr);
+#else
     ESP_LOGI(TAG, "data write entered conn_handle=%u om_len=%u active=%d ota_active=%d reboot_pending=%d",
              (unsigned)conn_handle,
              (unsigned)OS_MBUF_PKTLEN(ctxt->om),
              (int)s_ble.maintenance_session.active,
              (int)s_ble.maintenance_session.ota_handle_active,
              (int)s_ble.maintenance_session.reboot_pending);
+#endif
 
     if (beet_ble_require_encrypted(conn_handle) != 0) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: not encrypted\n");
+        fflush(stderr);
+#else
         ESP_LOGW(TAG, "data write rejected: conn_handle=%u not encrypted", conn_handle);
+#endif
         return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
     }
     if (!s_ble.maintenance_session.active) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: session not active\n");
+        fflush(stderr);
+#else
         ESP_LOGW(TAG, "data write rejected: no active maintenance session");
+#endif
         return BLE_ATT_ERR_UNLIKELY;
     }
     if (!s_ble.maintenance_session.ota_handle_active) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: ota_handle not active\n");
+        fflush(stderr);
+#else
         ESP_LOGW(TAG, "data write rejected: ota_handle_active=%d",
                  (int)s_ble.maintenance_session.ota_handle_active);
+#endif
         return BLE_ATT_ERR_UNLIKELY;
     }
     if (s_ble.maintenance_session.reboot_pending) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: reboot pending\n");
+        fflush(stderr);
+#else
         ESP_LOGW(TAG, "data write rejected: reboot pending session_id=%lu",
                  (unsigned long)s_ble.maintenance_session.status.session_id);
+#endif
         return BLE_ATT_ERR_UNLIKELY;
     }
     if (OS_MBUF_PKTLEN(ctxt->om) > sizeof(chunk_buf)) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: payload too large\n");
+        fflush(stderr);
+#else
         ESP_LOGW(TAG, "data write rejected: payload too large len=%u max=%u",
                  (unsigned)OS_MBUF_PKTLEN(ctxt->om),
                  (unsigned)sizeof(chunk_buf));
+#endif
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
     if (ble_hs_mbuf_to_flat(ctxt->om, chunk_buf, sizeof(chunk_buf), &copied) != 0) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: flatten failed\n");
+        fflush(stderr);
+#else
         ESP_LOGW(TAG, "data write rejected: flatten failed len=%u",
                  (unsigned)OS_MBUF_PKTLEN(ctxt->om));
+#endif
         return BLE_ATT_ERR_UNLIKELY;
     }
     if (!beet_ble_parse_chunk_header(
@@ -864,7 +903,12 @@ static int beet_ble_write_maintenance_data(
             &offset,
             &payload,
             &payload_len)) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: parse chunk header failed\n");
+        fflush(stderr);
+#else
         ESP_LOGW(TAG, "data write rejected: parse failed copied=%u", (unsigned)copied);
+#endif
         return BLE_ATT_ERR_UNLIKELY;
     }
     beet_ble_note_maintenance_reconnect_if_pending();
@@ -872,6 +916,17 @@ static int beet_ble_write_maintenance_data(
         offset != s_ble.maintenance_session.status.next_offset ||
         s_ble.maintenance_session.status.bytes_received + payload_len >
             s_ble.maintenance_session.status.total_bytes) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: check failed sid=%lu exp_sid=%lu off=%lu exp_off=%lu bytes=%lu plen=%lu total=%lu\n",
+                (unsigned long)session_id,
+                (unsigned long)s_ble.maintenance_session.status.session_id,
+                (unsigned long)offset,
+                (unsigned long)s_ble.maintenance_session.status.next_offset,
+                (unsigned long)s_ble.maintenance_session.status.bytes_received,
+                (unsigned long)payload_len,
+                (unsigned long)s_ble.maintenance_session.status.total_bytes);
+        fflush(stderr);
+#else
         ESP_LOGW(
             TAG,
             "data write rejected session_id=%lu expected_session_id=%lu offset=%lu expected_offset=%lu bytes=%lu payload_len=%lu total=%lu",
@@ -882,13 +937,19 @@ static int beet_ble_write_maintenance_data(
             (unsigned long)s_ble.maintenance_session.status.bytes_received,
             (unsigned long)payload_len,
             (unsigned long)s_ble.maintenance_session.status.total_bytes);
+#endif
         return BLE_ATT_ERR_UNLIKELY;
     }
     if (!beet_ble_queue_maintenance_chunk(session_id, offset, payload, payload_len)) {
+#ifdef BEET_HOST_TEST
+        fprintf(stderr, "[HOST-TEST] data write FAIL: queue chunk failed\n");
+        fflush(stderr);
+#else
         ESP_LOGW(TAG, "data write rejected queue full session_id=%lu offset=%lu payload_len=%lu",
                  (unsigned long)session_id,
                  (unsigned long)offset,
                  (unsigned long)payload_len);
+#endif
         return BLE_ATT_ERR_UNLIKELY;
     }
 
