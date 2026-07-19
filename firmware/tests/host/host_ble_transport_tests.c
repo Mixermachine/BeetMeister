@@ -7,6 +7,7 @@
 #include "beet_ble_host_test.h"
 #include "beet_ble_codec.h"
 #include "beet_generated_metadata.h"
+#include "beet_maintenance.h"
 #include "beet_types.h"
 
 static int s_failures = 0;
@@ -123,18 +124,42 @@ static const char *beet_begin_update_json(void)
     "\"asset_id\":\"bundled-test\",\"image_kind\":\"bundled\"}}";
 }
 
-/* Maintenance protocol values are intentionally hardcoded.
-   If the generated metadata block changes, this test WILL fail
-   because the SHA256 and image_size won't match. That failure is
-   the canary: update these values only with an intentional,
-   reviewed change to the maintenance protocol surface. */
+/* Build the begin_update JSON dynamically with runtime-computed
+   image_size and SHA256, matching the padded test image. */
+static void beet_stage4_build_begin_update_json(char *buf, size_t buf_size)
+{
+    uint8_t image[16U + sizeof(g_beet_generated_metadata_block) + 4U];
+    char sha256[BEET_MAINTENANCE_SHA256_HEX_LEN + 1];
+
+    memset(image, 0, sizeof(image));
+    memcpy(image + 16U, g_beet_generated_metadata_block, sizeof(g_beet_generated_metadata_block));
+    beet_ble_host_test_compute_sha256_hex(image, sizeof(image), sha256);
+
+    snprintf(buf, buf_size,
+        "{\"cmd\":\"begin_update\",\"data\":{"
+        "\"firmware_version\":\"f5146cc-dirty\","
+        "\"build_label\":\"f5146cc-dirty\","
+        "\"image_size\":%u,"
+        "\"image_sha256\":\"%s\","
+        "\"product_id\":\"beetmeister\","
+        "\"hardware_revs\":[\"rev_a\"],"
+        "\"runtime_protocol_version\":%u,"
+        "\"asset_id\":\"bundled-dev\","
+        "\"image_kind\":\"bundled\""
+        "}}",
+        (unsigned)sizeof(image),
+        sha256,
+        (unsigned)BEET_RUNTIME_PROTOCOL_VERSION);
+}
+
+/* Callers: hold a static buffer and call beet_stage4_begin_update_json
+   to fill it before each test that needs the begin JSON. */
+static char s_begin_update_json[512];
+
 static const char *beet_stage4_begin_update_json(void)
 {
-    return
-    "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
-    "\"image_size\":123,\"image_sha256\":\"09e762f8ab00b6b6707d64898f454e1a0e7643c716731e5dc029adffd79a56c2\","
-    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":15,"
-    "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
+    beet_stage4_build_begin_update_json(s_begin_update_json, sizeof(s_begin_update_json));
+    return s_begin_update_json;
 }
 
 static void beet_write_maintenance_chunk(

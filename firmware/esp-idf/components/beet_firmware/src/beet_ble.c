@@ -3703,4 +3703,14 @@ uint16_t beet_ble_host_test_result_chunk_count(void)
 {
     return s_ble.result_tx.chunk_count;
 }
+
+void beet_ble_host_test_compute_sha256_hex(const uint8_t *data, size_t len, char hex_out[65])
+{
+    beet_ble_sha256_context_t ctx;
+    uint8_t digest[32];
+    beet_ble_image_sha256_init(&ctx);
+    beet_ble_image_sha256_update(&ctx, data, len);
+    beet_ble_image_sha256_finish(&ctx, digest);
+    beet_ble_format_sha256_hex(digest, hex_out);
+}
 #endif

@@ -30,5 +30,8 @@ bool beet_ble_host_test_result_active(void);
 bool beet_ble_host_test_result_in_flight(void);
 uint16_t beet_ble_host_test_result_chunk_index(void);
 uint16_t beet_ble_host_test_result_chunk_count(void);
+void beet_ble_host_test_compute_sha256_hex(const uint8_t *data, size_t len, char hex_out[65]);
+uint16_t beet_ble_host_test_result_chunk_index(void);
+uint16_t beet_ble_host_test_result_chunk_count(void);
 
 #endif
