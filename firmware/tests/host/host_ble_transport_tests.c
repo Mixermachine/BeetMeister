@@ -132,7 +132,7 @@ static const char *beet_stage4_begin_update_json(void)
 {
     return
     "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
-    "\"image_size\":122,\"image_sha256\":\"79b1f901267d8da49c9b2b408c637da2ad8ddc2ab209d35327912213e6c9b509\","
+    "\"image_size\":122,\"image_sha256\":\"09e762f8ab00b6b6707d64898f454e1a0e7643c716731e5dc029adffd79a56c2\","
     "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":15,"
     "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
 }
@@ -785,11 +785,11 @@ static void test_maintenance_data_requires_bond(void)
 static void test_maintenance_data_upload_and_finish_reboots(void)
 {
     beet_iface_device_state_t device = { 0 };
-    uint8_t image[16U + sizeof(g_beet_generated_metadata_block) + 4U];
-    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block) + 4U];
+    uint8_t image[16U + sizeof(g_beet_generated_metadata_block)];
+    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block)];
     size_t chunk_len = 0U;
 
-    memset(image, 0, sizeof(image));
+    memset(image, 0, 16U);
     memcpy(image + 16U, g_beet_generated_metadata_block, sizeof(g_beet_generated_metadata_block));
 
     beet_prepare_session(247U);
@@ -827,11 +827,11 @@ static void test_maintenance_data_upload_and_finish_reboots(void)
 static void test_maintenance_reboot_falls_back_without_confirmation(void)
 {
     beet_iface_device_state_t device = { 0 };
-    uint8_t image[16U + sizeof(g_beet_generated_metadata_block) + 4U];
-    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block) + 4U];
+    uint8_t image[16U + sizeof(g_beet_generated_metadata_block)];
+    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block)];
     size_t chunk_len = 0U;
 
-    memset(image, 0, sizeof(image));
+    memset(image, 0, 16U);
     memcpy(image + 16U, g_beet_generated_metadata_block, sizeof(g_beet_generated_metadata_block));
 
     beet_prepare_session(247U);
