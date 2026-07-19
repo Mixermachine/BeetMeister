@@ -125,20 +125,29 @@ static const char *beet_begin_update_json(void)
 }
 
 /* Build the begin_update JSON dynamically with runtime-computed
-   image_size and SHA256, matching the padded test image. */
+   image_size and SHA256, matching the padded test image.
+   Firmware version and build label come from parsing the actual
+   generated metadata block, not hardcoded strings. */
 static void beet_stage4_build_begin_update_json(char *buf, size_t buf_size)
 {
     uint8_t image[16U + sizeof(g_beet_generated_metadata_block) + 4U];
+    beet_maintenance_image_metadata_t metadata;
     char sha256[BEET_MAINTENANCE_SHA256_HEX_LEN + 1];
 
     memset(image, 0, sizeof(image));
     memcpy(image + 16U, g_beet_generated_metadata_block, sizeof(g_beet_generated_metadata_block));
     beet_ble_host_test_compute_sha256_hex(image, sizeof(image), sha256);
 
+    memset(&metadata, 0, sizeof(metadata));
+    TEST_ASSERT_TRUE(beet_maintenance_metadata_parse(
+        g_beet_generated_metadata_block,
+        sizeof(g_beet_generated_metadata_block),
+        &metadata) == 0);
+
     snprintf(buf, buf_size,
         "{\"cmd\":\"begin_update\",\"data\":{"
-        "\"firmware_version\":\"f5146cc-dirty\","
-        "\"build_label\":\"f5146cc-dirty\","
+        "\"firmware_version\":\"%s\","
+        "\"build_label\":\"%s\","
         "\"image_size\":%u,"
         "\"image_sha256\":\"%s\","
         "\"product_id\":\"beetmeister\","
@@ -147,6 +156,8 @@ static void beet_stage4_build_begin_update_json(char *buf, size_t buf_size)
         "\"asset_id\":\"bundled-dev\","
         "\"image_kind\":\"bundled\""
         "}}",
+        metadata.firmware_version,
+        metadata.build_label,
         (unsigned)sizeof(image),
         sha256,
         (unsigned)BEET_RUNTIME_PROTOCOL_VERSION);
