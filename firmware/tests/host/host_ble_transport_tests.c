@@ -131,9 +131,9 @@ static const char *beet_begin_update_json(void)
 static const char *beet_stage4_begin_update_json(void)
 {
     return
-    "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"dev-e7ed027\",\"build_label\":\"dev-e7ed027\","
-    "\"image_size\":118,\"image_sha256\":\"7bd9e9ea2d4635aa1324cb1e4e6ae770e801b22a27050bce006a144272b53716\","
-    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":15,"
+    "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
+    "\"image_size\":122,\"image_sha256\":\"09e762f8ab00b6b6707d64898f454e1a0e7643c716731e5dc029adffd79a56c2\","
+    "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":12,"
     "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
 }
 
