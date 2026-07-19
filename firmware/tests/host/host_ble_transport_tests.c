@@ -132,7 +132,7 @@ static const char *beet_stage4_begin_update_json(void)
 {
     return
     "{\"cmd\":\"begin_update\",\"data\":{\"firmware_version\":\"f5146cc-dirty\",\"build_label\":\"f5146cc-dirty\","
-    "\"image_size\":122,\"image_sha256\":\"09e762f8ab00b6b6707d64898f454e1a0e7643c716731e5dc029adffd79a56c2\","
+    "\"image_size\":123,\"image_sha256\":\"09e762f8ab00b6b6707d64898f454e1a0e7643c716731e5dc029adffd79a56c2\","
     "\"product_id\":\"beetmeister\",\"hardware_revs\":[\"rev_a\"],\"runtime_protocol_version\":15,"
     "\"asset_id\":\"bundled-dev\",\"image_kind\":\"bundled\"}}";
 }
