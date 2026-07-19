@@ -280,7 +280,7 @@ static void test_schema_defaults(void)
     beet_default_app_config(&config);
     beet_default_power_runtime_state(&power_state);
 
-    TEST_ASSERT_U32_EQ(3U, BEET_APP_CONFIG_SCHEMA_VERSION);
+    TEST_ASSERT_U32_EQ(4U, BEET_APP_CONFIG_SCHEMA_VERSION);
     TEST_ASSERT_U32_EQ(1U, BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION);
     TEST_ASSERT_U32_EQ(BEET_APP_CONFIG_SCHEMA_VERSION, config.schema_version);
     TEST_ASSERT_U32_EQ(BEET_POWER_RUNTIME_STATE_SCHEMA_VERSION, power_state.schema_version);
@@ -736,7 +736,7 @@ static void test_ble_json_formatting(void)
 
     TEST_ASSERT_TRUE(beet_ble_format_device_frame_json(json, sizeof(json), &device) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":0,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"max_active_pumps\":3,\"wifi_connected\":0,\"mqtt_connected\":0,\"uptime_s\":0,\"valve_enabled\":0,\"valve_state\":\"CLOSED\"}}",
+        "{\"type\":\"device\",\"data\":{\"battery_state\":\"ACTIVE\",\"battery_mv\":3325,\"time_valid\":0,\"boot_id\":9,\"next_check_in_s\":71995,\"active_pumps\":0,\"wifi_connected\":0,\"mqtt_connected\":0,\"uptime_s\":0,\"valve_enabled\":0,\"valve_state\":\"CLOSED\"}}",
         json);
 
     TEST_ASSERT_TRUE(beet_ble_format_pair_frame_json(json, sizeof(json), &pair) > 0);
@@ -988,7 +988,7 @@ static void test_ble_maintenance_info_json_max_length(void)
 
     /* The bytes after the null terminator should be untouched. */
     for (i = (size_t)(written + 1); i < sizeof(json); ++i) {
-        TEST_ASSERT_U32_EQ(0xAAU, (unsigned)json[i]);
+        TEST_ASSERT_U32_EQ(0xAAU, (unsigned char)json[i]);
     }
 }
 
@@ -1082,14 +1082,14 @@ static void test_ble_parse_bool_strict_01(void)
 
     memset(&request, 0, sizeof(request));
     ok = beet_ble_parse_command_json(
-        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1}}",
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":1,\"servo_min_pulse_us\":500,\"servo_max_pulse_us\":2500,\"open_pulse_us\":1500,\"shut_pulse_us\":1500,\"move_duration_ms\":30,\"settle_delay_ms\":100,\"open_hold_ms\":200}}",
         &request);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_TRUE(request.valve_enabled);
 
     memset(&request, 0, sizeof(request));
     ok = beet_ble_parse_command_json(
-        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":0}}",
+        "{\"cmd\":\"store_valve_config\",\"data\":{\"valve_enabled\":0,\"servo_min_pulse_us\":600,\"servo_max_pulse_us\":2400,\"open_pulse_us\":1400,\"shut_pulse_us\":1600,\"move_duration_ms\":40,\"settle_delay_ms\":120,\"open_hold_ms\":220}}",
         &request);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_FALSE(request.valve_enabled);
