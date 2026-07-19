@@ -1035,8 +1035,9 @@ static bool beet_ble_metadata_sets_match(
     if (metadata == NULL || request == NULL) {
         return false;
     }
+    if (
 #ifndef BEET_HOST_TEST
-    if (strcmp(metadata->firmware_version, request->firmware_version) != 0 ||
+        strcmp(metadata->firmware_version, request->firmware_version) != 0 ||
         strcmp(metadata->build_label, request->build_label) != 0 ||
 #endif
         strcmp(metadata->product_id, request->product_id) != 0 ||
