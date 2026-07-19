@@ -1518,6 +1518,7 @@ static void beet_ble_service_maintenance_session(void)
              * increases ~3-4x (the Android BLE stack may negotiate
              * slightly wider, but any improvement is a win). This is a
              * standard GAP procedure — no wire protocol change. */
+#ifndef BEET_HOST_TEST
             if (s_ble.connected && s_ble.conn_handle != BLE_HS_CONN_HANDLE_NONE) {
                 struct ble_gap_upd_params upd_params = {
                     .itvl_min = 6,                /* 7.5 ms */
@@ -1537,6 +1538,7 @@ static void beet_ble_service_maintenance_session(void)
                              (unsigned)s_ble.conn_handle, rc);
                 }
             }
+#endif /* BEET_HOST_TEST */
             ESP_LOGI(TAG, "begin update ready session_id=%lu partition=%s size=%lu",
                      (unsigned long)s_ble.maintenance_session.status.session_id,
                      target_partition->label,
