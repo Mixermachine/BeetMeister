@@ -785,11 +785,11 @@ static void test_maintenance_data_requires_bond(void)
 static void test_maintenance_data_upload_and_finish_reboots(void)
 {
     beet_iface_device_state_t device = { 0 };
-    uint8_t image[16U + sizeof(g_beet_generated_metadata_block)];
-    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block)];
+    uint8_t image[16U + sizeof(g_beet_generated_metadata_block) + 4U];
+    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block) + 4U];
     size_t chunk_len = 0U;
 
-    memset(image, 0, 16U);
+    memset(image, 0, sizeof(image));
     memcpy(image + 16U, g_beet_generated_metadata_block, sizeof(g_beet_generated_metadata_block));
 
     beet_prepare_session(247U);
@@ -827,11 +827,11 @@ static void test_maintenance_data_upload_and_finish_reboots(void)
 static void test_maintenance_reboot_falls_back_without_confirmation(void)
 {
     beet_iface_device_state_t device = { 0 };
-    uint8_t image[16U + sizeof(g_beet_generated_metadata_block)];
-    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block)];
+    uint8_t image[16U + sizeof(g_beet_generated_metadata_block) + 4U];
+    uint8_t chunk[8U + 16U + sizeof(g_beet_generated_metadata_block) + 4U];
     size_t chunk_len = 0U;
 
-    memset(image, 0, 16U);
+    memset(image, 0, sizeof(image));
     memcpy(image + 16U, g_beet_generated_metadata_block, sizeof(g_beet_generated_metadata_block));
 
     beet_prepare_session(247U);
