@@ -20,9 +20,12 @@ Usage:
     python test-harness/run.py --dry-run-dispatch fresh_install
     python test-harness/run.py --dry-run-dispatch firmware_update
     python test-harness/run.py --dry-run-dispatch settings_update
+    python test-harness/run.py --dry-run-dispatch combined_pairs
     python test-harness/run.py fresh_install
     python test-harness/run.py firmware_update
     python test-harness/run.py settings_update
+    python test-harness/run.py combined_pairs
+    python test-harness/run.py firmware_update_abort_disconnect
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "suite",
-        choices=["fresh_install", "firmware_update", "settings_update"],
+        choices=["fresh_install", "firmware_update", "settings_update", "combined_pairs", "firmware_update_abort_disconnect"],
         help="Test suite to run.",
     )
     parser.add_argument(

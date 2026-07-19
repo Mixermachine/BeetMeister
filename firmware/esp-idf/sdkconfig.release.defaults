@@ -5,3 +5,7 @@
 # - No secure boot enforcement yet.
 
 CONFIG_BEET_ENABLE_BENCH_DIAGNOSTICS=n
+
+# GCC 15.2.0 internal compiler error (segfault) on esp_lcd_panel_rgb.c
+# BeetMeister does not use RGB LCD panels.
+CONFIG_ESP_LCD_ENABLE_RGB_PANEL=n

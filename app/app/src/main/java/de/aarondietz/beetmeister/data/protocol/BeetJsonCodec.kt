@@ -18,6 +18,7 @@ import de.aarondietz.beetmeister.model.command.BeetEmptyCommandData
 import de.aarondietz.beetmeister.model.command.BeetEventRequestData
 import de.aarondietz.beetmeister.model.command.BeetManualStartCommandData
 import de.aarondietz.beetmeister.model.command.BeetMaxActivePumpsCommandData
+import de.aarondietz.beetmeister.model.command.BeetPairCombinedCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairNameCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairCommandData
 import de.aarondietz.beetmeister.model.command.BeetSetTimeCommandData
@@ -31,6 +32,7 @@ import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
 import de.aarondietz.beetmeister.model.controller.BeetMaxActivePumps
 import de.aarondietz.beetmeister.model.controller.BeetPairNames
 import de.aarondietz.beetmeister.model.controller.BeetPairWiring
+import de.aarondietz.beetmeister.model.controller.BeetPairCombined
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
@@ -121,6 +123,8 @@ object BeetJsonCodec {
         runtimeMoshi.adapter(BeetMaxActivePumps::class.java)
     private val pairNamesPayloadAdapter: JsonAdapter<BeetPairNames> =
         runtimeMoshi.adapter(BeetPairNames::class.java)
+    private val pairCombinedPayloadAdapter: JsonAdapter<BeetPairCombined> =
+        runtimeMoshi.adapter(BeetPairCombined::class.java)
     private val historySummaryPayloadAdapter: JsonAdapter<BeetHistorySummary> =
         runtimeMoshi.adapter(BeetHistorySummary::class.java)
     private val systemHistorySummaryPayloadAdapter: JsonAdapter<BeetSystemHistorySummary> =
@@ -138,6 +142,7 @@ object BeetJsonCodec {
     private val wateringIntervalRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetWateringIntervalCommandData::class.java)
     private val maxActivePumpsRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetMaxActivePumpsCommandData::class.java)
     private val pairNameRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairNameCommandData::class.java)
+    private val pairCombinedRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairCombinedCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
 
     data class CommandChunkFrame(
@@ -246,10 +251,18 @@ object BeetJsonCodec {
         } else {
             null
         }
+        val pairCombined = if (
+            (header.cmd == "get_pair_combined" || header.cmd == "store_pair_combined") &&
+            header.status == "accepted"
+        ) {
+            pairCombinedPayloadAdapter.fromJson(dataJson) ?: error("Invalid pair combined payload.")
+        } else {
+            null
+        }
         val ack = commandAckPayloadAdapter.fromJson(dataJson)
         return BeetCommandResult(
             command = header.cmd,
-            pairIndex = calibration?.pairIndex ?: pairWiring?.pairIndex ?: event?.pairIndex ?: ack?.pairIndex,
+            pairIndex = calibration?.pairIndex ?: pairWiring?.pairIndex ?: pairCombined?.pairIndex ?: event?.pairIndex ?: ack?.pairIndex,
             status = header.status,
             reason = header.reason,
             acceptedDurationSeconds = ack?.durationSeconds,
@@ -263,6 +276,7 @@ object BeetJsonCodec {
             pairWiring = pairWiring,
             maxActivePumps = maxActivePumps,
             pairNames = pairNames,
+            pairCombined = pairCombined,
         )
     }
 
@@ -584,6 +598,25 @@ object BeetJsonCodec {
                 data = BeetPairNameCommandData(
                     pairIndex = pairIndex,
                     name = name,
+                ),
+            ),
+        )
+
+    fun getPairCombined(pairIndex: Int): String =
+        pairRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_pair_combined",
+                data = BeetPairCommandData(pairIndex = pairIndex),
+            ),
+        )
+
+    fun storePairCombined(pairIndex: Int, followersMask: Int): String =
+        pairCombinedRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "store_pair_combined",
+                data = BeetPairCombinedCommandData(
+                    pairIndex = pairIndex,
+                    followersMask = followersMask,
                 ),
             ),
         )

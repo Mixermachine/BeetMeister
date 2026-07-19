@@ -4,6 +4,7 @@ import de.aarondietz.beetmeister.model.controller.BeetCalibration
 import de.aarondietz.beetmeister.model.controller.BeetMaxActivePumps
 import de.aarondietz.beetmeister.model.controller.BeetPairNames
 import de.aarondietz.beetmeister.model.controller.BeetPairWiring
+import de.aarondietz.beetmeister.model.controller.BeetPairCombined
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
@@ -27,4 +28,5 @@ data class BeetCommandResult(
     val pairWiring: BeetPairWiring? = null,
     val maxActivePumps: BeetMaxActivePumps? = null,
     val pairNames: BeetPairNames? = null,
+    val pairCombined: BeetPairCombined? = null,
 )

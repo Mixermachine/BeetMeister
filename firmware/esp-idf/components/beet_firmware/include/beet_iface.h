@@ -41,6 +41,8 @@ typedef enum {
     BEET_IFACE_COMMAND_STORE_MAX_ACTIVE_PUMPS = 30,
     BEET_IFACE_COMMAND_GET_PAIR_NAMES = 31,
     BEET_IFACE_COMMAND_STORE_PAIR_NAME = 32,
+    BEET_IFACE_COMMAND_GET_PAIR_COMBINED = 33,
+    BEET_IFACE_COMMAND_STORE_PAIR_COMBINED = 34,
 } beet_iface_command_t;
 
 typedef enum {
@@ -92,6 +94,8 @@ typedef enum {
     BEET_IFACE_REASON_FACTORY_RESET_STARTED = 40,
     BEET_IFACE_REASON_INVALID_MAX_ACTIVE_PUMPS = 41,
     BEET_IFACE_REASON_NAME_TOO_LONG = 42,
+    BEET_IFACE_REASON_INVALID_COMBINED = 43,
+    BEET_IFACE_REASON_COMBINED_SAVED = 44,
 } beet_iface_reason_t;
 
 typedef struct {
@@ -115,6 +119,7 @@ typedef struct {
     uint32_t watering_interval_s;
     uint8_t max_active_pumps;
     char pair_name[BEET_PAIR_NAME_MAX_LEN + 1U];
+    uint8_t combined_mask;
 } beet_iface_command_request_t;
 
 typedef struct {
@@ -160,6 +165,9 @@ typedef struct {
     bool has_stored_pair_name;
     uint8_t stored_pair_index;
     char stored_pair_name[BEET_PAIR_NAME_MAX_LEN + 1U];
+    bool has_combined;
+    uint8_t combined_pair_index;
+    uint8_t combined_mask;
 } beet_iface_command_response_t;
 
 typedef struct {

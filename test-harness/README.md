@@ -1,34 +1,28 @@
 # BeetMeister E2E Test Harness
 
-Cross-platform (Windows / Linux / Mac) orchestrator for the
-Kotlin robot-pattern instrumentation tests under
-`app/app/src/androidTest/java/de/aarondietz/beetmeister/e2e/`.
-
-Status: **Phase 6 — complete. All three suites pass green on Windows.**
-
-> Full plan: `.pi/plans/2026-07-12-e2e-test-harness-md.md`.
+Cross-platform (Win/Linux/Mac) orchestrator. Runs Kotlin robot-pattern
+instrumentation tests under
+`app/app/src/androidTest/java/de/aarondz/beetmeister/e2e/`.
 
 ## What lives here
 
 - `harness/` — Python orchestrator (9 modules: adb, capture, config,
   controller_reset, firmware, logging_setup, orchestrator, run_folder,
   screenshots).
-- `config.example.toml` — schema; copy to `config.toml` and edit.
-- `requirements.txt` — `pyserial`, `pytest`, `tomli` (3.10 fallback).
-- `runs/` — per-run evidence folders (git-ignored).
+- `config.example.toml` — schema. Copy → `config.toml`. Edit.
+- `requirements.txt` — deps.
+- `runs/` — per-run evidence (git-ignored).
 - `firmware_cache/` — cached `v0.3.0` build (git-ignored).
-- `run.py` — `python run.py <suite>` entry point.
-- `conftest.py` + `test_fresh_install.py` + `test_firmware_update.py` +
-  `test_settings.py` — pytest entry points.
+- `run.py` — `python run.py <suite>` entry.
+- `conftest.py` + 3 `test_*.py` — pytest entry points.
 
 ## Install
 
 ```bash
-# From the repo root:
 python -m pip install -r test-harness/requirements.txt
 ```
 
-Dependencies: `pyserial`, `pytest`, `tomli` (for Python 3.10 `tomllib` fallback).
+Deps: `pyserial`, `pytest`, `tomli` (Python 3.10 `tomllib` fallback).
 
 ## Config
 
@@ -36,28 +30,28 @@ Dependencies: `pyserial`, `pytest`, `tomli` (for Python 3.10 `tomllib` fallback)
 cp test-harness/config.example.toml test-harness/config.toml
 ```
 
-Edit `config.toml` with absolute paths for your machine:
+Edit `config.toml` with absolute paths:
 
 | Key | Required for | Description |
 |-----|-------------|-------------|
 | `[device].adb_serial` | All suites | First device auto-picked if empty |
 | `[device].app_dir` | All suites | Path to `app/` with `gradlew` |
-| `[device].gradlew` | All suites | Absolute path to Gradle wrapper |
+| `[device].gradlew` | All suites | Abs path to Gradle wrapper |
 | `[controller].serial_port` | firmware_update | `COM4` (Win), `/dev/ttyUSB0` (Linux) |
-| `[controller].ble_mac` | firmware_update | MAC for bond clearing, `AA:BB:CC:DD:EE:FF` |
-| `[env].esptool_exe` | fresh_install, firmware_update | Absolute path to `esptool.py` in ESP-IDF |
-| `[env].idf_py_exe` | firmware_update only | Absolute path to `idf.py` in ESP-IDF |
-| `[env].idf_python_exe` | fresh_install, firmware_update | ESP-IDF venv Python (has `cryptography`, etc.) |
-| `[env].idf_env_script` | Optional | `export.bat`/`export.sh` for sourcing the IDF env |
+| `[controller].ble_mac` | firmware_update | MAC for bond clear, `AA:BB:CC:DD:EE:FF` |
+| `[env].esptool_exe` | fresh_install, firmware_update | Abs path to `esptool.py` in ESP-IDF |
+| `[env].idf_py_exe` | firmware_update only | Abs path to `idf.py` in ESP-IDF |
+| `[env].idf_python_exe` | fresh_install, firmware_update | ESP-IDF venv Python (has `cryptography`) |
+| `[env].idf_env_script` | Optional | `export.bat`/`export.sh` for sourcing IDF env |
 
-The orchestrator does **not** activate the ESP-IDF environment itself.
-Point `[env].idf_python_exe` at the venv Python inside your IDF install
-(e.g. `C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe` on Windows,
-`/opt/esp/python_env/idf6.0_py3.13_env/bin/python` on Linux).
+Orchestrator does **not** activate ESP-IDF env itself. Point
+`[env].idf_python_exe` at the IDF venv Python (e.g.
+`C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe` Win,
+`/opt/esp/python_env/idf6.0_py3.13_env/bin/python` Linux).
 
 ## Running suites
 
-All three suites run **one `am instrument` call** per `run.py` invocation:
+One `am instrument` call per `run.py` invocation:
 
 ```bash
 python test-harness/run.py fresh_install       # ~20 s (2 tests)
@@ -65,21 +59,19 @@ python test-harness/run.py firmware_update     # ~340 s (1 test, real OTA)
 python test-harness/run.py settings_update     # ~42 s (7 tests)
 ```
 
-Each suite exits 0 on pass, non-zero on failure. Console output is
-sparse (INFO level); full DEBUG logs are in the run directory's
+Exit 0 pass, non-zero fail. Console sparse (INFO). Full DEBUG in run dir
 `harness-<ts>.log`.
 
 ### What each suite does
 
 | Suite | Preconditions | Test |
 |-------|--------------|------|
-| `fresh_install` | Uninstall app → esptool erase appcfg+events+sysevents → install APK | Scan → connect → assert 8 pair rows + controller info (device_id, firmware, protocol) |
-| `firmware_update` | Flash v0.3.0 → uninstall → install APK → clear BLE bond | Connect → assert old build label → OTA to bundled firmware → reconnect → assert new build label |
-| `settings_update` | Green install APK | Connect once → for each of 7 settings: set B → save → assert readback == B |
+| `fresh_install` | Uninstall → esptool erase appcfg+events+sysevents → install APK | Scan → connect → assert 8 pair rows + controller info |
+| `firmware_update` | Flash v0.3.0 → uninstall → install APK → clear BLE bond | Connect → assert old build label → OTA bundled fw → reconnect → assert new label |
+| `settings_update` | Green install APK | Connect → 7 settings: set B → save → assert readback == B |
 
-The `firmware_update` suite builds v0.3.0 on demand from a `git worktree`
-and caches the `.bin` under `firmware_cache/` (git-ignored). Subsequent
-runs skip the build.
+`firmware_update` builds v0.3.0 on demand from `git worktree`, caches
+`.bin` under `firmware_cache/`. Subsequent runs skip build.
 
 ### pytest wrapper
 
@@ -90,7 +82,7 @@ pytest test-harness/test_firmware_update.py
 pytest test-harness/test_settings.py
 ```
 
-Each test file is a thin `Orchestrator.run(suite)` + `assert result.passed`.
+Each file = thin `Orchestrator.run(suite)` + `assert result.passed`.
 
 ## Run folder layout
 
@@ -98,8 +90,8 @@ Each test file is a thin `Orchestrator.run(suite)` + `assert result.passed`.
 runs/YYYYMMDD-HHMMSS-<suite>/
   manifest.json               # suite, timing, device/controller info, pass/fail,
                               #   build labels, per-test results
-  dispatch-plan.json          # composed preconditions + am instrument command
-  harness-<ts>.log            # full DEBUG-level orchestrator log
+  dispatch-plan.json          # composed preconditions + am instrument cmd
+  harness-<ts>.log            # full DEBUG orchestrator log
   android-logcat.txt          # continuous device logcat
   controller-serial.txt       # continuous controller serial (if port set)
   instrumentation-smoke.txt   # smoke gate stdout
@@ -114,20 +106,19 @@ runs/YYYYMMDD-HHMMSS-<suite>/
 
 ## Interpreting results
 
-- **`manifest.json`**: authoritative pass/fail per suite. `passed = true`
-  only if smoke gate AND all E2E tests pass. `e2e_results` lists per-test
-  pass/fail with durations.
+- **`manifest.json`**: authoritative pass/fail. `passed = true` only if
+  smoke gate AND all E2E tests pass. `e2e_results` lists per-test
+  pass/fail + durations.
 - **`instrumentation-e2e.txt`**: raw `am instrument` stdout. Look for:
   - `OK (N tests)` — all passed.
-  - `FAILURES!!!` + `Test failed to run to completion. Reason: ...` — crash
-    or process death (check logcat for the stack trace).
-  - Per-test `FAILED:` lines list which specific `@Test` failed.
-- **`controller-serial.txt`**: controller boot log + OTA state chain
+  - `FAILURES!!!` + `Test failed to run to completion. Reason: ...` —
+    crash/process death. Check logcat for stack.
+  - Per-test `FAILED:` lines list which `@Test` failed.
+- **`controller-serial.txt`**: boot log + OTA chain
   (`BEGIN_UPDATE → awaiting_data → transferring → verifying →
-  UPDATE_COMPLETED → reboot`). For firmware_update, confirm the
-  `UPDATE_COMPLETED` event and the new firmware's build label in the
-  post-reboot `maintenance_info OK` line.
-- **`android-logcat.txt`**: app-side events. For firmware_update, look for
+  UPDATE_COMPLETED → reboot`). For firmware_update confirm
+  `UPDATE_COMPLETED` + new build label in post-reboot `maintenance_info OK`.
+- **`android-logcat.txt`**: app events. For firmware_update look for
   `runMaintenanceUpdate terminal status` with `state=completed`.
 
 ## Prerequisites
@@ -136,200 +127,162 @@ runs/YYYYMMDD-HHMMSS-<suite>/
 
 - Python 3.10+ with `pyserial`, `pytest`, `tomli`.
 - `adb` on PATH (Android SDK platform-tools).
-- Connected Android device (visible in `adb devices`).
-- Controller powered on and advertising.
-- **USB BLE Relay** connected to the host and paired with the phone
-  (used by `E2eConnectionFixture` for BLE pairing during connect).
+- Connected Android device (in `adb devices`).
+- Controller powered on, advertising.
+- **USB BLE Relay** connected to host, paired with phone. Used by
+  `E2eConnectionFixture` for BLE pair during connect.
 
 ### fresh_install + settings_update
 
-- `esptool.py` reachable via `[env].esptool_exe` + `[env].idf_python_exe`.
+- `esptool.py` via `[env].esptool_exe` + `[env].idf_python_exe`.
 - Controller serial port connected.
 
 ### firmware_update (additional)
 
-- **ESP-IDF toolchain** on the host: `idf.py` + its venv Python reachable
-  via `[env].idf_py_exe` + `[env].idf_python_exe`.
+- **ESP-IDF toolchain** on host: `idf.py` + venv Python via
+  `[env].idf_py_exe` + `[env].idf_python_exe`.
 - Controller serial port (`[controller].serial_port`).
-- Git tag `v0.3.0` present in the repo (first run builds from a worktree).
-- **BLE MAC** (`[controller].ble_mac`) for bond clearing after flashing
-  old firmware (prevents stale-key reconnection failures).
+- Git tag `v0.3.0` in repo (first run builds from worktree).
+- **BLE MAC** (`[controller].ble_mac`) for bond clear after flashing old
+  fw (prevents stale-key reconnect fails).
 
 ## OS notes
 
 ### Windows
 
-✅ Validated. All three suites pass green. Prerequisites:
+✅ Validated. All 3 suites green. Needs:
 - ESP-IDF v6.0 at `C:/esp/v6.0/esp-idf`.
-- `[env].idf_python_exe` at the IDF venv Python
+- `[env].idf_python_exe` = IDF venv Python
   (`C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe`).
-- Serial port as `COM4` (check Device Manager → Ports).
-- Paths in `config.toml` use forward slashes or double backslashes.
+- Serial port `COM4` (Device Manager → Ports).
+- `config.toml` paths use `/` or double `\\`.
 
 ### Linux
 
-✅ Code-level validated (all modules import, os.sep='/', tomllib works,
-pathlib resolves correctly). Hardware validation not yet executed —
-requires a bare-metal Linux machine with USB access.
+✅ Code-level validated (modules import, os.sep='/', tomllib works,
+pathlib resolves). Hardware validation needs bare-metal Linux + USB.
 
-**WSL2 is not suitable** — it cannot access USB devices without
-`usbipd-win`, and BLE timing through USB passthrough is unreliable.
-Use a real Linux machine (or a VM with reliable USB passthrough).
+**WSL2 not suitable** — no USB access without `usbipd-win`; BLE timing unreliable. Use real Linux or VM with USB passthrough.
 
-Prerequisites:
+Needs:
 - ESP-IDF at `/opt/esp/esp-idf` (or similar).
-- `[env].idf_python_exe` at the IDF venv Python
-  (`/opt/esp/python_env/idf6.0_py3.13_env/bin/python`).
-- Serial port as `/dev/ttyUSB0` or `/dev/ttyACM0`.
-- User in the `dialout` group (`sudo usermod -a -G dialout $USER`).
-- Pathlib uses `/` natively — no path separator issues.
-- `adb` from the Android SDK platform-tools.
-
-### Mac
-
-📝 Documented only (no Mac available for testing). Expected setup:
-- Serial port as `/dev/cu.SLAB_USBtoUART` or `/dev/cu.usbserial-*`
-  (Silabs CP210x USB-to-UART bridge).
-- If `/dev/cu.*` does not appear: install the
-  [Silabs CP210x VCP driver](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers).
-- ESP-IDF at `~/esp/esp-idf` (or via Homebrew: `brew install esp-idf`).
-- `[env].idf_python_exe` at the IDF venv Python (path varies by ESP-IDF
-  version — check `~/esp/esp-idf/export.sh` for the venv location).
-- `adb` via `brew install android-platform-tools` or Android Studio.
-
-**Mac-only gaps** (not tested):
-- Serial port path detection (`/dev/cu.*` vs `/dev/tty.*`).
-- `esptool.py` flash timing (USB-to-UART latency may differ).
-- `adb install` with M-series Macs (Rosetta or native).
-- BLE Relay driver availability (check manufacturer docs).
-
-If you validate any of these on Mac, please update this section.
+- `[env].idf_python_exe` =
+  `/opt/esp/python_env/idf6.0_py3.13_env/bin/python`.
+- Serial `/dev/ttyUSB0` or `/dev/ttyACM0`.
+- User in `dialout` group (`sudo usermod -aG dialout $USER`).
+- `adb` from Android SDK platform-tools.
 
 ## Troubleshooting
 
 ### BLE instability during OTA
 
-**Symptom:** `firmware_update` test times out (~420s) or the app crashes
-during post-OTA reconnection.
+**Symptom:** `firmware_update` times out (~420s) or app crashes during
+post-OTA reconnect.
 
 **Checks:**
-1. `controller-serial.txt` — does `UPDATE_COMPLETED` appear?
-   - If no: OTA transfer never finished. Look for `reason=` codes
-     (133 = connection timeout, 8 = link supervision timeout).
-   - If yes: the controller side is fine; check the app side.
-2. `android-logcat.txt` — search for `runMaintenanceUpdate terminal status`.
-   - If `state=completed`: the app detected the completed state. Any
-     crash after this is in the post-OTA reconnection code path.
-   - If no `terminal status`: the app never reached the end of the OTA
-     loop. Check for `clearSession()` loops (app keeps reconnecting).
+1. `controller-serial.txt` — `UPDATE_COMPLETED` appear?
+   - No: OTA never finished. Look for `reason=` codes (133 = connection
+     timeout, 8 = link supervision timeout).
+   - Yes: controller fine. Check app side.
+2. `android-logcat.txt` — search `runMaintenanceUpdate terminal status`.
+   - `state=completed`: app detected completion. Crash after this =
+     post-OTA reconnect code path.
+   - No terminal status: app never reached end of OTA loop. Check for
+     `clearSession()` loops (app keeps reconnecting).
 3. Post-OTA crash with `performMeasureAndLayout called during measure layout`:
    - Root cause: BLE callback thread fires `host.updateState()` during
-     Compose layout, triggering a nested `measureAndLayout` on Android.
-   - This is a known app-level race. The test robot catches transient
-     Compose exceptions in `hasAnyTag()`, but a process-level crash
-     cannot be caught. If it recurs consistently, the app's
-     `BeetGattSessionCoordinator.kt` BLE callbacks need to defer
-     `host.updateState` to the main looper via `Handler(Looper.getMainLooper()).post{}`.
-   - One-time occurrences: re-run the suite. This crash is transient.
-4. BLE Relay disconnect/reconnect cycles during the test:
-   - The relay is a USB device that provides BLE connectivity between
-     the phone and controller. It may disconnect if USB power management
-     kicks in or if the relay firmware has watchdog timeouts.
-   - If the relay drops during `E2eConnectionFixture.connectOnce()`,
-     the test will fail. **Workaround:** re-plug the relay before each run.
+     Compose layout → nested `measureAndLayout` on Android.
+   - Known app race. Test robot catches transient Compose exceptions in
+     `hasAnyTag()`, but process-level crash uncatchable. If recurs
+     consistently, app `BeetGattSessionCoordinator.kt` BLE callbacks must
+     defer `host.updateState` to main looper via
+     `Handler(Looper.getMainLooper()).post{}`.
+   - One-off: re-run. Transient.
+4. BLE Relay disconnect/reconnect cycles:
+   - Relay = USB device giving BLE between phone + controller. Drops on
+     USB power mgmt or relay watchdog timeouts.
+   - Drop during `E2eConnectionFixture.connectOnce()` → test fails.
+     **Workaround:** re-plug relay before each run.
 
-### Stale BLE bond after firmware flash
+### Stale BLE bond after fw flash
 
-**Symptom:** After `flash_old`, the app reconnects but gets
-`HCI_ERR_KEY_MISSING` and enters a scan→connect→fail loop.
+**Symptom:** After `flash_old`, app reconnects but gets
+`HCI_ERR_KEY_MISSING`, enters scan→connect→fail loop.
 
-**Fix:** Set `[controller].ble_mac` in `config.toml`. The orchestrator
-runs `clear_ble_bond_via_intent` before the E2E test, which calls
-`BluetoothDevice.removeBond()` for the controller's MAC.
+**Fix:** Set `[controller].ble_mac` in `config.toml`. Orchestrator runs
+`clear_ble_bond_via_intent` before E2E test → calls
+`BluetoothDevice.removeBond()` for controller MAC.
 
 ### Compose test timeout (420s) despite OTA completing
 
-**Symptom:** `awaitReconnect` times out, but `controller-serial.txt` shows
-`UPDATE_COMPLETED` and the app shows the connection gate (not nav).
+**Symptom:** `awaitReconnect` times out, but `controller-serial.txt`
+shows `UPDATE_COMPLETED`, app shows connection gate (not nav).
 
-**Root cause (fixed in P5):** `hasAnyTag()` in `FirmwareUpdateRobot` used
-the merged Compose semantics tree. M3 `NavigationSuiteScaffold` only
-includes the **selected** nav item in the merged tree. After OTA the
-default selection is `Overview`, so `SettingsNavItem` was invisible.
+**Root cause (fixed P5):** `hasAnyTag()` in `FirmwareUpdateRobot` used
+merged Compose semantics tree. M3 `NavigationSuiteScaffold` only
+includes **selected** nav item in merged tree. After OTA default = `Overview`,
+so `SettingsNavItem` invisible.
 
-**Fix:** `hasAnyTag()` now uses `useUnmergedTree = true`. This matches
-how `SettingsRobot.openSettings()` accesses nav items.
+**Fix:** `hasAnyTag()` now uses `useUnmergedTree = true`. Matches
+`SettingsRobot.openSettings()` nav access.
 
 ### Cascade FAIL — BLE drops mid-suite
 
-**Symptom:** `settings_update` passes tests 1-3 then fails 4-7, or all
-tests after the first failure show "nav_settings_item not found."
+**Symptom:** `settings_update` passes 1-3 then fails 4-7, or all tests
+after first fail show "nav_settings_item not found."
 
-**Explanation:** All 7 settings tests share one `@Before` connect. If BLE
-drops mid-suite (e.g. a transient interference), the connection is lost
-and remaining tests can't assert settings. The test class reports FAIL.
+**Why:** All 7 settings tests share one `@Before` connect. BLE drops
+mid-suite (transient interference) → connection lost → remaining tests
+can't assert settings. Class reports FAIL.
 
-**This is intentional:** the harness surfaces genuine BLE instability.
-If cascades happen consistently (>50% of runs), the BLE layer has a
-regression. If they happen rarely (<10%), re-run the suite.
+**Intentional:** harness surfaces real BLE instability. Cascade >50% of
+runs = BLE layer regression. <10% = re-run suite.
 
 ### Smoke gate fails
 
 **Symptom:** "androidTest smoke failed; aborted before <suite>."
 
-The smoke gate runs the pure-UI `MaintenanceUpdateInstrumentationTest`
-(4 tests, no hardware). If it fails:
-- Check `instrumentation-smoke.txt` for the specific failure.
+Smoke gate runs pure-UI `MaintenanceUpdateInstrumentationTest` (4 tests,
+no hardware). On fail:
+- Check `instrumentation-smoke.txt` for specific failure.
 - Rebuild APKs: `cd app && gradlew assembleDebug assembleDebugAndroidTest`.
-- Check that no test tags are broken (new UI changes may have moved/removed
-  tags the smoke test uses).
+- Check test tags not broken (UI changes may move/remove tags smoke uses).
 
 ### Gradle build hangs
 
-**Symptom:** `run.py` hangs at "Building APKs..." and eventually times out.
+**Symptom:** `run.py` hangs at "Building APKs...", times out.
 
-- Kill any stuck Gradle daemons: `cd app && gradlew --stop`.
-- Check for lock files: delete `app/.gradle/` and retry.
+- Kill stuck Gradle daemons: `cd app && gradlew --stop`.
+- Check lock files: delete `app/.gradle/`, retry.
 - Increase `[orchestrator].gradle_build_timeout` if needed.
 
 ### Controller not advertising after flash
 
-**Symptom:** After `flash_old` or `erase_region`, the controller doesn't
-appear in the app's scan list.
+**Symptom:** After `flash_old` or `erase_region`, controller not in app
+scan list.
 
-- The controller takes 2-5 seconds after boot to start advertising.
-  The `E2eConnectionFixture` waits up to 30s for the device to appear.
-- If it still doesn't appear, check `controller-serial.txt` for the boot
-  log. Look for `BLE advertising started` or NimBLE init errors.
-- Power-cycle the controller and retry.
+- Controller takes 2-5 s post-boot to advertise. `E2eConnectionFixture`
+  waits up to 30s.
+- Still missing? Check `controller-serial.txt` boot log. Look for
+  `BLE advertising started` or NimBLE init errors.
+- Power-cycle controller, retry.
 
-## When to file a firmware bug vs. test/robot issue
+## File firmware bug vs. test/robot issue
 
-**File a firmware bug** when:
-- `UPDATE_COMPLETED` appears but the new firmware doesn't boot (stuck
-  in bootloader, `rst:0xc` loop).
-- Controller returns `reason=133` or `reason=8` consistently on every
-  OTA attempt.
+**Firmware bug:**
+- `UPDATE_COMPLETED` appears but new fw doesn't boot (stuck bootloader,
+  `rst:0xc` loop).
+- Controller returns `reason=133` or `reason=8` consistently every OTA.
 - App gets `"awaiting_data"` after full upload → controller lost bytes.
-- `"rebooting"` indication is never received (known issue on v0.3.0
-  firmware — already fixed in the bundled firmware by the app-side
-  `fullImageAlreadyTransferred && idle` → `completed` resume path).
+- `"rebooting"` never received (v0.3.0 known issue — already fixed in
+  bundled fw via app-side `fullImageAlreadyTransferred && idle` →
+  `completed` resume path).
 
-**File a test/robot issue** when:
-- Test fails with `ComposeTimeoutException` → robot didn't find the
-  expected UI node (check screenshot, check tag spelling).
-- Test fails with `adb: device offline` → USB cable/adb server issue.
-- Test fails with `am instrument exited with code 1` but logcat shows
-  clean app flow → instrumentation crash, not product bug.
-- Gradle build fails or APK missing → build environment issue.
+**Test/robot issue:**
+- `ComposeTimeoutException` → robot didn't find UI node (check
+  screenshot, tag spelling).
+- `adb: device offline` → USB/adb server issue.
+- `am instrument exited code 1` but logcat clean → instrumentation crash,
+  not product bug.
+- Gradle build fails / APK missing → build env issue.
 
-## Phase progress
-
-| Phase | Status |
-|-------|--------|
-| P1 — test-tag foundation | ✅ |
-| P2 — robots + E2E classes | ✅ |
-| P3 — orchestrator core | ✅ |
-| P4 — per-suite dispatch | ✅ |
-| P5 — real-hardware stabilization | ✅ (all 3 suites green on Windows) |
-| P6 — docs + cross-platform | ✅ |

@@ -588,6 +588,34 @@ int beet_ble_format_command_result_json(
             response->stored_pair_name);
     }
 
+    if (response->command == BEET_IFACE_COMMAND_GET_PAIR_COMBINED &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_combined) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"pair\":%u,\"followers\":%u}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            response->combined_pair_index,
+            (unsigned int)response->combined_mask);
+    }
+
+    if (response->command == BEET_IFACE_COMMAND_STORE_PAIR_COMBINED &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_combined) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"pair\":%u,\"followers\":%u}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            response->combined_pair_index,
+            (unsigned int)response->combined_mask);
+    }
+
     if ((response->command == BEET_IFACE_COMMAND_GET_VALVE_CONFIG ||
             response->command == BEET_IFACE_COMMAND_STORE_VALVE_CONFIG) &&
         response->status == BEET_IFACE_STATUS_ACCEPTED &&
@@ -1003,6 +1031,68 @@ static bool beet_ble_parse_pair_name_data(
     }
 
     return seen_pair && seen_name;
+}
+
+static bool beet_ble_parse_combined_data(
+    const char **cursor,
+    uint8_t *pair_index,
+    uint8_t *combined_mask)
+{
+    bool seen_pair = false;
+    bool seen_followers = false;
+
+    if (!beet_ble_consume_char(cursor, '{')) {
+        return false;
+    }
+
+    while (true) {
+        char key[32];
+        uint16_t parsed = 0U;
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+
+        if (!beet_ble_parse_string(cursor, key, sizeof(key)) ||
+            !beet_ble_consume_char(cursor, ':')) {
+            return false;
+        }
+
+        if (strcmp(key, "pair") == 0 && !seen_pair) {
+            if (!beet_ble_parse_u16(cursor, &parsed)) {
+                return false;
+            }
+            *pair_index = (uint8_t)parsed;
+            seen_pair = true;
+        } else if (strcmp(key, "followers") == 0 && !seen_followers) {
+            if (!beet_ble_parse_u16(cursor, &parsed)) {
+                return false;
+            }
+            *combined_mask = (uint8_t)parsed;
+            seen_followers = true;
+        } else if (strcmp(key, "pair") == 0 || strcmp(key, "followers") == 0) {
+            return false;
+        } else {
+            if (!beet_ble_skip_json_value(cursor)) {
+                return false;
+            }
+        }
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == ',') {
+            ++(*cursor);
+            continue;
+        }
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+        return false;
+    }
+
+    return seen_pair && seen_followers;
 }
 
 static bool beet_ble_parse_pair_data(const char **cursor, uint8_t *pair_index)
@@ -1942,6 +2032,19 @@ bool beet_ble_parse_command_json(
                         &request->pair_index,
                         request->pair_name,
                         sizeof(request->pair_name))) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "get_pair_combined") == 0) {
+                request->command = BEET_IFACE_COMMAND_GET_PAIR_COMBINED;
+                if (!beet_ble_parse_pair_data(&cursor, &request->pair_index)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "store_pair_combined") == 0) {
+                request->command = BEET_IFACE_COMMAND_STORE_PAIR_COMBINED;
+                if (!beet_ble_parse_combined_data(
+                        &cursor,
+                        &request->pair_index,
+                        &request->combined_mask)) {
                     return false;
                 }
             } else {

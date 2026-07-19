@@ -75,6 +75,15 @@ typedef struct queue_stub *QueueHandle_t;
 #define BLE_HS_ADV_F_BREDR_UNSUP 0x04
 #define BLE_HS_ADV_TX_PWR_LVL_AUTO 0
 
+struct ble_gap_upd_params {
+    uint16_t itvl_min;
+    uint16_t itvl_max;
+    uint16_t latency;
+    uint16_t supervision_timeout;
+    uint16_t min_ce_len;
+    uint16_t max_ce_len;
+};
+
 #define OS_MBUF_PKTLEN(om) ((om)->len)
 
 typedef struct {

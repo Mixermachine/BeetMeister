@@ -69,6 +69,10 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "get_pair_names";
     case BEET_IFACE_COMMAND_STORE_PAIR_NAME:
         return "store_pair_name";
+    case BEET_IFACE_COMMAND_GET_PAIR_COMBINED:
+        return "get_pair_combined";
+    case BEET_IFACE_COMMAND_STORE_PAIR_COMBINED:
+        return "store_pair_combined";
     default:
         return "unknown";
     }
@@ -175,6 +179,10 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "invalid_max_active_pumps";
     case BEET_IFACE_REASON_NAME_TOO_LONG:
         return "name_too_long";
+    case BEET_IFACE_REASON_INVALID_COMBINED:
+        return "invalid_combined";
+    case BEET_IFACE_REASON_COMBINED_SAVED:
+        return "combined_saved";
     default:
         return "unknown";
     }

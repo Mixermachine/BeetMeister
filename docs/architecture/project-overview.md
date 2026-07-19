@@ -76,3 +76,6 @@ All automatic watering, manual watering, telemetry, history, and fault handling 
 | Availability | The controller online or offline indication exposed to MQTT consumers. |
 | Wall-clock time | UTC Unix time when the controller has a valid time source. |
 | Monotonic time | Millisecond uptime or timer-relative duration that is valid only within the current boot. |
+| Combined pair | Two or more pairs that share one moisture sensor. |
+| Lead pair | The pair in a combined group whose physical sensor is used. |
+| Follower pair | A pair that piggybacks on the lead pair's sensor readings. |
