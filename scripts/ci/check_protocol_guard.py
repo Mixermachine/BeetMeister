@@ -33,6 +33,8 @@ def git(*args: str, check: bool = True) -> str:
         cwd=REPO_ROOT,
         check=check,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
     )
     return completed.stdout.strip()
@@ -99,6 +101,8 @@ def main() -> int:
     runtime_hits: list[str] = []
     maintenance_hits: list[str] = []
     for path, changed_line in diff_entries:
+        if path.endswith((".md", ".txt", ".png", ".svg", ".jpg", ".jpeg", ".properties", ".yml", ".yaml")):
+            continue
         normalized = changed_line.strip()
         if not normalized:
             continue

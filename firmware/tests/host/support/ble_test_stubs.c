@@ -205,6 +205,13 @@ int ble_gap_adv_stop(void)
     return 0;
 }
 
+int ble_gap_update_params(uint16_t conn_handle, const struct ble_gap_upd_params *params)
+{
+    (void)conn_handle;
+    (void)params;
+    return 0;
+}
+
 int ble_gap_terminate(uint16_t conn_handle, uint8_t reason)
 {
     (void)conn_handle;
@@ -541,11 +548,4 @@ esp_err_t beet_iface_submit_command(const beet_iface_command_request_t *request,
     }
     memset(response, 0, sizeof(*response));
     return ESP_OK;
-}
-
-int ble_gap_update_params(uint16_t conn_handle, const struct ble_gap_upd_params *params)
-{
-    (void)conn_handle;
-    (void)params;
-    return 0;
 }

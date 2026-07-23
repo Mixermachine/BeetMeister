@@ -250,6 +250,7 @@ int ble_gap_adv_set_fields(const struct ble_hs_adv_fields *fields);
 int ble_gap_adv_rsp_set_fields(const struct ble_hs_adv_fields *fields);
 int ble_gap_adv_start(uint8_t own_addr_type, const void *direct_addr, int32_t duration_ms, const struct ble_gap_adv_params *params, int (*cb)(struct ble_gap_event *, void *), void *arg);
 int ble_gap_adv_stop(void);
+int ble_gap_update_params(uint16_t conn_handle, const struct ble_gap_upd_params *params);
 int ble_gap_terminate(uint16_t conn_handle, uint8_t reason);
 int ble_gatts_count_cfg(const struct ble_gatt_svc_def *svcs);
 int ble_gatts_add_svcs(const struct ble_gatt_svc_def *svcs);
