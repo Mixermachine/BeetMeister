@@ -130,6 +130,8 @@ dependencies {
     androidTestImplementation(libs.androidx.uiautomator)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(platform(libs.koin.bom))
+    androidTestImplementation(libs.koin.android)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

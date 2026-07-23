@@ -100,7 +100,7 @@ internal class ConnectionGateRobot(
         // (the auto-connect already completed).
     }
 
-    private fun scanButtonVisible(): Boolean = composeRule
+    internal fun scanButtonVisible(): Boolean = composeRule
         .onAllNodesWithTag(ConnectionGateTestTags.ScanButton)
         .fetchSemanticsNodes()
         .isNotEmpty()

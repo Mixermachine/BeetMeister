@@ -400,6 +400,51 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    fun loadPairCombined(pairIndex: Int) {
+        host.scope.launch {
+            if (!beetIsValidPairIndex(pairIndex)) {
+                return@launch
+            }
+            try {
+                val result = withSyncPausedForCommand {
+                    sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
+                }
+                if (result.status == "accepted" && result.pairCombined != null) {
+                    host.updateState { state ->
+                        state.copy(
+                            pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                // combined config is optional
+            }
+        }
+    }
+
+    fun storePairCombined(pairIndex: Int, followersMask: Int) {
+        host.scope.launch {
+            if (!beetIsValidPairIndex(pairIndex)) {
+                return@launch
+            }
+            try {
+                val result = withSyncPausedForCommand {
+                    sendCommand(BeetJsonCodec.storePairCombined(pairIndex, followersMask))
+                }
+                if (result.status == "accepted" && result.pairCombined != null) {
+                    host.updateState { state ->
+                        state.copy(
+                            pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                // re-fetch on failure
+                loadPairCombined(pairIndex)
+            }
+        }
+    }
+
     fun refreshValveConfig() {
         host.scope.launch {
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {

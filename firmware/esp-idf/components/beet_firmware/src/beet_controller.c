@@ -58,6 +58,8 @@ typedef struct {
     uint8_t moisture_before_pct;
     uint16_t sensor_before_mv;
     uint32_t run_id;
+    bool combined_follower;
+    uint8_t combined_lead;
 } beet_pair_runtime_t;
 
 typedef struct {
@@ -104,6 +106,7 @@ typedef struct {
     beet_pending_action_t pending_action;
     int64_t pending_action_due_us;
     char pair_names[BEET_PAIR_COUNT][BEET_PAIR_NAME_MAX_LEN + 1U];
+    uint8_t combined_followers[BEET_PAIR_COUNT];
 } beet_controller_state_t;
 
 static beet_controller_state_t s_state;
@@ -1404,13 +1407,35 @@ static void beet_service_waiting_pairs(int64_t now_us)
         int64_t oldest_queue_us = 0;
 
         for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
-            const beet_pair_runtime_t *runtime = &s_state.runtimes[pair - 1U];
-            if (runtime->phase != BEET_RUN_PHASE_WAITING) {
+            beet_pair_runtime_t *rt = &s_state.runtimes[pair - 1U];
+            if (rt->phase != BEET_RUN_PHASE_WAITING) {
                 continue;
             }
-            if (selected_pair == 0U || runtime->queue_entered_us < oldest_queue_us) {
+
+            // Gating: combined follower must wait for lead's sanity check
+            if (rt->combined_follower) {
+                const beet_pair_runtime_t *lead_rt =
+                    &s_state.runtimes[rt->combined_lead - 1U];
+                const beet_pair_runtime_snapshot_t *lead_snap =
+                    &s_state.snapshots[rt->combined_lead - 1U];
+
+                if (lead_rt->phase == BEET_RUN_PHASE_SANITY_CHECK) {
+                    continue; // gated — retry next tick
+                }
+
+                if (lead_snap->pair_state == BEET_PAIR_STATE_BLOCKED ||
+                    lead_snap->pair_state == BEET_PAIR_STATE_FAULT) {
+                    beet_finish_pair_state(pair,
+                        lead_snap->pair_state,
+                        BEET_STOP_REASON_SENSOR_SANITY_FAILURE,
+                        lead_snap->block_reason);
+                    continue;
+                }
+            }
+
+            if (selected_pair == 0U || rt->queue_entered_us < oldest_queue_us) {
                 selected_pair = pair;
-                oldest_queue_us = runtime->queue_entered_us;
+                oldest_queue_us = rt->queue_entered_us;
             }
         }
 
@@ -1422,7 +1447,10 @@ static void beet_service_waiting_pairs(int64_t now_us)
             beet_finish_pair_state(selected_pair, BEET_PAIR_STATE_IDLE, BEET_STOP_REASON_SYSTEM_ABORT, BEET_BLOCK_REASON_NONE);
             continue;
         }
-        if (s_state.runtimes[selected_pair - 1U].source != BEET_RUN_SOURCE_MANUAL) {
+
+        beet_pair_runtime_t *sel_rt = &s_state.runtimes[selected_pair - 1U];
+
+        if (sel_rt->source != BEET_RUN_SOURCE_MANUAL && !sel_rt->combined_follower) {
             beet_refresh_sensors_force(now_us);
             if (s_state.runtimes[selected_pair - 1U].phase != BEET_RUN_PHASE_WAITING) {
                 continue;
@@ -1452,7 +1480,10 @@ static void beet_service_waiting_pairs(int64_t now_us)
             s_state.valve.open_hold_deadline_us = 0LL;
         }
 
-        if (s_state.runtimes[selected_pair - 1U].source == BEET_RUN_SOURCE_MANUAL) {
+        if (sel_rt->source == BEET_RUN_SOURCE_MANUAL) {
+            beet_start_watering_phase(selected_pair, now_us);
+        } else if (sel_rt->combined_follower) {
+            // Skip sanity check — lead already validated the sensor
             beet_start_watering_phase(selected_pair, now_us);
         } else {
             beet_start_sanity_check(selected_pair, now_us);
@@ -1469,7 +1500,24 @@ static bool beet_refresh_sensors(void)
 
     vTaskDelay(pdMS_TO_TICKS(CONFIG_BEET_SENSOR_POWER_SETTLE_MS));
 
+    // Pre-compute: which pairs have no physical sensor (followers)
+    bool is_follower[BEET_PAIR_COUNT];
+    memset(is_follower, 0, sizeof(is_follower));
+    for (uint8_t p = 1U; p <= BEET_PAIR_COUNT; ++p) {
+        uint8_t mask = s_state.combined_followers[p - 1U];
+        for (uint8_t f = 0; f < BEET_PAIR_COUNT; ++f) {
+            if (mask & (1U << f)) is_follower[f] = true;
+        }
+    }
+
+    // Phase 1: read physical ADC for self-sensing pairs only (skip followers)
     for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
+        if (is_follower[pair - 1U]) {
+            memset(&s_state.sensor_diag[pair - 1U], 0, sizeof(s_state.sensor_diag[0]));
+            s_state.sensor_diag[pair - 1U].valid = false;
+            continue;
+        }
+
         beet_pair_runtime_snapshot_t *snapshot = &s_state.snapshots[pair - 1U];
         const beet_pair_calibration_t *calibration = &s_state.calibrations[pair - 1U];
         beet_board_sensor_sample_t sample;
@@ -1527,6 +1575,54 @@ static bool beet_refresh_sensors(void)
             snapshot->block_reason = BEET_BLOCK_REASON_NONE;
             beet_mark_snapshot_dirty(pair);
             ESP_LOGI(TAG, "pair %u recovered from sensor fault after valid reading", pair);
+        }
+    }
+
+    // Phase 2: propagate shared sensor readings from leads to followers
+    for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
+        uint8_t mask = s_state.combined_followers[pair - 1U];
+        if (mask == 0) continue;
+
+        const beet_sensor_diag_t *lead_diag = &s_state.sensor_diag[pair - 1U];
+
+        for (uint8_t f = 0; f < BEET_PAIR_COUNT; ++f) {
+            if (!(mask & (1U << f))) continue;
+            uint8_t follower = (uint8_t)(f + 1U);
+
+            s_state.sensor_diag[follower - 1U] = *lead_diag;
+
+            beet_pair_runtime_snapshot_t *fsnap = &s_state.snapshots[follower - 1U];
+            const beet_pair_calibration_t *fcal = &s_state.calibrations[follower - 1U];
+
+            if (lead_diag->valid && beet_is_sensor_mv_plausible(
+                    lead_diag->corrected_mv, fcal->dry_mv, fcal->wet_mv)) {
+                fsnap->last_moisture_pct = beet_moisture_pct_from_mv(
+                    fcal->dry_mv, fcal->wet_mv, lead_diag->corrected_mv);
+                fsnap->last_sensor_mv = lead_diag->corrected_mv;
+                fsnap->sensor_valid = true;
+
+                if (fsnap->pair_state == BEET_PAIR_STATE_FAULT &&
+                    fsnap->block_reason == BEET_BLOCK_REASON_SENSOR_READING_INVALID &&
+                    s_state.runtimes[follower - 1U].phase == BEET_RUN_PHASE_NONE) {
+                    fsnap->pair_state = BEET_PAIR_STATE_IDLE;
+                    fsnap->block_reason = BEET_BLOCK_REASON_NONE;
+                    fsnap->block_remaining_s = 0U;
+                    beet_mark_snapshot_dirty(follower);
+                    ESP_LOGI(TAG, "pair %u recovered from sensor fault via lead pair %u", follower, pair);
+                }
+            } else {
+                if (fsnap->sensor_valid) {
+                    fsnap->sensor_valid = false;
+                    beet_mark_snapshot_dirty(follower);
+                }
+                if (fsnap->enabled &&
+                    s_state.runtimes[follower - 1U].phase == BEET_RUN_PHASE_NONE &&
+                    fsnap->pair_state != BEET_PAIR_STATE_BLOCKED &&
+                    fsnap->pair_state != BEET_PAIR_STATE_FAULT) {
+                    beet_fault_pair(follower, BEET_BLOCK_REASON_SENSOR_READING_INVALID);
+                }
+            }
+            beet_mark_snapshot_dirty(follower);
         }
     }
 
@@ -1998,6 +2094,7 @@ static bool beet_iface_command_is_mutating(beet_iface_command_t command)
     case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
     case BEET_IFACE_COMMAND_GET_PAIR_WIRING:
     case BEET_IFACE_COMMAND_GET_MAX_ACTIVE_PUMPS:
+    case BEET_IFACE_COMMAND_GET_PAIR_COMBINED:
         return false;
 
     default:
@@ -2624,6 +2721,52 @@ esp_err_t beet_iface_submit_command(
         return ESP_OK;
     }
 
+    case BEET_IFACE_COMMAND_GET_PAIR_COMBINED:
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_combined = true;
+        response->combined_pair_index = request->pair_index;
+        response->combined_mask = s_state.combined_followers[request->pair_index - 1U];
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_STORE_PAIR_COMBINED: {
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        if (request->combined_mask & (1U << (request->pair_index - 1U))) {
+            response->reason = BEET_IFACE_REASON_INVALID_COMBINED;
+            return ESP_OK;
+        }
+        for (uint8_t f = 0; f < BEET_PAIR_COUNT; ++f) {
+            if (!(request->combined_mask & (1U << f))) continue;
+            for (uint8_t p = 1U; p <= BEET_PAIR_COUNT; ++p) {
+                if (p == request->pair_index) continue;
+                if (s_state.combined_followers[p - 1U] & (1U << f)) {
+                    response->reason = BEET_IFACE_REASON_INVALID_COMBINED;
+                    return ESP_OK;
+                }
+            }
+        }
+        beet_mark_activity(now_us);
+        s_state.combined_followers[request->pair_index - 1U] = request->combined_mask;
+        esp_err_t save_err = beet_storage_save_combined(request->pair_index, request->combined_mask);
+        if (save_err != ESP_OK) {
+            response->reason = BEET_IFACE_REASON_BUSY;
+            return ESP_OK;
+        }
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_COMBINED_SAVED;
+        response->has_combined = true;
+        response->combined_pair_index = request->pair_index;
+        response->combined_mask = request->combined_mask;
+        return ESP_OK;
+    }
+
     default:
         response->reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
         return ESP_OK;
@@ -2732,7 +2875,19 @@ static void beet_run_scheduler_cycle(int64_t now_us)
     ESP_LOGI(TAG, "running scheduler cycle");
     beet_refresh_sensors_force(now_us);
 
+    // Track which pairs are followers (handled by their lead)
+    bool is_follower[BEET_PAIR_COUNT];
+    memset(is_follower, 0, sizeof(is_follower));
+    for (uint8_t p = 1U; p <= BEET_PAIR_COUNT; ++p) {
+        uint8_t mask = s_state.combined_followers[p - 1U];
+        for (uint8_t f = 0; f < BEET_PAIR_COUNT; ++f) {
+            if (mask & (1U << f)) is_follower[f] = true;
+        }
+    }
+
     for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
+        if (is_follower[pair - 1U]) continue;
+
         beet_pair_runtime_snapshot_t *snapshot = &s_state.snapshots[pair - 1U];
 
         if (!beet_pair_can_run_automatic(pair)) {
@@ -2751,7 +2906,38 @@ static void beet_run_scheduler_cycle(int64_t now_us)
             ESP_LOGW(TAG, "pair %u skipped automatic start because battery policy forbids watering", pair);
             continue;
         }
+
+        // Cancel any stale followers from previous cycle before re-queuing lead
+        uint8_t mask = s_state.combined_followers[pair - 1U];
+        for (uint8_t f = 0; f < BEET_PAIR_COUNT; ++f) {
+            if (!(mask & (1U << f))) continue;
+            uint8_t follower = (uint8_t)(f + 1U);
+            beet_pair_runtime_t *frt = &s_state.runtimes[follower - 1U];
+            if (frt->combined_follower && frt->combined_lead == pair &&
+                frt->phase == BEET_RUN_PHASE_WAITING) {
+                beet_finish_pair_state(follower,
+                    BEET_PAIR_STATE_IDLE, BEET_STOP_REASON_SYSTEM_ABORT,
+                    BEET_BLOCK_REASON_NONE);
+            }
+        }
+
         beet_queue_run(pair, BEET_RUN_SOURCE_AUTOMATIC, duration_s, now_us);
+
+        // Queue all followers together
+        for (uint8_t f = 0; f < BEET_PAIR_COUNT; ++f) {
+            if (!(mask & (1U << f))) continue;
+            uint8_t follower = (uint8_t)(f + 1U);
+            if (!beet_pair_can_run_automatic(follower)) continue;
+
+            uint16_t fdur = beet_automatic_duration_s(
+                s_state.snapshots[follower - 1U].last_moisture_pct);
+            if (fdur == 0U) continue;
+
+            beet_queue_run(follower, BEET_RUN_SOURCE_AUTOMATIC, fdur, now_us);
+            s_state.runtimes[follower - 1U].combined_follower = true;
+            s_state.runtimes[follower - 1U].combined_lead = pair;
+        }
+
         beet_service_waiting_pairs(now_us);
 #else
         ESP_LOGW(
@@ -2838,6 +3024,19 @@ static void beet_progress_runs(int64_t now_us)
                     BEET_PAIR_STATE_BLOCKED,
                     BEET_STOP_REASON_SENSOR_SANITY_FAILURE,
                     BEET_BLOCK_REASON_MOISTURE_RESPONSE_TEST_FAILED);
+
+                // Cascade to all waiting followers
+                for (uint8_t f = 1U; f <= BEET_PAIR_COUNT; ++f) {
+                    beet_pair_runtime_t *frt = &s_state.runtimes[f - 1U];
+                    if (frt->combined_follower && frt->combined_lead == pair &&
+                        frt->phase == BEET_RUN_PHASE_WAITING) {
+                        beet_finish_pair_state(f,
+                            BEET_PAIR_STATE_BLOCKED,
+                            BEET_STOP_REASON_SENSOR_SANITY_FAILURE,
+                            BEET_BLOCK_REASON_MOISTURE_RESPONSE_TEST_FAILED);
+                    }
+                }
+
                 continue;
             }
 
@@ -3007,8 +3206,10 @@ esp_err_t beet_controller_init(void)
         "boot epoch cache load failed");
     for (uint8_t pair = 0U; pair < BEET_PAIR_COUNT; ++pair) {
         s_state.pair_names[pair][0] = '\0';
+        s_state.combined_followers[pair] = 0U;
     }
     (void)beet_storage_load_pair_names(s_state.pair_names);
+    (void)beet_storage_load_combined(s_state.combined_followers);
     ESP_RETURN_ON_ERROR(beet_board_init(), TAG, "board init failed");
 
     beet_board_all_relays_off();

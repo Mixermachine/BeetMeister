@@ -151,6 +151,10 @@ internal class BeetRepository(
 
     fun storePairName(pairIndex: Int, name: String) = gattSessionCoordinator.storePairName(pairIndex, name)
 
+    fun loadPairCombined(pairIndex: Int) = gattSessionCoordinator.loadPairCombined(pairIndex)
+
+    fun storePairCombined(pairIndex: Int, followersMask: Int) = gattSessionCoordinator.storePairCombined(pairIndex, followersMask)
+
     fun refreshValveConfig() = gattSessionCoordinator.refreshValveConfig()
 
     fun refreshWateringInterval() = gattSessionCoordinator.refreshWateringInterval()

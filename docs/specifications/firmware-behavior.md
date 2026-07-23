@@ -407,3 +407,52 @@ Exact meanings:
 - When UTC becomes valid during the current boot, the controller shall backfill unresolved records from the same `boot_id`.
 - Unresolved records from older boots shall be ignored by history readout.
 - MQTT and BLE payloads shall expose whether wall-clock time is currently valid.
+
+## Combined Pairs (Sensor Sharing)
+
+Two or more irrigation pairs may share a single moisture sensor.
+
+### Lead/follower model
+
+- One pair is the **lead** (owns the physical sensor).
+- Others are **followers** (piggyback on lead's readings, keep own calibration and relay).
+- Configuration: per-pair bitmask via `store_pair_combined` BLE command. Each bit set means that pair index follows this lead.
+- Default: `combined_followers` all zero — no sharing.
+
+### Sensor reading propagation
+
+- Followers never read their own ADC channel.
+- Every sensor refresh propagates lead's `sensor_diag` to all followers.
+- Follower moisture percentage recomputed from lead's corrected voltage using follower's own calibration (dry_mv/wet_mv).
+- Follower `sensor_valid` = lead read OK AND voltage plausible against follower's calibration.
+- Follower FAULT (sensor invalid) auto-recovers when lead sensor becomes valid.
+
+### Scheduler behavior
+
+- Lead pair evaluated first. If lead needs watering, all enabled/idle followers are queued together in the same scheduler cycle.
+- Each follower receives its own duration from `beet_automatic_duration_s` using its own calibration-derived moisture percentage.
+- Stale followers from a previous cycle are cancelled before the lead is re-queued.
+- Followers are skipped in the main scheduler loop (handled by their lead).
+
+### Sanity check
+
+- Only the lead performs the 10-second sanity check.
+- Followers skip sanity check entirely and go directly to the watering phase.
+- Follower dispatch is gated: a waiting follower will not receive a pump slot until its lead exits the sanity check phase.
+- If the lead's sanity check passes → followers are eligible for slot allocation.
+- If the lead's sanity check fails → lead moves to BLOCKED, all waiting followers cascade to BLOCKED with the same stop reason.
+
+### Manual watering
+
+- Manual watering on a lead does NOT trigger followers. Combined behavior applies only during automatic scheduler cycles.
+
+### Slot allocation
+
+- `BEET_MAX_ACTIVE_PUMPS` (3) still applies.
+- Combined pairs share slot allocation using standard oldest-queued-first ordering.
+- Lead+follower may water concurrently if slots allow (after lead sanity check passes).
+
+### BLE commands
+
+- `get_pair_combined(pair)` — returns `{"pair":N,"followers":M}` bitmask.
+- `store_pair_combined(pair, followers)` — sets combined configuration. Validated: no self-reference, no follower claimed by multiple leads.

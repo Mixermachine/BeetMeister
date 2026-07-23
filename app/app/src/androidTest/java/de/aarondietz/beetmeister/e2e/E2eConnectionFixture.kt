@@ -102,6 +102,17 @@ internal class E2eConnectionFixture(
         // auto-connect to complete (maintenance info loaded)
         // before returning, so the Activity is stable when
         // @Test starts and won't be recreated by the rule.
+        // Race: BLE auto-connect may transition to MaintenanceRequired
+        // AFTER our first check returns false but BEFORE tapScan()
+        // finishes. Retry maintenance screen for up to 5s before
+        // falling through to the scan path.
+        if (!gate.maintenanceScreenVisible()) {
+            composeRule.waitUntil(timeoutMillis = 5_000L) {
+                gate.maintenanceScreenVisible() ||
+                    gate.scanButtonVisible() ||
+                    gate.isAlreadyConnected()
+            }
+        }
         if (gate.maintenanceScreenVisible()) {
             screenshots.captureStep("maintenanceRequired")
             dismissBluetoothPairingDialog()

@@ -227,6 +227,7 @@ esp_err_t beet_storage_save_power_state(const beet_power_runtime_state_t *state)
 }
 
 static const char *PAIR_NAME_NS = "pnam";
+static const char *PAIR_COMBINED_NS = "pcomb";
 
 esp_err_t beet_storage_load_pair_names(char names[BEET_PAIR_COUNT][BEET_PAIR_NAME_MAX_LEN + 1U])
 {
@@ -282,6 +283,66 @@ esp_err_t beet_storage_save_pair_name(uint8_t pair_index, const char *name)
         }
     } else {
         err = nvs_set_str(handle, key, name);
+    }
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t beet_storage_load_combined(uint8_t combined_followers[BEET_PAIR_COUNT])
+{
+    nvs_handle_t handle = 0;
+
+    ESP_RETURN_ON_FALSE(combined_followers != NULL, ESP_ERR_INVALID_ARG, TAG, "combined_followers is null");
+
+    for (uint8_t pair = 0U; pair < BEET_PAIR_COUNT; ++pair) {
+        combined_followers[pair] = 0U;
+    }
+
+    esp_err_t open_err = beet_open_namespace("appcfg", PAIR_COMBINED_NS, NVS_READONLY, &handle);
+    if (open_err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    ESP_RETURN_ON_ERROR(open_err, TAG, "combined namespace open failed");
+
+    for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
+        char key[8];
+        uint8_t mask = 0U;
+
+        beet_pair_key(key, sizeof(key), pair);
+        esp_err_t err = nvs_get_u8(handle, key, &mask);
+        if (err == ESP_OK) {
+            combined_followers[pair - 1U] = mask;
+        } else if (err != ESP_ERR_NVS_NOT_FOUND) {
+            nvs_close(handle);
+            ESP_RETURN_ON_ERROR(err, TAG, "combined read failed");
+        }
+    }
+
+    nvs_close(handle);
+    return ESP_OK;
+}
+
+esp_err_t beet_storage_save_combined(uint8_t pair_index, uint8_t followers_mask)
+{
+    nvs_handle_t handle = 0;
+    char key[8];
+    esp_err_t err;
+
+    ESP_RETURN_ON_FALSE(beet_is_valid_pair_index(pair_index), ESP_ERR_INVALID_ARG, TAG, "invalid pair index");
+
+    ESP_RETURN_ON_ERROR(beet_open_namespace("appcfg", PAIR_COMBINED_NS, NVS_READWRITE, &handle), TAG, "combined namespace open failed");
+
+    beet_pair_key(key, sizeof(key), pair_index);
+    if (followers_mask == 0U) {
+        err = nvs_erase_key(handle, key);
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            err = ESP_OK;
+        }
+    } else {
+        err = nvs_set_u8(handle, key, followers_mask);
     }
     if (err == ESP_OK) {
         err = nvs_commit(handle);

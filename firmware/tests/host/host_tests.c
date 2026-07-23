@@ -1508,11 +1508,93 @@ static void test_iface_name_mapping(void)
     TEST_ASSERT_STR_EQ(
         "factory_reset_started",
         beet_iface_reason_name(BEET_IFACE_REASON_FACTORY_RESET_STARTED));
+    TEST_ASSERT_STR_EQ("get_pair_combined", beet_iface_command_name(BEET_IFACE_COMMAND_GET_PAIR_COMBINED));
+    TEST_ASSERT_STR_EQ("store_pair_combined", beet_iface_command_name(BEET_IFACE_COMMAND_STORE_PAIR_COMBINED));
+    TEST_ASSERT_STR_EQ("invalid_combined", beet_iface_reason_name(BEET_IFACE_REASON_INVALID_COMBINED));
+    TEST_ASSERT_STR_EQ("combined_saved", beet_iface_reason_name(BEET_IFACE_REASON_COMBINED_SAVED));
     TEST_ASSERT_STR_EQ("LOW_BATTERY_ABORT", beet_block_reason_name(BEET_BLOCK_REASON_LOW_BATTERY_ABORT));
     TEST_ASSERT_STR_EQ(
         "MOISTURE_RESPONSE_TEST_FAILED",
         beet_block_reason_name(BEET_BLOCK_REASON_MOISTURE_RESPONSE_TEST_FAILED));
     TEST_ASSERT_STR_EQ("unknown", beet_iface_reason_name((beet_iface_reason_t)255));
+}
+
+static void test_ble_parse_combined_commands(void)
+{
+    beet_iface_command_request_t request;
+
+    /* get_pair_combined */
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"get_pair_combined\",\"data\":{\"pair\":3}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_PAIR_COMBINED, request.command);
+    TEST_ASSERT_U32_EQ(3U, request.pair_index);
+
+    /* store_pair_combined with followers bitmask */
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_combined\",\"data\":{\"pair\":1,\"followers\":4}}",
+        &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_PAIR_COMBINED, request.command);
+    TEST_ASSERT_U32_EQ(1U, request.pair_index);
+    TEST_ASSERT_U32_EQ(4U, request.combined_mask);
+
+    /* store_pair_combined with mask=0 (clear all followers) */
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_combined\",\"data\":{\"pair\":2,\"followers\":0}}",
+        &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_PAIR_COMBINED, request.command);
+    TEST_ASSERT_U32_EQ(2U, request.pair_index);
+    TEST_ASSERT_U32_EQ(0U, request.combined_mask);
+
+    /* store_pair_combined with multiple followers: pair 1 leads 3 and 5 (bits 2 and 4) */
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_combined\",\"data\":{\"pair\":1,\"followers\":20}}",
+        &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_PAIR_COMBINED, request.command);
+    TEST_ASSERT_U32_EQ(1U, request.pair_index);
+    TEST_ASSERT_U32_EQ(20U, request.combined_mask);
+}
+
+static void test_ble_format_combined_results(void)
+{
+    char json[512];
+    beet_iface_command_response_t response;
+
+    /* get_pair_combined response: pair 1 has followers 3 and 5 (bits 2 + 4 = 20) */
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_GET_PAIR_COMBINED;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_combined = true;
+    response.combined_pair_index = 1U;
+    response.combined_mask = 20U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"get_pair_combined\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"pair\":1,\"followers\":20}}",
+        json);
+
+    /* store_pair_combined response */
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_STORE_PAIR_COMBINED;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_COMBINED_SAVED;
+    response.has_combined = true;
+    response.combined_pair_index = 4U;
+    response.combined_mask = 2U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"store_pair_combined\",\"status\":\"accepted\",\"reason\":\"combined_saved\",\"data\":{\"pair\":4,\"followers\":2}}",
+        json);
+
+    /* store_pair_combined rejection (invalid self-reference) */
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_STORE_PAIR_COMBINED;
+    response.status = BEET_IFACE_STATUS_REJECTED;
+    response.reason = BEET_IFACE_REASON_INVALID_COMBINED;
+    response.pair_index = 5U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"store_pair_combined\",\"status\":\"rejected\",\"reason\":\"invalid_combined\",\"data\":{\"pair\":5}}",
+        json);
 }
 
 int main(void)
@@ -1546,6 +1628,8 @@ int main(void)
         {"ble_base64_helpers", test_ble_base64_helpers},
         {"ble_chunked_command_result_formatting", test_ble_chunked_command_result_formatting},
         {"iface_name_mapping", test_iface_name_mapping},
+        {"ble_parse_combined_commands", test_ble_parse_combined_commands},
+        {"ble_format_combined_results", test_ble_format_combined_results},
     };
 
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); ++i) {

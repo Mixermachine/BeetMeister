@@ -208,10 +208,10 @@ class Orchestrator:
                 "use dry_run=True for the P3 stop point (smoke only) or "
                 "dry_run_dispatch=True for the P4 stop point (smoke + dispatch plan)."
             )
-        if suite not in {"fresh_install", "firmware_update", "settings_update"}:
+        if suite not in {"fresh_install", "firmware_update", "settings_update", "combined_pairs", "firmware_update_abort_disconnect"}:
             raise ValueError(
                 f"unknown suite {suite!r}; "
-                f"expected fresh_install / firmware_update / settings_update"
+                f"expected fresh_install / firmware_update / settings_update / combined_pairs / firmware_update_abort_disconnect"
             )
 
         run_dir, manifest = self._begin_run(suite)
@@ -555,6 +555,22 @@ class Orchestrator:
             )
         if suite == "settings_update":
             return self._dispatch_settings_update(
+                class_name=class_name,
+                extras=extras,
+                run_dir=run_dir,
+                dry_run_dispatch=dry_run_dispatch,
+                serial_caps=serial_caps,
+            )
+        if suite == "combined_pairs":
+            return self._dispatch_combined_pairs(
+                class_name=class_name,
+                extras=extras,
+                run_dir=run_dir,
+                dry_run_dispatch=dry_run_dispatch,
+                serial_caps=serial_caps,
+            )
+        if suite == "firmware_update_abort_disconnect":
+            return self._dispatch_firmware_update_abort_disconnect(
                 class_name=class_name,
                 extras=extras,
                 run_dir=run_dir,
@@ -1084,6 +1100,279 @@ class Orchestrator:
         passed = e2e_result.passed
         fail_reason = None if passed else (
             f"SettingsUpdateE2ETest failed (rc={e2e_result.returncode}); "
+            f"see {run_dir}/instrumentation-e2e.txt"
+        )
+        return e2e_result, passed, fail_reason, plan
+
+    def _dispatch_combined_pairs(
+        self,
+        *,
+        class_name: str | None,
+        extras: dict[str, str] | None,
+        run_dir: Path,
+        dry_run_dispatch: bool,
+        serial_caps: list[capture.Capture],
+    ) -> tuple[
+        Optional[AmInstrumentResult],
+        bool,
+        Optional[str],
+        DispatchPlan,
+    ]:
+        """combined_pairs dispatch.
+
+        Preconditions:
+          1. `install_apks(rebuild=False)`.
+        Then:
+          2. ONE `am instrument CombinedPairsE2ETest` runs the
+             full class in a single instrumentation session.
+          3. Pull Kotlin in-test screenshots.
+        """
+        plan = DispatchPlan(suite="combined_pairs", extras=dict(extras or {}))
+        class_name = class_name or (
+            "de.aarondietz.beetmeister.e2e.CombinedPairsE2ETest"
+        )
+
+        # 1. install already-built APKs (no rebuild).
+        plan.preconditions.append(DispatchStep(
+            name="install_built_apks",
+            description="adb install -r the app + androidTest APKs (no rebuild; start from a green install state)",
+            cmd=f"Adb.install_apks(rebuild=False)  # APKs from {self.config.device.app_dir}/app/build/outputs/apk",
+            executed=False,
+        ))
+
+        # 2. am instrument CombinedPairsE2ETest (full class, 1 call).
+        am_cmd = self._compose_am_instrument_preview(
+            class_name=class_name,
+            extras=plan.extras,
+            beet_run_e2e=True,
+        )
+        plan.am_instrument = DispatchStep(
+            name="am_instrument_combined_pairs",
+            description=(
+                f"am instrument for {class_name} (FULL CLASS, 1 call; "
+                f"class-shared @Before fires once for all 3 @Test siblings)"
+            ),
+            cmd=am_cmd,
+            executed=False,
+            extras=dict(plan.extras),
+            class_name=class_name,
+        )
+
+        # 3. pull in-test screenshots.
+        pull_cmd = self._compose_screenshot_pull_preview("combinedPairs", run_dir)
+        plan.screenshot_pull = DispatchStep(
+            name="pull_in_test_screenshots",
+            description="adb pull Kotlin in-test screenshots from /sdcard/Android/data/<package>/files/e2e_screenshots/combinedPairs/ into the run folder",
+            cmd=pull_cmd,
+            executed=False,
+            screenshot_slug="combinedPairs",
+        )
+
+        if dry_run_dispatch:
+            return None, True, None, plan
+
+        # Real run: execute.
+        self._run_precondition(plan.preconditions[0], self._do_install_built_apks())
+        serial_cap = capture.start_serial(
+            run_dir, self.config.controller.serial_port,
+            baud=self.config.controller.baud,
+            max_seconds=600.0,
+        )
+        if serial_cap is not None:
+            serial_caps.append(serial_cap)
+        try:
+            e2e_result = self._execute_am_instrument(plan.am_instrument)
+            self._execute_screenshot_pull(plan.screenshot_pull, run_dir)
+        finally:
+            if serial_cap is not None:
+                serial_cap.stop()
+        passed = e2e_result.passed
+        fail_reason = None if passed else (
+            f"CombinedPairsE2ETest failed (rc={e2e_result.returncode}); "
+            f"see {run_dir}/instrumentation-e2e.txt"
+        )
+        return e2e_result, passed, fail_reason, plan
+
+    def _dispatch_firmware_update_abort_disconnect(
+        self,
+        *,
+        class_name: str | None,
+        extras: dict[str, str] | None,
+        run_dir: Path,
+        dry_run_dispatch: bool,
+        serial_caps: list[capture.Capture],
+    ) -> tuple[
+        Optional[AmInstrumentResult],
+        bool,
+        Optional[str],
+        DispatchPlan,
+    ]:
+        """firmware_update_abort_disconnect dispatch.
+
+        Same preconditions as firmware_update (flash_old, uninstall,
+        install, clear BLE bond), but the Kotlin test is
+        FirmwareUpdateAbortDisconnectE2ETest: starts the OTA, asserts
+        Abort + Disconnect buttons on the same maintenance screen,
+        aborts the update, disconnects, and asserts the connection
+        gate reappears.
+        """
+        plan = DispatchPlan(suite="firmware_update_abort_disconnect", extras=dict(extras or {}))
+        class_name = class_name or (
+            "de.aarondietz.beetmeister.e2e.FirmwareUpdateAbortDisconnectE2ETest"
+        )
+        app_package = self.config.device.app_package
+        port = self.config.controller.serial_port
+
+        if not port:
+            raise RuntimeError(
+                "firmware_update_abort_disconnect suite requires [controller].serial_port. "
+                "Set it in config.toml."
+            )
+
+        if dry_run_dispatch:
+            old_label = self.config.firmware.pinned_tag
+            info_desc = (
+                f"(dry-run-dispatch placeholder; the real run will "
+                f"parse {self.config.firmware.pinned_tag!r}'s .bin "
+                f"metadata via esptool image_info)"
+            )
+        else:
+            old_label = ""
+            info_desc = (
+                "(set after flash_old returns; parses the cached "
+                ".bin's build_label via esptool image_info)"
+            )
+        plan.extras["expected_old_build_label"] = old_label
+        plan.extras["expected_new_build_label"] = self._last_bundled_build_label()
+
+        # 1. flash_old.
+        flash_step = DispatchStep(
+            name="flash_old_v0.3.0",
+            description=(
+                f"firmware.flash_old(port={port}): erase appcfg + otadata, "
+                f"then write_flash bootloader (0x1000) + partition-table "
+                f"(0x8000) + beetmeister.bin (ota_0) from firmware_cache/"
+            ),
+            cmd=(
+                f"firmware.flash_old(config, port={port!r}, "
+                f"pinned_tag={self.config.firmware.pinned_tag!r})  # {info_desc}"
+            ),
+            executed=False,
+        )
+        plan.preconditions.append(flash_step)
+
+        # 2. uninstall.
+        uninstall_cmd = self.adb._cmd("uninstall", app_package)
+        plan.preconditions.append(DispatchStep(
+            name="uninstall_app",
+            description=f"adb uninstall {app_package}",
+            cmd=" ".join(shlex.quote(c) for c in uninstall_cmd),
+            executed=False,
+        ))
+
+        # 3. install already-built APKs.
+        plan.preconditions.append(DispatchStep(
+            name="install_built_apks",
+            description="adb install -r the app + androidTest APKs (no rebuild)",
+            cmd=f"Adb.install_apks(rebuild=False)  # APKs from {self.config.device.app_dir}/app/build/outputs/apk",
+            executed=False,
+        ))
+
+        # 4. clear phone-side BLE bond.
+        mac = self.config.controller.ble_mac
+        if mac:
+            clear_bond_cmd = self.adb._cmd(
+                "shell", "am", "start",
+                "-n", f"{app_package}/.debug.DebugActionActivity",
+                "-a", "de.aarondietz.beetmeister.debug.action.RUN",
+                "--es", "action", "clear_ble_bond",
+                "--es", "mac", mac,
+            )
+            plan.preconditions.append(DispatchStep(
+                name="clear_ble_bond_via_intent",
+                description=(
+                    f"clear BLE bond for {mac} via DebugActionActivity "
+                    f"(BluetoothDevice.removeBond)"
+                ),
+                cmd=" ".join(shlex.quote(c) for c in clear_bond_cmd),
+                executed=False,
+            ))
+
+        # 5. am instrument FirmwareUpdateAbortDisconnectE2ETest.
+        am_cmd = self._compose_am_instrument_preview(
+            class_name=class_name,
+            extras=plan.extras,
+            beet_run_e2e=True,
+        )
+        plan.am_instrument = DispatchStep(
+            name="am_instrument_firmware_update_abort_disconnect",
+            description=(
+                f"am instrument for {class_name} with "
+                f"expected_old_build_label={plan.extras.get('expected_old_build_label')!r}"
+            ),
+            cmd=am_cmd,
+            executed=False,
+            extras=dict(plan.extras),
+            class_name=class_name,
+        )
+
+        # 6. pull in-test screenshots.
+        pull_cmd = self._compose_screenshot_pull_preview("firmwareUpdateAbortDisconnect", run_dir)
+        plan.screenshot_pull = DispatchStep(
+            name="pull_in_test_screenshots",
+            description="adb pull Kotlin in-test screenshots from /sdcard/Android/data/<package>/files/e2e_screenshots/firmwareUpdateAbortDisconnect/ into the run folder",
+            cmd=pull_cmd,
+            executed=False,
+            screenshot_slug="firmwareUpdateAbortDisconnect",
+        )
+
+        if dry_run_dispatch:
+            return None, True, None, plan
+
+        # Real run: execute preconditions + am instrument.
+        info = self._run_precondition_returning_info(
+            flash_step, self._do_flash_old,
+        )
+        plan.extras["expected_old_build_label"] = info.build_label
+        plan.am_instrument.extras["expected_old_build_label"] = info.build_label
+        plan.am_instrument.cmd = self._compose_am_instrument_preview(
+            class_name=plan.am_instrument.class_name,
+            extras=plan.am_instrument.extras,
+            beet_run_e2e=True,
+        )
+        plan.am_instrument.description = (
+            f"am instrument for {class_name} with "
+            f"expected_old_build_label={info.build_label!r}"
+        )
+        self._run_precondition(plan.preconditions[1], self._do_uninstall(app_package))
+        self._run_precondition(plan.preconditions[2], self._do_install_built_apks())
+        for step in plan.preconditions:
+            if step.name == "clear_ble_bond_via_intent":
+                self._run_precondition(
+                    step,
+                    self._do_clear_ble_bond_via_intent(
+                        self.config.controller.ble_mac,
+                        app_package,
+                    ),
+                )
+                self.adb.force_stop(app_package)
+                break
+        serial_cap = capture.start_serial(
+            run_dir, self.config.controller.serial_port,
+            baud=self.config.controller.baud,
+            max_seconds=600.0,
+        )
+        if serial_cap is not None:
+            serial_caps.append(serial_cap)
+        try:
+            e2e_result = self._execute_am_instrument(plan.am_instrument)
+            self._execute_screenshot_pull(plan.screenshot_pull, run_dir)
+        finally:
+            if serial_cap is not None:
+                serial_cap.stop()
+        passed = e2e_result.passed
+        fail_reason = None if passed else (
+            f"FirmwareUpdateAbortDisconnectE2ETest failed (rc={e2e_result.returncode}); "
             f"see {run_dir}/instrumentation-e2e.txt"
         )
         return e2e_result, passed, fail_reason, plan

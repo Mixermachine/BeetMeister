@@ -168,7 +168,7 @@ internal class FirmwareUpdateRobot(
             .assertTextContains(expectedNew)
     }
 
-    private fun hasAnyTag(tag: String): Boolean {
+    internal fun hasAnyTag(tag: String): Boolean {
         // P5 finding SUB #R37e: Compose test APIs can throw
         // various exceptions during long-running BLE operations.
         // Catch and return false so the waitUntil loop continues.
