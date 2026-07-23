@@ -155,25 +155,30 @@ internal class E2eConnectionFixture(
      * Dismiss a pending OS-level Bluetooth pairing dialog using
      * `UiDevice` (cross-process; the dialog is in system_server).
      *
-     * The dialog title is "Bluetooth pairing request" with
-     * "Pair" and "Cancel" buttons. We click "Pair" to proceed.
-     * On AOSP the button text is "Pair"; on Samsung it may be
-     * "Pairing". We try both. No-op if the dialog isn't present
-     * (the common case for fresh_install / settings_update).
+     * Handles both Passkey Display (entering 6-digit PIN into EditText)
+     * and Just Works pairing dialogs.
      */
     private fun dismissBluetoothPairingDialog() {
         val device = UiDevice.getInstance(
             InstrumentationRegistry.getInstrumentation(),
         )
-        // The dialog may not be present yet (the BLE auto-connect
-        // triggers it AFTER the test rule launches the Activity).
-        // Retry for up to 10 s: every 500 ms, check for the
-        // "Pair" button; if present, click it. The fresh_install /
-        // settings_update tests never show the dialog so the
-        // loop exits immediately on the first iteration.
         val candidates = listOf("Pair", "Pairing", "OK", "Allow")
-        val deadline = System.currentTimeMillis() + 10_000L
+        val deadline = System.currentTimeMillis() + 15_000L
         while (System.currentTimeMillis() < deadline) {
+            // Look for PIN entry field (system pairing dialog with passkey)
+            val pinField = device.findObject(By.clazz("android.widget.EditText"))
+            if (pinField != null) {
+                pinField.text = TEST_PASSKEY
+                for (label in candidates) {
+                    val btn = device.findObject(By.text(label))
+                    if (btn != null) {
+                        btn.click()
+                        device.waitForIdle(2_000L)
+                        return
+                    }
+                }
+            }
+            // Also handle Just Works dialog or dialog without PIN field
             for (label in candidates) {
                 val node = device.findObject(By.text(label))
                 if (node != null) {
@@ -189,5 +194,9 @@ internal class E2eConnectionFixture(
                 return
             }
         }
+    }
+
+    companion object {
+        private const val TEST_PASSKEY = "123456"
     }
 }
