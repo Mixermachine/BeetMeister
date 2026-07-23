@@ -634,7 +634,7 @@ class Orchestrator:
                 / "firmware" / "esp-idf" / "partitions" / "beetmeister.csv"
             )
             layout = _pm.load(csv_path)
-            targets = _pm.require(layout, "appcfg", "events", "sysevents")
+            targets = _pm.require(layout, "nvs", "appcfg", "events", "sysevents")
             for part in targets:
                 erase_cmd = controller_reset.build_esptool_command(
                     self.config,
@@ -1576,7 +1576,7 @@ class Orchestrator:
         `controller_reset.erase_config_partitions` for that one
         partition. (Easier than parsing the shell string.)
         """
-        for part_name in ("appcfg", "events", "sysevents"):
+        for part_name in ("nvs", "appcfg", "events", "sysevents"):
             if step.name == f"erase_{part_name}":
                 results = controller_reset.erase_config_partitions(
                     self.config, self.config.controller.serial_port,

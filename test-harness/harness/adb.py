@@ -178,12 +178,15 @@ class Adb:
         return "Success" in proc.stdout
 
     def grant_ble_permissions(self, package: str) -> None:
-        """Grant BLUETOOTH_SCAN + BLUETOOTH_CONNECT to the package.
+        """Grant BLUETOOTH_SCAN + BLUETOOTH_CONNECT + location + notifications to the package.
 
         Idempotent: re-granting is a no-op on the device side.
         """
         self._run("shell", "pm", "grant", package, "android.permission.BLUETOOTH_SCAN")
         self._run("shell", "pm", "grant", package, "android.permission.BLUETOOTH_CONNECT")
+        self._run("shell", "pm", "grant", package, "android.permission.ACCESS_FINE_LOCATION")
+        self._run("shell", "pm", "grant", package, "android.permission.ACCESS_COARSE_LOCATION")
+        self._run("shell", "pm", "grant", package, "android.permission.POST_NOTIFICATIONS")
 
     def clear_ble_bond_via_intent(self, mac: str, app_package: str) -> bool:
         """Clear the BLE bond for the given MAC by firing the

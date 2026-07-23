@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.e2e
 
+import android.view.KeyEvent
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -98,21 +99,7 @@ internal class E2eConnectionFixture(
         // P5 SUB #R25/R37d: firmware_update dispatch flashes
         // v0.3.0 which enters MaintenanceRequired mode.
         // The ConnectionGate never renders; the forced
-        // MaintenanceScreen replaces it. Wait for the
-        // auto-connect to complete (maintenance info loaded)
-        // before returning, so the Activity is stable when
-        // @Test starts and won't be recreated by the rule.
-        // Race: BLE auto-connect may transition to MaintenanceRequired
-        // AFTER our first check returns false but BEFORE tapScan()
-        // finishes. Retry maintenance screen for up to 5s before
-        // falling through to the scan path.
-        if (!gate.maintenanceScreenVisible()) {
-            composeRule.waitUntil(timeoutMillis = 5_000L) {
-                gate.maintenanceScreenVisible() ||
-                    gate.scanButtonVisible() ||
-                    gate.isAlreadyConnected()
-            }
-        }
+        // MaintenanceScreen replaces it.
         if (gate.maintenanceScreenVisible()) {
             screenshots.captureStep("maintenanceRequired")
             dismissBluetoothPairingDialog()
@@ -123,28 +110,18 @@ internal class E2eConnectionFixture(
             E2eConnectionState.isConnected = true
             return
         }
+
         dismissBluetoothPairingDialog()
-        gate.tapScan()
-        // P5 finding SUB #R37b: the app's BLE auto-connect
-        // (Idle -> Connecting -> ... -> Connected) can race
-        // with tapScan(). If tapScan() exits before the
-        // auto-connect fires (scanButtonVisible = true,
-        // postConnectVisible = false), it punches the scan
-        // button and we fall through here. But the auto-
-        // connect may have completed by now, hiding the
-        // gate entirely. Check: if the post-connect shell
-        // is already up, skip the scan-result path.
-        if (gate.isAlreadyConnected()) {
-            screenshots.captureStep("afterConnect")
-            E2eConnectionState.isConnected = true
-            return
-        }
-        gate.assertDeviceVisible()
-        // P5 finding SUB #R37b: auto-connect may have completed
-        // during assertDeviceVisible(). If the gate is gone,
-        // skip tapConnect().
+
         if (!gate.isAlreadyConnected()) {
-            gate.tapConnect()
+            gate.tapScan()
+            if (!gate.isAlreadyConnected()) {
+                gate.assertDeviceVisible()
+                if (!gate.isAlreadyConnected()) {
+                    gate.tapConnect()
+                    dismissBluetoothPairingDialog()
+                }
+            }
         }
         gate.assertConnected()
         screenshots.captureStep("afterConnect")
@@ -164,27 +141,58 @@ internal class E2eConnectionFixture(
         )
         val candidates = listOf("Pair", "Pairing", "OK", "Allow")
         val deadline = System.currentTimeMillis() + 15_000L
+        android.util.Log.d("E2E_PASSKEY", "dismissBluetoothPairingDialog loop started")
         while (System.currentTimeMillis() < deadline) {
-            // Look for PIN entry field (system pairing dialog with passkey)
             val pinField = device.findObject(By.clazz("android.widget.EditText"))
+            val allTexts = try {
+                device.findObjects(By.clazz("android.widget.TextView")).take(5).map { it.text }
+            } catch (_: Exception) { emptyList() }
+            android.util.Log.d("E2E_PASSKEY", "pinField=$pinField texts=$allTexts")
+
             if (pinField != null) {
-                pinField.text = TEST_PASSKEY
+                android.util.Log.d("E2E_PASSKEY", "Found pinField! Typing keycodes for $TEST_PASSKEY")
+                pinField.click()
+                try { Thread.sleep(200L) } catch (_: Exception) {}
+                for (ch in TEST_PASSKEY) {
+                    if (ch in '0'..'9') {
+                        device.pressKeyCode(KeyEvent.KEYCODE_0 + (ch - '0'))
+                    }
+                }
+                try { Thread.sleep(300L) } catch (_: Exception) {}
                 for (label in candidates) {
                     val btn = device.findObject(By.text(label))
                     if (btn != null) {
+                        android.util.Log.d("E2E_PASSKEY", "Clicked button=$label")
                         btn.click()
                         device.waitForIdle(2_000L)
                         return
                     }
                 }
             }
-            // Also handle Just Works dialog or dialog without PIN field
-            for (label in candidates) {
-                val node = device.findObject(By.text(label))
-                if (node != null) {
-                    node.click()
-                    device.waitForIdle(2_000L)
-                    return
+            val pairingTitle = device.findObject(By.textContains("Pair"))
+            if (pairingTitle != null) {
+                android.util.Log.d("E2E_PASSKEY", "Found pairingTitle=${pairingTitle.text}")
+                try { Thread.sleep(300L) } catch (_: Exception) {}
+                val recheckPin = device.findObject(By.clazz("android.widget.EditText"))
+                if (recheckPin != null) {
+                    android.util.Log.d("E2E_PASSKEY", "recheckPin found! Typing keycodes for $TEST_PASSKEY")
+                    recheckPin.click()
+                    try { Thread.sleep(200L) } catch (_: Exception) {}
+                    for (ch in TEST_PASSKEY) {
+                        if (ch in '0'..'9') {
+                            device.pressKeyCode(KeyEvent.KEYCODE_0 + (ch - '0'))
+                        }
+                    }
+                    try { Thread.sleep(300L) } catch (_: Exception) {}
+                }
+                for (label in candidates) {
+                    val node = device.findObject(By.text(label))
+                    if (node != null && node != pairingTitle) {
+                        android.util.Log.d("E2E_PASSKEY", "Clicked candidate node=$label")
+                        node.click()
+                        device.waitForIdle(2_000L)
+                        return
+                    }
                 }
             }
             try {
@@ -194,6 +202,7 @@ internal class E2eConnectionFixture(
                 return
             }
         }
+        android.util.Log.d("E2E_PASSKEY", "dismissBluetoothPairingDialog loop finished (no dialog found)")
     }
 
     companion object {
