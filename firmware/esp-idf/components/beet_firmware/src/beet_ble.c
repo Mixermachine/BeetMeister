@@ -375,19 +375,31 @@ static const struct ble_gatt_svc_def beet_ble_svcs[] = {
             {
                 .uuid = &BEET_BLE_MAINTENANCE_CONTROL_UUID.u,
                 .access_cb = beet_ble_maintenance_gatt_access,
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
                 .flags = BLE_GATT_CHR_F_WRITE,
+#else
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
+#endif
                 .val_handle = &s_maintenance_control_handle,
             },
             {
                 .uuid = &BEET_BLE_MAINTENANCE_STATUS_UUID.u,
                 .access_cb = beet_ble_maintenance_gatt_access,
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
                 .flags = BLE_GATT_CHR_F_INDICATE,
+#else
+                .flags = BLE_GATT_CHR_F_INDICATE | BLE_GATT_CHR_F_READ_ENC,
+#endif
                 .val_handle = &s_maintenance_status_handle,
             },
             {
                 .uuid = &BEET_BLE_MAINTENANCE_DATA_UUID.u,
                 .access_cb = beet_ble_maintenance_gatt_access,
+#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
                 .flags = BLE_GATT_CHR_F_WRITE,
+#else
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC,
+#endif
                 .val_handle = &s_maintenance_data_handle,
             },
             { 0 },
@@ -2766,7 +2778,11 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         if (event->passkey.params.action == BLE_SM_IOACT_DISP ||
             event->passkey.params.action == BLE_SM_IOACT_STATIC) {
             struct ble_sm_io io = { 0 };
+#ifdef BEET_BLE_TEST_PASSKEY
+            uint32_t passkey = BEET_BLE_TEST_PASSKEY;
+#else
             uint32_t passkey = esp_random() % BEET_BLE_PAIRING_CODE_MAX;
+#endif
             int rc;
 
             io.action = event->passkey.params.action;
@@ -3205,9 +3221,9 @@ esp_err_t beet_ble_init(const char *device_name)
     ble_hs_cfg.sync_cb = beet_ble_on_sync;
     ble_hs_cfg.gatts_register_cb = beet_ble_register_cb;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
+    ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_ONLY;
     ble_hs_cfg.sm_bonding = 1;
-    ble_hs_cfg.sm_mitm = 0;
+    ble_hs_cfg.sm_mitm = 1;
     ble_hs_cfg.sm_sc = 1;
     ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
