@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.e2e.robots
 
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -60,5 +61,15 @@ internal class PairDetailRobot(
     /** Navigates back to the Overview (via the in-screen back button). */
     fun back() {
         composeRule.onNodeWithTag(PairDetailTestTags.BackButton).performClick()
+    }
+
+    /** Selects the Moist target moisture level chip. */
+    fun selectTargetLevelMoist() {
+        composeRule.onNodeWithTag(PairDetailTestTags.TargetLevelMoist).performClick()
+    }
+
+    /** Asserts that the Moist target level chip is selected. */
+    fun assertTargetLevelMoistIsSelected() {
+        composeRule.onNodeWithTag(PairDetailTestTags.TargetLevelMoist).assertIsSelected()
     }
 }
