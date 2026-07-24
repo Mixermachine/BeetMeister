@@ -616,6 +616,28 @@ int beet_ble_format_command_result_json(
             (unsigned int)response->combined_mask);
     }
 
+    if ((response->command == BEET_IFACE_COMMAND_GET_PAIR_CONFIG ||
+         response->command == BEET_IFACE_COMMAND_STORE_PAIR_CONFIG) &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_pair_config) {
+        const char *target_str = "medium";
+        if (response->pair_config.target_level == BEET_TARGET_MOISTURE_DRY) {
+            target_str = "dry";
+        } else if (response->pair_config.target_level == BEET_TARGET_MOISTURE_MOIST) {
+            target_str = "moist";
+        }
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"pair\":%u,\"target_level\":\"%s\",\"duration_multiplier\":%u}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            response->pair_config.pair_index,
+            target_str,
+            (unsigned int)response->pair_config.duration_multiplier);
+    }
+
     if ((response->command == BEET_IFACE_COMMAND_GET_VALVE_CONFIG ||
             response->command == BEET_IFACE_COMMAND_STORE_VALVE_CONFIG) &&
         response->status == BEET_IFACE_STATUS_ACCEPTED &&
@@ -1093,6 +1115,89 @@ static bool beet_ble_parse_combined_data(
     }
 
     return seen_pair && seen_followers;
+}
+
+static bool beet_ble_parse_pair_config_data(
+    const char **cursor,
+    uint8_t *pair_index,
+    beet_target_moisture_level_t *target_level,
+    uint8_t *duration_multiplier)
+{
+    bool seen_pair = false;
+    bool seen_target = false;
+    bool seen_mult = false;
+
+    if (!beet_ble_consume_char(cursor, '{')) {
+        return false;
+    }
+
+    while (true) {
+        char key[32];
+        uint16_t parsed = 0U;
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+
+        if (!beet_ble_parse_string(cursor, key, sizeof(key)) ||
+            !beet_ble_consume_char(cursor, ':')) {
+            return false;
+        }
+
+        if (strcmp(key, "pair") == 0 && !seen_pair) {
+            if (!beet_ble_parse_u16(cursor, &parsed)) {
+                return false;
+            }
+            *pair_index = (uint8_t)parsed;
+            seen_pair = true;
+        } else if (strcmp(key, "target_level") == 0 && !seen_target) {
+            char target_str[16];
+            beet_ble_skip_ws(cursor);
+            if (**cursor == '"') {
+                if (!beet_ble_parse_string(cursor, target_str, sizeof(target_str))) {
+                    return false;
+                }
+                if (strcmp(target_str, "dry") == 0) {
+                    *target_level = BEET_TARGET_MOISTURE_DRY;
+                } else if (strcmp(target_str, "moist") == 0) {
+                    *target_level = BEET_TARGET_MOISTURE_MOIST;
+                } else {
+                    *target_level = BEET_TARGET_MOISTURE_MEDIUM;
+                }
+            } else {
+                if (!beet_ble_parse_u16(cursor, &parsed)) {
+                    return false;
+                }
+                *target_level = (beet_target_moisture_level_t)parsed;
+            }
+            seen_target = true;
+        } else if (strcmp(key, "duration_multiplier") == 0 && !seen_mult) {
+            if (!beet_ble_parse_u16(cursor, &parsed)) {
+                return false;
+            }
+            *duration_multiplier = (uint8_t)parsed;
+            seen_mult = true;
+        } else {
+            if (!beet_ble_skip_json_value(cursor)) {
+                return false;
+            }
+        }
+
+        beet_ble_skip_ws(cursor);
+        if (**cursor == ',') {
+            ++(*cursor);
+            continue;
+        }
+        if (**cursor == '}') {
+            ++(*cursor);
+            break;
+        }
+        return false;
+    }
+
+    return seen_pair && seen_target && seen_mult;
 }
 
 static bool beet_ble_parse_pair_data(const char **cursor, uint8_t *pair_index)
@@ -2045,6 +2150,20 @@ bool beet_ble_parse_command_json(
                         &cursor,
                         &request->pair_index,
                         &request->combined_mask)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "get_pair_config") == 0) {
+                request->command = BEET_IFACE_COMMAND_GET_PAIR_CONFIG;
+                if (!beet_ble_parse_pair_data(&cursor, &request->pair_index)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "store_pair_config") == 0) {
+                request->command = BEET_IFACE_COMMAND_STORE_PAIR_CONFIG;
+                if (!beet_ble_parse_pair_config_data(
+                        &cursor,
+                        &request->pair_index,
+                        &request->target_level,
+                        &request->duration_multiplier)) {
                     return false;
                 }
             } else {

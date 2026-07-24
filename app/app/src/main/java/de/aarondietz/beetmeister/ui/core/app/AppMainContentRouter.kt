@@ -55,6 +55,8 @@ internal fun AppMainContentRouter(
     onOpenFirmwareUpdate: () -> Unit,
     onDisconnect: () -> Unit,
     onStorePairName: (Int, String) -> Unit,
+    onLoadPairConfig: (Int) -> Unit = {},
+    onStorePairConfig: (Int, de.aarondietz.beetmeister.model.controller.TargetMoistureLevel, Int) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -64,7 +66,10 @@ internal fun AppMainContentRouter(
             pairWiringLoading = selectedPair in state.pairWiringLoading,
             pairWiringError = state.pairWiringErrors[selectedPair],
             pairName = state.pairNames[selectedPair],
+            pairConfig = state.pairConfigs[selectedPair],
             onStorePairName = onStorePairName,
+            onLoadPairConfig = onLoadPairConfig,
+            onStorePairConfig = onStorePairConfig,
             onBack = onPairDetailBack,
             onLoadPairWiring = onLoadPairWiring,
             onToggleEnabled = onToggleEnabled,

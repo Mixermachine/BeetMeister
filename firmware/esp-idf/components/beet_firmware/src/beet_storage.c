@@ -565,14 +565,67 @@ static esp_err_t beet_load_power_state(beet_power_runtime_state_t *state)
     return ESP_OK;
 }
 
+esp_err_t beet_storage_load_pair_configs(beet_pair_config_t configs[BEET_PAIR_COUNT])
+{
+    nvs_handle_t handle = 0;
+    ESP_RETURN_ON_ERROR(beet_open_namespace("appcfg", "pcfg", NVS_READWRITE, &handle), TAG, "pcfg namespace open failed");
+
+    for (uint8_t pair = 1U; pair <= BEET_PAIR_COUNT; ++pair) {
+        char key[8];
+        size_t required_size = sizeof(beet_pair_config_t);
+        beet_pair_key(key, sizeof(key), pair);
+        esp_err_t err = nvs_get_blob(handle, key, &configs[pair - 1U], &required_size);
+        if (err == ESP_ERR_NVS_NOT_FOUND ||
+            required_size != sizeof(beet_pair_config_t) ||
+            !beet_is_valid_target_moisture_level(configs[pair - 1U].target_level) ||
+            !beet_is_valid_duration_multiplier(configs[pair - 1U].duration_multiplier)) {
+            beet_default_pair_config(pair, &configs[pair - 1U]);
+            ESP_RETURN_ON_ERROR(
+                nvs_set_blob(handle, key, &configs[pair - 1U], sizeof(beet_pair_config_t)),
+                TAG,
+                "default pair config write failed");
+        }
+    }
+
+    ESP_RETURN_ON_ERROR(nvs_commit(handle), TAG, "pcfg commit failed");
+    nvs_close(handle);
+    return ESP_OK;
+}
+
+esp_err_t beet_storage_save_pair_config(const beet_pair_config_t *config)
+{
+    if (config == NULL || !beet_is_valid_pair_index(config->pair_index)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!beet_is_valid_target_moisture_level(config->target_level) ||
+        !beet_is_valid_duration_multiplier(config->duration_multiplier)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle = 0;
+    ESP_RETURN_ON_ERROR(beet_open_namespace("appcfg", "pcfg", NVS_READWRITE, &handle), TAG, "pcfg namespace open failed");
+
+    char key[8];
+    beet_pair_key(key, sizeof(key), config->pair_index);
+
+    esp_err_t err = nvs_set_blob(handle, key, config, sizeof(*config));
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err;
+}
+
 esp_err_t beet_storage_load_or_init(
     beet_app_config_t *config,
+    beet_pair_config_t pair_configs[BEET_PAIR_COUNT],
     beet_pair_calibration_t calibrations[BEET_PAIR_COUNT],
     beet_pair_runtime_snapshot_t snapshots[BEET_PAIR_COUNT],
     beet_power_runtime_state_t *power_state)
 {
     bool initialized_defaults = false;
     ESP_RETURN_ON_ERROR(beet_load_config(config, &initialized_defaults), TAG, "config load failed");
+    ESP_RETURN_ON_ERROR(beet_storage_load_pair_configs(pair_configs), TAG, "pair configs load failed");
     ESP_RETURN_ON_ERROR(beet_load_pair_records(calibrations, snapshots), TAG, "pair records load failed");
     ESP_RETURN_ON_ERROR(beet_load_power_state(power_state), TAG, "power state load failed");
 

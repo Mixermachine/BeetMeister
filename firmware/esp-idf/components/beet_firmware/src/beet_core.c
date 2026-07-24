@@ -31,6 +31,14 @@ void beet_default_app_config(beet_app_config_t *config)
     config->max_active_pumps = BEET_MAX_ACTIVE_PUMPS;
 }
 
+void beet_default_pair_config(uint8_t pair_index, beet_pair_config_t *config)
+{
+    memset(config, 0, sizeof(*config));
+    config->pair_index = pair_index;
+    config->target_level = BEET_TARGET_MOISTURE_MEDIUM;
+    config->duration_multiplier = BEET_DURATION_MULTIPLIER_DEFAULT;
+}
+
 void beet_default_calibration(uint8_t pair_index, beet_pair_calibration_t *calibration)
 {
     memset(calibration, 0, sizeof(*calibration));
@@ -61,6 +69,19 @@ void beet_default_power_runtime_state(beet_power_runtime_state_t *state)
 bool beet_is_valid_pair_index(uint8_t pair_index)
 {
     return pair_index >= 1U && pair_index <= BEET_PAIR_COUNT;
+}
+
+bool beet_is_valid_target_moisture_level(beet_target_moisture_level_t level)
+{
+    return level == BEET_TARGET_MOISTURE_DRY ||
+           level == BEET_TARGET_MOISTURE_MEDIUM ||
+           level == BEET_TARGET_MOISTURE_MOIST;
+}
+
+bool beet_is_valid_duration_multiplier(uint8_t multiplier)
+{
+    return multiplier >= BEET_DURATION_MULTIPLIER_MIN &&
+           multiplier <= BEET_DURATION_MULTIPLIER_MAX;
 }
 
 bool beet_is_valid_pair_state(beet_pair_state_t state)
@@ -294,29 +315,87 @@ uint32_t beet_deep_low_recovery_interval_s(uint8_t failure_count)
     return 14400U;
 }
 
-uint16_t beet_automatic_duration_s(uint8_t moisture_pct)
+uint16_t beet_automatic_duration_s(
+    uint8_t moisture_pct,
+    beet_target_moisture_level_t target_level,
+    uint8_t duration_multiplier)
 {
-    if (moisture_pct >= 81U) {
+    uint16_t base_duration = 0U;
+    uint8_t mult = beet_is_valid_duration_multiplier(duration_multiplier)
+                       ? duration_multiplier
+                       : BEET_DURATION_MULTIPLIER_DEFAULT;
+
+    switch (target_level) {
+    case BEET_TARGET_MOISTURE_DRY:
+        if (moisture_pct >= 66U) {
+            base_duration = 0U;
+        } else if (moisture_pct >= 60U) {
+            base_duration = 10U;
+        } else if (moisture_pct >= 50U) {
+            base_duration = 60U;
+        } else if (moisture_pct >= 40U) {
+            base_duration = 120U;
+        } else if (moisture_pct >= 30U) {
+            base_duration = 180U;
+        } else {
+            base_duration = 240U;
+        }
+        break;
+
+    case BEET_TARGET_MOISTURE_MOIST:
+        if (moisture_pct >= 91U) {
+            base_duration = 0U;
+        } else if (moisture_pct >= 90U) {
+            base_duration = 10U;
+        } else if (moisture_pct >= 80U) {
+            base_duration = 60U;
+        } else if (moisture_pct >= 75U) {
+            base_duration = 120U;
+        } else if (moisture_pct >= 65U) {
+            base_duration = 180U;
+        } else {
+            base_duration = 240U;
+        }
+        break;
+
+    case BEET_TARGET_MOISTURE_MEDIUM:
+    default:
+        if (moisture_pct >= 81U) {
+            base_duration = 0U;
+        } else if (moisture_pct >= 80U) {
+            base_duration = 10U;
+        } else if (moisture_pct >= 70U) {
+            base_duration = 60U;
+        } else if (moisture_pct >= 60U) {
+            base_duration = 120U;
+        } else if (moisture_pct >= 50U) {
+            base_duration = 180U;
+        } else {
+            base_duration = 240U;
+        }
+        break;
+    }
+
+    if (base_duration == 0U) {
         return 0U;
     }
-    if (moisture_pct == 80U) {
-        return 10U;
+
+    uint32_t scaled = ((uint32_t)base_duration * mult + 50U) / 100U;
+    if (scaled < 1U) {
+        scaled = 1U;
     }
-    if (moisture_pct >= 70U) {
-        return 60U;
+    if (scaled > BEET_MAX_MANUAL_DURATION_S) {
+        scaled = BEET_MAX_MANUAL_DURATION_S;
     }
-    if (moisture_pct >= 60U) {
-        return 120U;
-    }
-    if (moisture_pct >= 50U) {
-        return 180U;
-    }
-    return 240U;
+    return (uint16_t)scaled;
 }
 
 uint16_t beet_manual_duration_s(uint8_t moisture_pct)
 {
-    uint16_t duration = beet_automatic_duration_s(moisture_pct);
+    uint16_t duration = beet_automatic_duration_s(
+        moisture_pct,
+        BEET_TARGET_MOISTURE_MEDIUM,
+        BEET_DURATION_MULTIPLIER_DEFAULT);
     return duration == 0U ? 10U : duration;
 }
 

@@ -7,9 +7,11 @@ import de.aarondietz.beetmeister.model.stream.BeetStateMessage
 import de.aarondietz.beetmeister.model.update.BeetFirmwareMetadata
 import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
 import de.aarondietz.beetmeister.model.update.BeetFirmwareSource
+import de.aarondietz.beetmeister.model.controller.TargetMoistureLevel
 import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -549,6 +551,43 @@ class BeetJsonCodecTest {
         assertEquals(1024, status.nextOffset)
         assertEquals(1024, status.bytesReceived)
         assertEquals(4096, status.totalBytes)
+    }
+
+    @Test
+    fun parsesGetAndStorePairConfig() {
+        val getRequest = BeetJsonCodec.getPairConfig(3)
+        assertTrue(getRequest.contains("\"cmd\":\"get_pair_config\""))
+        assertTrue(getRequest.contains("\"pair\":3"))
+
+        val storeRequest = BeetJsonCodec.storePairConfig(3, TargetMoistureLevel.MOIST, 150)
+        assertTrue(storeRequest.contains("\"cmd\":\"store_pair_config\""))
+        assertTrue(storeRequest.contains("\"pair\":3"))
+        assertTrue(storeRequest.contains("\"target_level\":\"moist\""))
+        assertTrue(storeRequest.contains("\"duration_multiplier\":150"))
+
+        val responseJson = """
+            {
+              "cmd": "store_pair_config",
+              "status": "accepted",
+              "reason": "pair_config_saved",
+              "data": {
+                "pair": 3,
+                "target_level": "moist",
+                "duration_multiplier": 150
+              }
+            }
+        """.trimIndent()
+
+        val result = BeetJsonCodec.parseCommandResult(responseJson)
+        assertEquals("store_pair_config", result.command)
+        assertEquals("accepted", result.status)
+        assertEquals("pair_config_saved", result.reason)
+        val config = result.pairConfig
+        assertNotNull(config)
+        assertEquals(3, config!!.pairIndex)
+        assertEquals(TargetMoistureLevel.MOIST, config.targetLevel)
+        assertEquals(150, config.durationMultiplier)
+        assertEquals(1.5f, config.multiplierFloat, 0.01f)
     }
 
     @Test

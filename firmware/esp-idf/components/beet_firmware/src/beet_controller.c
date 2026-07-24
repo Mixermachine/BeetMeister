@@ -70,6 +70,7 @@ typedef struct {
 
 typedef struct {
     beet_app_config_t config;
+    beet_pair_config_t pair_configs[BEET_PAIR_COUNT];
     beet_pair_calibration_t calibrations[BEET_PAIR_COUNT];
     beet_pair_runtime_snapshot_t snapshots[BEET_PAIR_COUNT];
     beet_pair_runtime_t runtimes[BEET_PAIR_COUNT];
@@ -2767,6 +2768,41 @@ esp_err_t beet_iface_submit_command(
         return ESP_OK;
     }
 
+    case BEET_IFACE_COMMAND_GET_PAIR_CONFIG:
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_pair_config = true;
+        response->pair_config = s_state.pair_configs[request->pair_index - 1U];
+        return ESP_OK;
+
+    case BEET_IFACE_COMMAND_STORE_PAIR_CONFIG:
+        if (!beet_is_valid_pair_index(request->pair_index)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR;
+            return ESP_OK;
+        }
+        if (!beet_is_valid_target_moisture_level(request->target_level) ||
+            !beet_is_valid_duration_multiplier(request->duration_multiplier)) {
+            response->reason = BEET_IFACE_REASON_INVALID_PAIR_CONFIG;
+            return ESP_OK;
+        }
+        beet_mark_activity(now_us);
+        s_state.pair_configs[request->pair_index - 1U].pair_index = request->pair_index;
+        s_state.pair_configs[request->pair_index - 1U].target_level = request->target_level;
+        s_state.pair_configs[request->pair_index - 1U].duration_multiplier = request->duration_multiplier;
+        if (beet_storage_save_pair_config(&s_state.pair_configs[request->pair_index - 1U]) != ESP_OK) {
+            response->reason = BEET_IFACE_REASON_BUSY;
+            return ESP_OK;
+        }
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_PAIR_CONFIG_SAVED;
+        response->has_pair_config = true;
+        response->pair_config = s_state.pair_configs[request->pair_index - 1U];
+        return ESP_OK;
+
     default:
         response->reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
         return ESP_OK;
@@ -2894,7 +2930,10 @@ static void beet_run_scheduler_cycle(int64_t now_us)
             continue;
         }
 
-        uint16_t duration_s = beet_automatic_duration_s(snapshot->last_moisture_pct);
+        uint16_t duration_s = beet_automatic_duration_s(
+            snapshot->last_moisture_pct,
+            s_state.pair_configs[pair - 1U].target_level,
+            s_state.pair_configs[pair - 1U].duration_multiplier);
         if (duration_s == 0U) {
             snapshot->pair_state = BEET_PAIR_STATE_IDLE;
             beet_mark_snapshot_dirty(pair);
@@ -2930,7 +2969,9 @@ static void beet_run_scheduler_cycle(int64_t now_us)
             if (!beet_pair_can_run_automatic(follower)) continue;
 
             uint16_t fdur = beet_automatic_duration_s(
-                s_state.snapshots[follower - 1U].last_moisture_pct);
+                s_state.snapshots[follower - 1U].last_moisture_pct,
+                s_state.pair_configs[follower - 1U].target_level,
+                s_state.pair_configs[follower - 1U].duration_multiplier);
             if (fdur == 0U) continue;
 
             beet_queue_run(follower, BEET_RUN_SOURCE_AUTOMATIC, fdur, now_us);
@@ -3170,7 +3211,7 @@ esp_err_t beet_controller_init(void)
 
     ESP_RETURN_ON_ERROR(beet_storage_init(), TAG, "storage init failed");
     ESP_RETURN_ON_ERROR(
-        beet_storage_load_or_init(&s_state.config, s_state.calibrations, s_state.snapshots, &s_state.power_state),
+        beet_storage_load_or_init(&s_state.config, s_state.pair_configs, s_state.calibrations, s_state.snapshots, &s_state.power_state),
         TAG,
         "storage load failed");
     if (!beet_is_valid_watering_interval_s(s_state.config.watering_interval_s) ||

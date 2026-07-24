@@ -19,6 +19,7 @@ import de.aarondietz.beetmeister.model.command.BeetEventRequestData
 import de.aarondietz.beetmeister.model.command.BeetManualStartCommandData
 import de.aarondietz.beetmeister.model.command.BeetMaxActivePumpsCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairCombinedCommandData
+import de.aarondietz.beetmeister.model.command.BeetPairConfigCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairNameCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairCommandData
 import de.aarondietz.beetmeister.model.command.BeetSetTimeCommandData
@@ -33,6 +34,8 @@ import de.aarondietz.beetmeister.model.controller.BeetMaxActivePumps
 import de.aarondietz.beetmeister.model.controller.BeetPairNames
 import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.model.controller.BeetPairCombined
+import de.aarondietz.beetmeister.model.controller.BeetPairConfig
+import de.aarondietz.beetmeister.model.controller.TargetMoistureLevel
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
@@ -125,6 +128,8 @@ object BeetJsonCodec {
         runtimeMoshi.adapter(BeetPairNames::class.java)
     private val pairCombinedPayloadAdapter: JsonAdapter<BeetPairCombined> =
         runtimeMoshi.adapter(BeetPairCombined::class.java)
+    private val pairConfigPayloadAdapter: JsonAdapter<BeetPairConfig> =
+        runtimeMoshi.adapter(BeetPairConfig::class.java)
     private val historySummaryPayloadAdapter: JsonAdapter<BeetHistorySummary> =
         runtimeMoshi.adapter(BeetHistorySummary::class.java)
     private val systemHistorySummaryPayloadAdapter: JsonAdapter<BeetSystemHistorySummary> =
@@ -143,6 +148,7 @@ object BeetJsonCodec {
     private val maxActivePumpsRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetMaxActivePumpsCommandData::class.java)
     private val pairNameRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairNameCommandData::class.java)
     private val pairCombinedRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairCombinedCommandData::class.java)
+    private val pairConfigRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairConfigCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
 
     data class CommandChunkFrame(
@@ -259,6 +265,14 @@ object BeetJsonCodec {
         } else {
             null
         }
+        val pairConfig = if (
+            (header.cmd == "get_pair_config" || header.cmd == "store_pair_config") &&
+            header.status == "accepted"
+        ) {
+            pairConfigPayloadAdapter.fromJson(dataJson) ?: error("Invalid pair config payload.")
+        } else {
+            null
+        }
         val ack = commandAckPayloadAdapter.fromJson(dataJson)
         return BeetCommandResult(
             command = header.cmd,
@@ -277,6 +291,7 @@ object BeetJsonCodec {
             maxActivePumps = maxActivePumps,
             pairNames = pairNames,
             pairCombined = pairCombined,
+            pairConfig = pairConfig,
         )
     }
 
@@ -617,6 +632,26 @@ object BeetJsonCodec {
                 data = BeetPairCombinedCommandData(
                     pairIndex = pairIndex,
                     followersMask = followersMask,
+                ),
+            ),
+        )
+
+    fun getPairConfig(pairIndex: Int): String =
+        pairRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "get_pair_config",
+                data = BeetPairCommandData(pairIndex = pairIndex),
+            ),
+        )
+
+    fun storePairConfig(pairIndex: Int, targetLevel: TargetMoistureLevel, durationMultiplier: Int): String =
+        pairConfigRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "store_pair_config",
+                data = BeetPairConfigCommandData(
+                    pairIndex = pairIndex,
+                    targetLevel = targetLevel,
+                    durationMultiplier = durationMultiplier,
                 ),
             ),
         )
