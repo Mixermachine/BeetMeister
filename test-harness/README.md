@@ -49,6 +49,22 @@ Orchestrator does **not** activate ESP-IDF env itself. Point
 `C:/Espressif/tools/python/v6.0/venv/Scripts/python.exe` Win,
 `/opt/esp/python_env/idf6.0_py3.13_env/bin/python` Linux).
 
+### Passkey authentication requirement
+
+Automated E2E test runs require building controller firmware with the test passkey define:
+
+```powershell
+# From firmware/esp-idf:
+powershell -ExecutionPolicy Bypass -File .\.agents\skills\esp-idf-installation\scripts\invoke-idf.ps1 -IdfArgs "-DBEET_BLE_TEST_PASSKEY=123456 build"
+```
+
+Or with plain `idf.py`:
+```bash
+idf.py -DBEET_BLE_TEST_PASSKEY=123456 build flash
+```
+
+This ensures the controller uses passkey `123456` during BLE pairing, matching the hardcoded value in `E2eConnectionFixture`. Production builds omit this define and display a random passkey on the OLED.
+
 ## Running suites
 
 One `am instrument` call per `run.py` invocation:

@@ -634,7 +634,7 @@ class Orchestrator:
                 / "firmware" / "esp-idf" / "partitions" / "beetmeister.csv"
             )
             layout = _pm.load(csv_path)
-            targets = _pm.require(layout, "appcfg", "events", "sysevents")
+            targets = _pm.require(layout, "nvs", "appcfg", "events", "sysevents")
             for part in targets:
                 erase_cmd = controller_reset.build_esptool_command(
                     self.config,
@@ -669,6 +669,26 @@ class Orchestrator:
             executed=False,
         ))
 
+        # 4. clear phone-side BLE bond if controller MAC configured.
+        mac = self.config.controller.ble_mac
+        if mac:
+            clear_bond_cmd = self.adb._cmd(
+                "shell", "am", "start",
+                "-n", f"{app_package}/.debug.DebugActionActivity",
+                "-a", "de.aarondietz.beetmeister.debug.action.RUN",
+                "--es", "action", "clear_ble_bond",
+                "--es", "mac", mac,
+            )
+            plan.preconditions.append(DispatchStep(
+                name="clear_ble_bond_via_intent",
+                description=(
+                    f"clear BLE bond for {mac} via DebugActionActivity "
+                    f"(BluetoothDevice.removeBond)"
+                ),
+                cmd=" ".join(shlex.quote(c) for c in clear_bond_cmd),
+                executed=False,
+            ))
+
         # 4. am instrument FreshInstallE2ETest.
         am_cmd = self._compose_am_instrument_preview(
             class_name=class_name,
@@ -699,20 +719,20 @@ class Orchestrator:
 
         # Real run: execute the preconditions + am instrument.
         self._run_precondition(plan.preconditions[0], self._do_uninstall(app_package))
-        for step in plan.preconditions[1:-1]:
-            # Filter by name prefix: only `erase_*` steps are
-            # erase_region calls. `skip_erase_no_port` (the
-            # placeholder when [controller].serial_port is
-            # empty) and any future non-erase informational
-            # steps are skipped here (P4 review finding
-            # CRIT #1: the old loop crashed on
-            # `skip_erase_no_port` because _execute_erase_step
-            # raised AssertionError on unrecognized names).
-            if not step.name.startswith("erase_"):
-                continue
-            self._execute_erase_step(step)
-        # Last precondition is install_built_apks.
-        self._run_precondition(plan.preconditions[-1], self._do_install_built_apks())
+        for step in plan.preconditions[1:]:
+            if step.name.startswith("erase_"):
+                self._execute_erase_step(step)
+            elif step.name == "install_built_apks":
+                self._run_precondition(step, self._do_install_built_apks())
+            elif step.name == "clear_ble_bond_via_intent":
+                self._run_precondition(
+                    step,
+                    self._do_clear_ble_bond_via_intent(
+                        self.config.controller.ble_mac,
+                        app_package,
+                    ),
+                )
+                self.adb.force_stop(app_package)
         # P5 SUB #R3: start the serial capture ONLY after the
         # preconditions are done (so erase_region had exclusive
         # access to COM6). The cap runs through the E2E am
@@ -1556,7 +1576,7 @@ class Orchestrator:
         `controller_reset.erase_config_partitions` for that one
         partition. (Easier than parsing the shell string.)
         """
-        for part_name in ("appcfg", "events", "sysevents"):
+        for part_name in ("nvs", "appcfg", "events", "sysevents"):
             if step.name == f"erase_{part_name}":
                 results = controller_reset.erase_config_partitions(
                     self.config, self.config.controller.serial_port,

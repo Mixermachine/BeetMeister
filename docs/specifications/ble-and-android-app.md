@@ -20,7 +20,7 @@ Current firmware implementation note:
 
 ## Authentication policy
 
-v1 requires standard BLE bonding before any GATT access is granted.
+v1 requires standard BLE bonding (with Passkey Display authentication) before GATT access is granted.
 The controller shall use OS-managed BLE pairing and bonding only.
 v1 does not add an application-layer PIN, token, user account, or exclusive owner-phone model.
 
@@ -31,6 +31,8 @@ v1 does not add an application-layer PIN, token, user account, or exclusive owne
 - Unbonded clients shall not subscribe to `state_stream`.
 - Unbonded clients shall not write `control_point`.
 - Unbonded clients shall not receive `command_result`.
+- Unbonded clients may read `maintenance_info` to discover maintenance capabilities prior to bonding.
+- Maintenance operational characteristics (`maintenance_control`, `maintenance_status`, `maintenance_data`) require an encrypted connection (`_ENC` flags).
 - A previously bonded client shall regain access after reconnect without a second application-layer login step.
 - The controller shall support multiple bonded phones over time.
 - Clearing BLE bonds shall remove all stored bonds, disconnect any active BLE session, and force re-pairing before further access.

@@ -88,7 +88,7 @@ internal class ConnectionGateRobot(
         // complete.
         composeRule.waitForIdle()
         composeRule.waitUntil(timeoutMillis = 30_000) {
-            scanButtonVisible() || postConnectVisible()
+            scanButtonVisible() || postConnectVisible() || hasDeviceCards()
         }
         if (scanButtonVisible()) {
             composeRule
@@ -100,15 +100,40 @@ internal class ConnectionGateRobot(
         // (the auto-connect already completed).
     }
 
-    internal fun scanButtonVisible(): Boolean = composeRule
-        .onAllNodesWithTag(ConnectionGateTestTags.ScanButton)
-        .fetchSemanticsNodes()
-        .isNotEmpty()
+    internal fun scanButtonVisible(): Boolean = try {
+        composeRule
+            .onAllNodesWithTag(ConnectionGateTestTags.ScanButton)
+            .fetchSemanticsNodes()
+            .isNotEmpty()
+    } catch (e: IllegalStateException) {
+        false
+    }
 
-    private fun postConnectVisible(): Boolean = composeRule
-        .onAllNodes(hasText(POST_CONNECT_MARKER_TEXT))
-        .fetchSemanticsNodes()
-        .isNotEmpty()
+    internal fun hasDeviceCards(): Boolean = try {
+        composeRule
+            .onAllNodesWithTag(ConnectionGateTestTags.DeviceCard)
+            .fetchSemanticsNodes()
+            .isNotEmpty()
+    } catch (e: IllegalStateException) {
+        false
+    }
+
+    private fun postConnectVisible(): Boolean = try {
+        composeRule
+            .onAllNodesWithTag(de.aarondietz.beetmeister.ui.NavigationSuiteTestTags.OverviewNavItem)
+            .fetchSemanticsNodes()
+            .isNotEmpty() ||
+        composeRule
+            .onAllNodesWithTag(de.aarondietz.beetmeister.ui.NavigationSuiteTestTags.SettingsNavItem)
+            .fetchSemanticsNodes()
+            .isNotEmpty() ||
+        composeRule
+            .onAllNodes(hasText(POST_CONNECT_MARKER_TEXT))
+            .fetchSemanticsNodes()
+            .isNotEmpty()
+    } catch (e: IllegalStateException) {
+        false
+    }
 
     /**
      * Asserts the expected device is visible in the discovered
@@ -200,10 +225,14 @@ internal class ConnectionGateRobot(
      * never renders; the MaintenanceScreen takes over.
      * Used by firmware_update E2E test to skip scan/connect.
      */
-    fun maintenanceScreenVisible(): Boolean = composeRule
-        .onAllNodesWithTag(MaintenanceUpdateTestTags.Title)
-        .fetchSemanticsNodes()
-        .isNotEmpty()
+    fun maintenanceScreenVisible(): Boolean = try {
+        composeRule
+            .onAllNodesWithTag(MaintenanceUpdateTestTags.Title)
+            .fetchSemanticsNodes()
+            .isNotEmpty()
+    } catch (e: IllegalStateException) {
+        false
+    }
 
     /**
      * Whether the MaintenanceScreen is visible AND the

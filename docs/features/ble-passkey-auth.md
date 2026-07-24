@@ -1,6 +1,6 @@
 # Restore BLE Passkey Authentication
 
-## Status: Planned (not in v1)
+## Status: Implemented (v1)
 
 ## Background
 
@@ -17,34 +17,31 @@ Commit `a7f4e36` ("BLE Firmware Update WIP", 2026-06-16) changed the SM configur
 - `BLE_HS_IO_NO_INPUT_OUTPUT` — no display, no keyboard
 - `sm_mitm = 0` — no MITM protection
 
-This switched bonding from Passkey Display to Just Works (no PIN, silent pairing). Any phone in BLE range can now pair without any user confirmation.
+This switched bonding from Passkey Display to Just Works (no PIN, silent pairing). Any phone in BLE range could pair without any user confirmation.
 
-## Needed Changes
+## Implemented Changes
 
-To restore passkey authentication:
+Passkey authentication was reinstated in July 2026:
 
 ### Firmware (`beet_ble.c`)
-```c
-// Restore:
-ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_ONLY;
-ble_hs_cfg.sm_mitm = 1;
-// sm_sc already = 1, sm_bonding already = 1
-```
+- Restored Security Manager config:
+  ```c
+  ble_hs_cfg.sm_io_cap = BLE_SM_IO_CAP_DISP_ONLY;
+  ble_hs_cfg.sm_mitm = 1;
+  ```
+- Added GATT-layer encryption flags (`BLE_GATT_CHR_F_WRITE_ENC` / `BLE_GATT_CHR_F_READ_ENC`) to maintenance service characteristics (`maintenance_control`, `maintenance_status`, `maintenance_data`), matching the runtime service pattern guarded by `#if BEET_BLE_FORCE_ENABLE_DIAGNOSTICS`.
+- `maintenance_info` remains unencrypted (`BLE_GATT_CHR_F_READ`) so clients can read maintenance capability details prior to bonding.
+- Added compile-time `#ifdef BEET_BLE_TEST_PASSKEY` support in `BLE_GAP_EVENT_PASSKEY_ACTION` handler to allow deterministic passkeys in automated test environments while production builds generate random 6-digit passkeys via `esp_random()`.
+
+### Security & Encryption Flag Rationale
+- Standard bonding requirement: With `sm_mitm = 1`, every newly created bond requires Passkey Display authentication.
+- GATT `_ENC` vs `_AUTHEN`: GATT characteristics use `_ENC` (encryption required). Because `sm_mitm = 1` forces authenticated pairing during bond creation, an encrypted link is inherently authenticated. `_ENC` flags enforce GATT-level encryption without redundant `_AUTHEN` constraints.
 
 ### Firmware (`beet_board.c`)
-- Ensure `beet_board_show_pairing_code()` displays the 6-digit passkey on OLED
-- Ensure display is powered on during pairing (already handled by `beet_controller_set_display_power()`)
+- `beet_board_show_pairing_code()` displays the 6-digit passkey on OLED.
+- Display power is maintained during pairing window (30s timeout).
 
-### Android App
-- No app changes needed — Android OS handles the passkey entry dialog automatically during pairing
-- But app should handle `BOND_NONE` after passkey rejection gracefully (already handled by `BeetScanBondCoordinator`)
+### Android App & E2E Testing
+- Android OS presents standard system passkey entry prompt during pairing.
+- Automated tests (`E2eConnectionFixture.kt` and `test-harness/`) use builds with `BEET_BLE_TEST_PASSKEY=123456` to automate PIN entry.
 
-### Testing
-- Verify passkey appears on OLED within pairing timeout (30s)
-- Verify passkey entry on phone completes bonding
-- Verify wrong passkey entry rejects bonding
-- Verify reconnection without re-pairing still works for bonded phones
-
-### Dependencies
-- OLED display must be connected and functional
-- Future: physical button on GPIO13 for bond admission (separate feature)
