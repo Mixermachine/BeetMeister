@@ -38,7 +38,7 @@ internal fun DeviceCard(device: BeetDiscoveredDevice, selected: Boolean, onConne
             .clickable(onClick = onConnect)
             .testTag(ConnectionGateTestTags.DeviceCard),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = if (selected) Color(0xFFE8F1E3) else Color(0xFFFDFBF6),
+            containerColor = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -59,20 +59,20 @@ internal fun DeviceCard(device: BeetDiscoveredDevice, selected: Boolean, onConne
                         modifier = Modifier.testTag(ConnectionGateTestTags.DeviceAddress),
                     )
                 }
-                Icon(Icons.Default.BluetoothSearching, contentDescription = null, tint = Color(0xFF59734E))
+                Icon(Icons.Default.BluetoothSearching, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "${formatRssi(device.rssi, strings)}  |  ${bondStateLabel(device.bondState, strings)}",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF5D6658),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (selected) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = strings.get(R.string.common_connecting),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF46663E),
+                    color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
                 )
             }
