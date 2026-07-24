@@ -62,6 +62,9 @@ internal class BeetAppViewModel(
     fun loadPairWiring(pairIndex: Int) = repository.loadPairWiring(pairIndex)
     fun loadPairNames() = repository.loadPairNames()
     fun storePairName(pairIndex: Int, name: String) = repository.storePairName(pairIndex, name)
+    fun loadPairConfig(pairIndex: Int) = repository.loadPairConfig(pairIndex)
+    fun storePairConfig(pairIndex: Int, targetLevel: de.aarondietz.beetmeister.model.controller.TargetMoistureLevel, durationMultiplier: Int) =
+        repository.storePairConfig(pairIndex, targetLevel, durationMultiplier)
 
     fun refreshValveConfig() = repository.refreshValveConfig()
 

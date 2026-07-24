@@ -73,6 +73,10 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "get_pair_combined";
     case BEET_IFACE_COMMAND_STORE_PAIR_COMBINED:
         return "store_pair_combined";
+    case BEET_IFACE_COMMAND_GET_PAIR_CONFIG:
+        return "get_pair_config";
+    case BEET_IFACE_COMMAND_STORE_PAIR_CONFIG:
+        return "store_pair_config";
     default:
         return "unknown";
     }
@@ -183,6 +187,10 @@ const char *beet_iface_reason_name(beet_iface_reason_t reason)
         return "invalid_combined";
     case BEET_IFACE_REASON_COMBINED_SAVED:
         return "combined_saved";
+    case BEET_IFACE_REASON_INVALID_PAIR_CONFIG:
+        return "invalid_pair_config";
+    case BEET_IFACE_REASON_PAIR_CONFIG_SAVED:
+        return "pair_config_saved";
     default:
         return "unknown";
     }

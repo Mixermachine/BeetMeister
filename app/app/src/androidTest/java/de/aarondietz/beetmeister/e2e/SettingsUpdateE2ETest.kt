@@ -129,5 +129,17 @@ class SettingsUpdateE2ETest {
         overview.tapPairDetails(index = 0)
         pairDetail.renameTo(newName)
         pairDetail.assertNameEquals(newName)
+        pairDetail.back()
+    }
+
+    @Test(timeout = 60_000)
+    fun pairTargetMoistureLevel_canBeSavedAndReadBack() {
+        overview.tapPairDetails(index = 0)
+        pairDetail.selectTargetLevelMoist()
+        pairDetail.assertTargetLevelMoistIsSelected()
+        pairDetail.back()
+        overview.tapPairDetails(index = 0)
+        pairDetail.assertTargetLevelMoistIsSelected()
+        pairDetail.back()
     }
 }

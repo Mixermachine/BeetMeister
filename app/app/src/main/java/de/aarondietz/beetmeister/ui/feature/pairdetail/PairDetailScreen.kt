@@ -18,6 +18,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Slider
+import de.aarondietz.beetmeister.model.controller.BeetPairConfig
+import de.aarondietz.beetmeister.model.controller.TargetMoistureLevel
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
@@ -67,6 +71,9 @@ internal fun PairDetailScreen(
     onManualStop: (Int) -> Unit,
     onMoistureTestStart: (Int) -> Unit,
     onClearError: (Int) -> Unit,
+    pairConfig: BeetPairConfig? = null,
+    onLoadPairConfig: (Int) -> Unit = {},
+    onStorePairConfig: (Int, TargetMoistureLevel, Int) -> Unit = { _, _, _ -> },
     showRenameDialogDefault: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -81,6 +88,7 @@ internal fun PairDetailScreen(
 
     LaunchedEffect(pairState.pairIndex) {
         onLoadPairWiring(pairState.pairIndex)
+        onLoadPairConfig(pairState.pairIndex)
     }
 
     LazyColumn(
@@ -204,6 +212,13 @@ internal fun PairDetailScreen(
             }
         }
         item {
+            PairConfigCard(
+                pairIndex = pairState.pairIndex,
+                pairConfig = pairConfig,
+                onStorePairConfig = onStorePairConfig,
+            )
+        }
+        item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEAF0E2)),
@@ -278,6 +293,110 @@ internal fun PairDetailScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PairConfigCard(
+    pairIndex: Int,
+    pairConfig: BeetPairConfig?,
+    onStorePairConfig: (Int, TargetMoistureLevel, Int) -> Unit,
+) {
+    val currentLevel = pairConfig?.targetLevel ?: TargetMoistureLevel.MEDIUM
+    val currentMultFloat = pairConfig?.multiplierFloat ?: 1.0f
+
+    var selectedLevel by remember(pairConfig) { mutableStateOf(currentLevel) }
+    var sliderValue by remember(pairConfig) { mutableStateOf(currentMultFloat) }
+
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF3EFE0)),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Target Moisture & Watering Time",
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Target Moisture Level:",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                FilterChip(
+                    selected = selectedLevel == TargetMoistureLevel.DRY,
+                    onClick = {
+                        selectedLevel = TargetMoistureLevel.DRY
+                        onStorePairConfig(
+                            pairIndex,
+                            TargetMoistureLevel.DRY,
+                            (sliderValue * 100).toInt(),
+                        )
+                    },
+                    label = { Text("Dry (~40%)") },
+                    modifier = Modifier.testTag(PairDetailTestTags.TargetLevelDry),
+                )
+                FilterChip(
+                    selected = selectedLevel == TargetMoistureLevel.MEDIUM,
+                    onClick = {
+                        selectedLevel = TargetMoistureLevel.MEDIUM
+                        onStorePairConfig(
+                            pairIndex,
+                            TargetMoistureLevel.MEDIUM,
+                            (sliderValue * 100).toInt(),
+                        )
+                    },
+                    label = { Text("Medium (~50%)") },
+                    modifier = Modifier.testTag(PairDetailTestTags.TargetLevelMedium),
+                )
+                FilterChip(
+                    selected = selectedLevel == TargetMoistureLevel.MOIST,
+                    onClick = {
+                        selectedLevel = TargetMoistureLevel.MOIST
+                        onStorePairConfig(
+                            pairIndex,
+                            TargetMoistureLevel.MOIST,
+                            (sliderValue * 100).toInt(),
+                        )
+                    },
+                    label = { Text("Moist (~65%)") },
+                    modifier = Modifier.testTag(PairDetailTestTags.TargetLevelMoist),
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "Watering Time Multiplier: ${String.format("%.1fx", sliderValue)}",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Slider(
+                value = sliderValue,
+                onValueChange = { newValue ->
+                    sliderValue = (Math.round(newValue * 10) / 10.0f).coerceIn(0.2f, 2.0f)
+                },
+                onValueChangeFinished = {
+                    onStorePairConfig(
+                        pairIndex,
+                        selectedLevel,
+                        (sliderValue * 100).toInt(),
+                    )
+                },
+                valueRange = 0.2f..2.0f,
+                steps = 17,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(PairDetailTestTags.MultiplierSlider),
+            )
+            Text(
+                text = "Scales automatic watering duration by ${String.format("%.1fx", sliderValue)}.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF545454),
+            )
         }
     }
 }

@@ -179,6 +179,22 @@ typedef struct {
     uint16_t flags;
 } beet_app_config_t;
 
+#define BEET_DURATION_MULTIPLIER_MIN 20U
+#define BEET_DURATION_MULTIPLIER_MAX 200U
+#define BEET_DURATION_MULTIPLIER_DEFAULT 100U
+
+typedef enum {
+    BEET_TARGET_MOISTURE_DRY = 0,
+    BEET_TARGET_MOISTURE_MEDIUM = 1,
+    BEET_TARGET_MOISTURE_MOIST = 2,
+} beet_target_moisture_level_t;
+
+typedef struct {
+    uint8_t pair_index;
+    beet_target_moisture_level_t target_level;
+    uint8_t duration_multiplier;
+} beet_pair_config_t;
+
 typedef struct {
     uint8_t pair_index;
     uint16_t dry_mv;
@@ -274,10 +290,13 @@ typedef struct {
 } beet_power_runtime_state_t;
 
 void beet_default_app_config(beet_app_config_t *config);
+void beet_default_pair_config(uint8_t pair_index, beet_pair_config_t *config);
 void beet_default_calibration(uint8_t pair_index, beet_pair_calibration_t *calibration);
 void beet_default_snapshot(uint8_t pair_index, beet_pair_runtime_snapshot_t *snapshot);
 void beet_default_power_runtime_state(beet_power_runtime_state_t *state);
 bool beet_is_valid_pair_index(uint8_t pair_index);
+bool beet_is_valid_target_moisture_level(beet_target_moisture_level_t level);
+bool beet_is_valid_duration_multiplier(uint8_t multiplier);
 bool beet_is_valid_pair_state(beet_pair_state_t state);
 bool beet_is_valid_battery_state(beet_battery_state_t state);
 bool beet_is_valid_run_source(beet_run_source_t source);
@@ -298,7 +317,10 @@ bool beet_is_sensor_mv_plausible(uint16_t corrected_sensor_mv, uint16_t dry_mv, 
 uint8_t beet_moisture_pct_from_mv(uint16_t dry_mv, uint16_t wet_mv, uint16_t sensor_mv);
 uint8_t beet_battery_pct_from_mv(uint16_t battery_mv);
 uint32_t beet_deep_low_recovery_interval_s(uint8_t failure_count);
-uint16_t beet_automatic_duration_s(uint8_t moisture_pct);
+uint16_t beet_automatic_duration_s(
+    uint8_t moisture_pct,
+    beet_target_moisture_level_t target_level,
+    uint8_t duration_multiplier);
 uint16_t beet_manual_duration_s(uint8_t moisture_pct);
 bool beet_is_valid_manual_duration_s(uint16_t duration_s);
 bool beet_sanity_check_passed(uint8_t pre_run_pct, uint8_t post_run_pct);

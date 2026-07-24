@@ -261,7 +261,12 @@ static void test_duration_lookup_boundaries(void)
     const uint16_t expected[] = {0U, 0U, 10U, 60U, 60U, 120U, 120U, 180U, 180U, 240U, 240U};
 
     for (size_t i = 0; i < sizeof(moisture_values) / sizeof(moisture_values[0]); ++i) {
-        TEST_ASSERT_U32_EQ(expected[i], beet_automatic_duration_s(moisture_values[i]));
+        TEST_ASSERT_U32_EQ(
+            expected[i],
+            beet_automatic_duration_s(
+                moisture_values[i],
+                BEET_TARGET_MOISTURE_MEDIUM,
+                BEET_DURATION_MULTIPLIER_DEFAULT));
     }
 
     TEST_ASSERT_U32_EQ(10U, beet_manual_duration_s(100U));
@@ -1597,6 +1602,74 @@ static void test_ble_format_combined_results(void)
         json);
 }
 
+static void test_target_moisture_levels_and_duration_multiplier(void)
+{
+    TEST_ASSERT_TRUE(beet_is_valid_target_moisture_level(BEET_TARGET_MOISTURE_DRY));
+    TEST_ASSERT_TRUE(beet_is_valid_target_moisture_level(BEET_TARGET_MOISTURE_MEDIUM));
+    TEST_ASSERT_TRUE(beet_is_valid_target_moisture_level(BEET_TARGET_MOISTURE_MOIST));
+    TEST_ASSERT_FALSE(beet_is_valid_target_moisture_level((beet_target_moisture_level_t)99));
+
+    TEST_ASSERT_TRUE(beet_is_valid_duration_multiplier(20U));
+    TEST_ASSERT_TRUE(beet_is_valid_duration_multiplier(100U));
+    TEST_ASSERT_TRUE(beet_is_valid_duration_multiplier(200U));
+    TEST_ASSERT_FALSE(beet_is_valid_duration_multiplier(19U));
+    TEST_ASSERT_FALSE(beet_is_valid_duration_multiplier(201U));
+
+    // Medium (Default), multiplier 1.0x (100)
+    TEST_ASSERT_U32_EQ(0U, beet_automatic_duration_s(85U, BEET_TARGET_MOISTURE_MEDIUM, 100U));
+    TEST_ASSERT_U32_EQ(180U, beet_automatic_duration_s(55U, BEET_TARGET_MOISTURE_MEDIUM, 100U));
+    TEST_ASSERT_U32_EQ(240U, beet_automatic_duration_s(45U, BEET_TARGET_MOISTURE_MEDIUM, 100U));
+
+    // Dry target
+    TEST_ASSERT_U32_EQ(0U, beet_automatic_duration_s(70U, BEET_TARGET_MOISTURE_DRY, 100U));
+    TEST_ASSERT_U32_EQ(120U, beet_automatic_duration_s(45U, BEET_TARGET_MOISTURE_DRY, 100U));
+
+    // Moist target
+    TEST_ASSERT_U32_EQ(60U, beet_automatic_duration_s(82U, BEET_TARGET_MOISTURE_MOIST, 100U));
+
+    // Duration Multiplier (0.5x, 1.5x, 2.0x)
+    TEST_ASSERT_U32_EQ(90U, beet_automatic_duration_s(55U, BEET_TARGET_MOISTURE_MEDIUM, 50U));
+    TEST_ASSERT_U32_EQ(270U, beet_automatic_duration_s(55U, BEET_TARGET_MOISTURE_MEDIUM, 150U));
+    TEST_ASSERT_U32_EQ(360U, beet_automatic_duration_s(55U, BEET_TARGET_MOISTURE_MEDIUM, 200U));
+}
+
+static void test_pair_config_codec(void)
+{
+    beet_iface_command_request_t request;
+    char json[512];
+    beet_iface_command_response_t response;
+
+    /* parse get_pair_config */
+    memset(&request, 0, sizeof(request));
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json("{\"cmd\":\"get_pair_config\",\"data\":{\"pair\":3}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_PAIR_CONFIG, request.command);
+    TEST_ASSERT_U32_EQ(3U, request.pair_index);
+
+    /* parse store_pair_config */
+    memset(&request, 0, sizeof(request));
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"store_pair_config\",\"data\":{\"pair\":2,\"target_level\":\"moist\",\"duration_multiplier\":150}}",
+        &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STORE_PAIR_CONFIG, request.command);
+    TEST_ASSERT_U32_EQ(2U, request.pair_index);
+    TEST_ASSERT_U32_EQ(BEET_TARGET_MOISTURE_MOIST, request.target_level);
+    TEST_ASSERT_U32_EQ(150U, request.duration_multiplier);
+
+    /* format store_pair_config response */
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_STORE_PAIR_CONFIG;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_PAIR_CONFIG_SAVED;
+    response.has_pair_config = true;
+    response.pair_config.pair_index = 2U;
+    response.pair_config.target_level = BEET_TARGET_MOISTURE_MOIST;
+    response.pair_config.duration_multiplier = 150U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"store_pair_config\",\"status\":\"accepted\",\"reason\":\"pair_config_saved\",\"data\":{\"pair\":2,\"target_level\":\"moist\",\"duration_multiplier\":150}}",
+        json);
+}
+
 int main(void)
 {
     const beet_test_case_t tests[] = {
@@ -1630,6 +1703,8 @@ int main(void)
         {"iface_name_mapping", test_iface_name_mapping},
         {"ble_parse_combined_commands", test_ble_parse_combined_commands},
         {"ble_format_combined_results", test_ble_format_combined_results},
+        {"target_moisture_levels_and_duration_multiplier", test_target_moisture_levels_and_duration_multiplier},
+        {"pair_config_codec", test_pair_config_codec},
     };
 
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); ++i) {

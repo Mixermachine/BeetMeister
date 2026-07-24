@@ -9,6 +9,7 @@ import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetPairWiring
 import de.aarondietz.beetmeister.model.controller.BeetPairCombined
+import de.aarondietz.beetmeister.model.controller.BeetPairConfig
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.controller.BeetWateringInterval
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
@@ -45,6 +46,7 @@ data class BeetRepositoryState(
     val pairNames: Map<Int, String> = emptyMap(),
     val pairWirings: Map<Int, BeetPairWiring> = emptyMap(),
     val pairCombined: Map<Int, BeetPairCombined> = emptyMap(),
+    val pairConfigs: Map<Int, BeetPairConfig> = emptyMap(),
     val pairWiringLoading: Set<Int> = emptySet(),
     val pairWiringErrors: Map<Int, String> = emptyMap(),
     val calibrationsRefreshing: Boolean = false,
