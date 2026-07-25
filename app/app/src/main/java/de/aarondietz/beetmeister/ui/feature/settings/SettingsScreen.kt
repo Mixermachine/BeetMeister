@@ -250,7 +250,7 @@ internal fun SettingsScreen(
     ) {
         LazyColumn(
             modifier = Modifier.testTag(SettingsTestTags.List),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {

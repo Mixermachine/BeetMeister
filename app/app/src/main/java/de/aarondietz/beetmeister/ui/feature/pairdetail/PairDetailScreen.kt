@@ -96,7 +96,7 @@ internal fun PairDetailScreen(
 
     LazyColumn(
         modifier = modifier.testTag(PairDetailTestTags.Container),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
