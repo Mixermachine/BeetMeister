@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.data.repository
 
+import de.aarondietz.beetmeister.logging.BeetLog
 import de.aarondietz.beetmeister.model.event.BeetHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
@@ -230,11 +231,13 @@ internal class BeetBacklogSyncRunner(
                 BeetBacklogFetchStatus.Failed -> {
                     val failures = (failureCounts[sequence] ?: 0) + 1
                     if (failures >= config.transientFailurePerSequenceLimit) {
+                        BeetLog.w(TAG) { "Skipping seq=$sequence after $failures consecutive failures" }
                         nextCursor -= 1L
                         inspected++
                         existing += sequence
                         failureCounts.remove(sequence)
                     } else {
+                        BeetLog.w(TAG) { "Transient fetch failure for seq=$sequence (attempt $failures/${config.transientFailurePerSequenceLimit})" }
                         failureCounts[sequence] = failures
                     }
                     break
@@ -261,4 +264,8 @@ internal class BeetBacklogSyncRunner(
         val congested: Boolean,
         val downloaded: Int,
     )
+
+    companion object {
+        private const val TAG = "BeetBacklogSync"
+    }
 }

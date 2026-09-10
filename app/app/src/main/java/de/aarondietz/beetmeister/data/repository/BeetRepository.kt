@@ -5,7 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.net.Uri
 import android.content.SharedPreferences
-import android.util.Log
+import de.aarondietz.beetmeister.logging.BeetLog
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.data.ble.BeetBluetoothSupport
 import de.aarondietz.beetmeister.data.ble.BeetConnectionSession
@@ -70,7 +70,7 @@ internal class BeetRepository(
     fun start() = scanBondCoordinator.start()
 
     fun close() {
-        Log.d(TAG, "close()")
+        BeetLog.d(TAG, "close()")
         // Guard: suppress close during maintenance flows.
         // Activity recreation (ActivityScenarioRule) can trigger
         // onCleared() during the E2E test. Don't kill the BLE
@@ -81,8 +81,10 @@ internal class BeetRepository(
         if (currentPhase == BeetConnectionPhase.MaintenanceRequired ||
             updatePhase.isActiveMaintenancePhase()
         ) {
-            Log.w(TAG, "close() suppressed — maintenance is " +
-                "phase=$currentPhase updatePhase=$updatePhase")
+            BeetLog.w(TAG) {
+                "close() suppressed — maintenance is " +
+                    "phase=$currentPhase updatePhase=$updatePhase"
+            }
             return
         }
         scanBondCoordinator.close()
@@ -104,7 +106,7 @@ internal class BeetRepository(
     fun connect(address: String) = scanBondCoordinator.connect(address)
 
     fun disconnect() {
-        Log.d(TAG, "disconnect()")
+        BeetLog.d(TAG, "disconnect()")
         manualDisconnectRequested = true
         removeLastAddress()
         scanBondCoordinator.disconnect()
@@ -190,11 +192,10 @@ internal class BeetRepository(
 
     fun startMaintenanceUpdate() {
         val selected = state.value.maintenanceUpdate.selectedFirmware
-        Log.d(
-            TAG,
+        BeetLog.d(TAG) {
             "startMaintenanceUpdate(selected=${selected?.metadata?.firmwareVersion}/${selected?.sourceLabel}, " +
-                "phase=${state.value.maintenanceUpdate.phase})",
-        )
+                "phase=${state.value.maintenanceUpdate.phase})"
+        }
         gattSessionCoordinator.startMaintenanceUpdate()
     }
 
@@ -202,7 +203,7 @@ internal class BeetRepository(
 
     override fun updateConnection(phase: BeetConnectionPhase, detail: String?) {
         val previous = state.value.connection
-        Log.d(TAG, "updateConnection(${previous.phase} -> $phase, previousDetail=${previous.detail}, detail=$detail, selected=$currentAddress)")
+        BeetLog.d(TAG) { "updateConnection(${previous.phase} -> $phase, previousDetail=${previous.detail}, detail=$detail, selected=$currentAddress)" }
         _state.update { it.copy(connection = BeetConnectionState(phase, detail)) }
     }
 
@@ -223,7 +224,7 @@ internal class BeetRepository(
     }
 
     override fun clearSession() {
-        Log.d(TAG, "clearSession()")
+        BeetLog.d(TAG, "clearSession()")
         _state.update {
             it.copy(
                 controllerInfo = null,

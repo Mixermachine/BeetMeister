@@ -39,16 +39,16 @@ middle_screw_hole_d       = 3.0;
 // -----------------------------
 valve_stem_w            = 4.7;
 valve_stem_d            = 4.7;
-valve_socket_clearance  = 0.15;  // total clearance, not per side; tighter grip on 4.7 mm square stem
+valve_socket_clearance  = 0.1;  // total clearance, not per side; tighter grip on 4.7 mm square stem
 valve_socket_w          = valve_stem_w + valve_socket_clearance;
 valve_socket_d          = valve_stem_d + valve_socket_clearance;
-valve_socket_depth      = 5.6;
+valve_socket_depth      = 4.5;
 
 // Lower nose must fit into the 9.5 mm orange circular recess.
 // Keep this comfortably below 9.5 mm.
 // The nose is deliberately tall: the wider flange starts only above the raised
 // 22.9 mm orange actuator area so the coupler does not rub on it.
-drive_nose_d            = 8.2;
+drive_nose_d            = 9.5;
 drive_nose_h            = 11.0;
 flange_h                = 3.5;
 transition_h            = 0.8;

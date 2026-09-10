@@ -103,6 +103,8 @@ tasks.matching { task ->
 }
 
 dependencies {
+    implementation(libs.slf4j.api)
+    implementation(libs.logback.android)
     implementation(platform(libs.koin.bom))
     implementation(libs.moshi)
     implementation(libs.moshi.kotlin)

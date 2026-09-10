@@ -1,6 +1,6 @@
 package de.aarondietz.beetmeister.ui
 
-import android.util.Log
+import de.aarondietz.beetmeister.logging.BeetLog
 import de.aarondietz.beetmeister.data.repository.BeetRepository
 import android.net.Uri
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
@@ -95,7 +95,7 @@ internal class BeetAppViewModel(
     fun prepareCustomFirmware(uri: Uri) = repository.prepareCustomFirmware(uri)
 
     fun startMaintenanceUpdate() {
-        Log.d(TAG, "startMaintenanceUpdate()")
+        BeetLog.d(TAG, "startMaintenanceUpdate()")
         repository.startMaintenanceUpdate()
     }
 

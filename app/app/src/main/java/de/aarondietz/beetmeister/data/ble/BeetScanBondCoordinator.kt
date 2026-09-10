@@ -12,9 +12,9 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.ParcelUuid
-import android.util.Log
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.data.repository.BeetRepositoryCallbacks
+import de.aarondietz.beetmeister.logging.BeetLog
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -32,7 +32,7 @@ internal class BeetScanBondCoordinator(
     private var pendingBondGattKickAddress: String? = null
 
     fun start() {
-        Log.d(TAG, "start()")
+        BeetLog.d(TAG, "start()")
         registerReceiverIfNeeded()
         refreshEnvironment()
         val savedAddress = host.appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -45,7 +45,7 @@ internal class BeetScanBondCoordinator(
     }
 
     fun close() {
-        Log.d(TAG, "close()")
+        BeetLog.d(TAG, "close()")
         stopScan()
         bondMonitorJob?.cancel()
         bondMonitorJob = null
@@ -80,10 +80,9 @@ internal class BeetScanBondCoordinator(
         detail: String = strings.get(R.string.scan_searching_nearby),
         clearResults: Boolean = false,
     ) {
-        Log.d(
-            TAG,
-            "startScan(clearResults=$clearResults, detail=$detail, callbackActive=${scanCallback != null}, phase=${host.state.value.connection.phase})",
-        )
+        BeetLog.d(TAG) {
+            "startScan(clearResults=$clearResults, detail=$detail, callbackActive=${scanCallback != null}, phase=${host.state.value.connection.phase})"
+        }
         if (!BeetBluetoothSupport.hasRequiredPermissions(host.appContext)) {
             updateConnection(BeetConnectionPhase.PermissionsRequired, strings.get(R.string.scan_permissions_required))
             return
@@ -133,14 +132,14 @@ internal class BeetScanBondCoordinator(
     fun stopScan() {
         val callback = scanCallback ?: return
         val scanner = host.bluetoothAdapter?.bluetoothLeScanner ?: return
-        Log.d(TAG, "stopScan()")
+        BeetLog.d(TAG, "stopScan()")
         @Suppress("MissingPermission")
         scanner.stopScan(callback)
         scanCallback = null
     }
 
     fun connect(address: String) {
-        Log.d(TAG, "connect(address=$address)")
+        BeetLog.d(TAG) { "connect(address=$address)" }
         if (!BeetBluetoothSupport.hasRequiredPermissions(host.appContext)) {
             updateConnection(BeetConnectionPhase.PermissionsRequired, strings.get(R.string.scan_permissions_required))
             return
@@ -162,7 +161,7 @@ internal class BeetScanBondCoordinator(
             }
             host.currentAddress = address
             host.updateState { it.copy(selectedAddress = address, lastCommandMessage = null) }
-            Log.d(TAG, "Resolved device name=${device.name} bondState=${device.bondState}")
+            BeetLog.d(TAG) { "Resolved device name=${device.name} bondState=${device.bondState}" }
 
             if (device.bondState != BluetoothDevice.BOND_BONDED) {
                 pendingBondAddress = address
@@ -182,7 +181,7 @@ internal class BeetScanBondCoordinator(
     }
 
     fun disconnect() {
-        Log.d(TAG, "disconnect()")
+        BeetLog.d(TAG, "disconnect()")
         stopScan()
         bondMonitorJob?.cancel()
         bondMonitorJob = null
@@ -226,7 +225,7 @@ internal class BeetScanBondCoordinator(
                 pairingExpired = bondState == BluetoothDevice.BOND_NONE
             }
 
-            Log.w(TAG, "recoverFromStaleBond(address=$address, status=$status, bondState=$bondState)")
+            BeetLog.w(TAG) { "recoverFromStaleBond(address=$address, status=$status, bondState=$bondState)" }
             if (pairingExpired) {
                 pendingBondAddress = address
                 pendingBondGattKickAddress = address
@@ -249,14 +248,13 @@ internal class BeetScanBondCoordinator(
     private fun monitorBondState(device: BluetoothDevice) {
         bondMonitorJob?.cancel()
         bondMonitorJob = host.scope.launch {
-            Log.d(TAG, "monitorBondState(address=${device.address})")
+            BeetLog.d(TAG) { "monitorBondState(address=${device.address})" }
             repeat(40) { attempt ->
                 delay(500)
                 val bondState = device.bondState
-                Log.d(
-                    TAG,
-                    "monitorBondState poll address=${device.address} bondState=$bondState pending=$pendingBondAddress phase=${host.state.value.connection.phase}",
-                )
+                BeetLog.d(TAG) {
+                    "monitorBondState poll address=${device.address} bondState=$bondState pending=$pendingBondAddress phase=${host.state.value.connection.phase}"
+                }
                 if (device.address != pendingBondAddress) {
                     bondMonitorJob = null
                     return@launch
@@ -279,10 +277,9 @@ internal class BeetScanBondCoordinator(
                         if (host.session.currentGatt == null) {
                             host.requestOpenGatt(device)
                         } else {
-                            Log.d(
-                                TAG,
-                                "Skipping BOND_BONDED openGatt: GATT connection already live address=${device.address}",
-                            )
+                            BeetLog.d(TAG) {
+                                "Skipping BOND_BONDED openGatt: GATT connection already live address=${device.address}"
+                            }
                         }
                         return@launch
                     }
@@ -291,7 +288,7 @@ internal class BeetScanBondCoordinator(
                             host.session.currentGatt == null &&
                             pendingBondGattKickAddress == device.address
                         ) {
-                            Log.d(TAG, "Opening GATT during bonding for address=${device.address}")
+                            BeetLog.d(TAG) { "Opening GATT during bonding for address=${device.address}" }
                             pendingBondGattKickAddress = null
                             host.requestOpenGatt(device)
                         }
@@ -354,7 +351,7 @@ internal class BeetScanBondCoordinator(
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 BluetoothAdapter.ACTION_STATE_CHANGED -> {
-                    Log.d(TAG, "Broadcast ACTION_STATE_CHANGED enabled=${host.bluetoothAdapter?.isEnabled}")
+                    BeetLog.d(TAG) { "Broadcast ACTION_STATE_CHANGED enabled=${host.bluetoothAdapter?.isEnabled}" }
                     refreshEnvironment()
                     if (host.bluetoothAdapter?.isEnabled == true &&
                         host.state.value.connection.phase == BeetConnectionPhase.Idle &&
@@ -383,10 +380,9 @@ internal class BeetScanBondCoordinator(
             return
         }
         val bondedDevice = device ?: return
-        Log.d(
-            TAG,
-            "Broadcast ACTION_BOND_STATE_CHANGED address=${bondedDevice.address} previous=$previousBondState current=$bondState pending=$pendingBondAddress",
-        )
+        BeetLog.d(TAG) {
+            "Broadcast ACTION_BOND_STATE_CHANGED address=${bondedDevice.address} previous=$previousBondState current=$bondState pending=$pendingBondAddress"
+        }
         when (bondState) {
             BluetoothDevice.BOND_BONDING -> {
                 updateConnection(BeetConnectionPhase.Bonding, strings.get(R.string.scan_pairing_in_progress_confirm))
@@ -403,10 +399,9 @@ internal class BeetScanBondCoordinator(
                 if (host.session.currentGatt == null) {
                     host.requestOpenGatt(bondedDevice)
                 } else {
-                    Log.d(
-                        TAG,
-                        "Skipping BOND_BONDED openGatt from broadcast: GATT connection already live address=${bondedDevice.address}",
-                    )
+                    BeetLog.d(TAG) {
+                        "Skipping BOND_BONDED openGatt from broadcast: GATT connection already live address=${bondedDevice.address}"
+                    }
                 }
             }
             BluetoothDevice.BOND_NONE -> {
