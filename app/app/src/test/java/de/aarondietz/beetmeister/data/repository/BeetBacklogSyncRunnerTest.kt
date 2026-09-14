@@ -239,9 +239,56 @@ class BeetBacklogSyncRunnerTest {
         assertEquals(2, downloaded)
     }
 
+    @Test
+    fun terminatesBackwardsScanWhenConsecutiveNotFoundLimitReached() = runBlocking {
+        val fetched = mutableListOf<Long>()
+        val ingested = mutableListOf<Long>()
+        val runner = runner(
+            maxConsecutiveNotFoundLimit = 3,
+        )
+
+        val downloaded = runner.run(
+            input = BeetBacklogSyncInput(
+                wateringSummary = null,
+                systemSummary = BeetSystemHistorySummary(
+                    latestSequenceNumber = 100,
+                    eventCount = 2,
+                ),
+                existingWateringSequences = emptySet(),
+                existingSystemSequences = emptySet(),
+                limit = 64,
+            ),
+            isConnected = { true },
+            isPauseRequested = { false },
+            onProgress = {},
+            onWateringEvent = {},
+            onSystemEvent = { ingested += it.sequenceNumber },
+            fetchWateringEvent = { error("watering stream is not used in this test") },
+            fetchSystemEvent = { sequence ->
+                fetched += sequence
+                if (sequence in listOf(100L, 99L)) {
+                    BeetBacklogFetchResult(
+                        status = BeetBacklogFetchStatus.Accepted,
+                        event = systemEvent(sequence = sequence, unixSeconds = 1_000_000L),
+                    )
+                } else {
+                    BeetBacklogFetchResult(
+                        status = BeetBacklogFetchStatus.NotFound,
+                    )
+                }
+            },
+        )
+
+        // Fetches 100, 99, then 3 NotFounds: 98, 97, 96, then stops without scanning down to 1
+        assertEquals(listOf(100L, 99L, 98L, 97L, 96L), fetched)
+        assertEquals(listOf(100L, 99L), ingested)
+        assertEquals(2, downloaded)
+    }
+
     private fun runner(
         nowUnixSeconds: () -> Long = { 1_000_000L },
         sleep: suspend (Long) -> Unit = {},
+        maxConsecutiveNotFoundLimit: Int = 5,
     ) = BeetBacklogSyncRunner(
         config = BeetBacklogSyncConfig(
             retentionSeconds = RETENTION_SECONDS,
@@ -252,6 +299,7 @@ class BeetBacklogSyncRunnerTest {
             pausePollDelayMs = PAUSE_POLL_DELAY_MS,
             congestionDelayMs = CONGESTION_DELAY_MS,
             transientFailurePerSequenceLimit = 2,
+            maxConsecutiveNotFoundLimit = maxConsecutiveNotFoundLimit,
         ),
         nowUnixSeconds = nowUnixSeconds,
         sleep = sleep,

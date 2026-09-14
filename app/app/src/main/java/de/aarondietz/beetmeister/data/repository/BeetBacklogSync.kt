@@ -18,6 +18,7 @@ internal data class BeetBacklogSyncConfig(
     val pausePollDelayMs: Long,
     val congestionDelayMs: Long,
     val transientFailurePerSequenceLimit: Int,
+    val maxConsecutiveNotFoundLimit: Int = 5,
 )
 
 internal enum class BeetBacklogFetchStatus {
@@ -78,6 +79,8 @@ internal class BeetBacklogSyncRunner(
         val total = estimatedWateringMissing + estimatedSystemMissing
         val wateringFailureCounts = mutableMapOf<Long, Int>()
         val systemFailureCounts = mutableMapOf<Long, Int>()
+        var wateringConsecutiveNotFound = 0
+        var systemConsecutiveNotFound = 0
 
         onProgress(BeetBacklogProgress(downloaded = 0, total = total, active = true, phase = BeetEventSyncPhase.CatchingUp))
 
@@ -100,6 +103,7 @@ internal class BeetBacklogSyncRunner(
                     batchSize = batchSize,
                     cutoffUnixSeconds = cutoffUnixSeconds,
                     failureCounts = wateringFailureCounts,
+                    consecutiveNotFound = wateringConsecutiveNotFound,
                     fetch = fetchWateringEvent,
                     eventTime = { it.endedAtUnixSeconds },
                     eventTimeValid = { it.timeValid },
@@ -107,6 +111,7 @@ internal class BeetBacklogSyncRunner(
                 )
                 wateringCursor = result.nextCursor
                 wateringDone = result.done
+                wateringConsecutiveNotFound = result.consecutiveNotFound
                 progressThisCycle = progressThisCycle || result.progressMade
                 congestedThisCycle = congestedThisCycle || result.congested
                 downloaded += result.downloaded
@@ -120,6 +125,7 @@ internal class BeetBacklogSyncRunner(
                     batchSize = batchSize,
                     cutoffUnixSeconds = cutoffUnixSeconds,
                     failureCounts = systemFailureCounts,
+                    consecutiveNotFound = systemConsecutiveNotFound,
                     fetch = fetchSystemEvent,
                     eventTime = { it.unixSeconds },
                     eventTimeValid = { it.timeValid },
@@ -127,6 +133,7 @@ internal class BeetBacklogSyncRunner(
                 )
                 systemCursor = result.nextCursor
                 systemDone = result.done
+                systemConsecutiveNotFound = result.consecutiveNotFound
                 progressThisCycle = progressThisCycle || result.progressMade
                 congestedThisCycle = congestedThisCycle || result.congested
                 downloaded += result.downloaded
@@ -177,13 +184,21 @@ internal class BeetBacklogSyncRunner(
         batchSize: Int,
         cutoffUnixSeconds: Long,
         failureCounts: MutableMap<Long, Int>,
+        consecutiveNotFound: Int,
         fetch: suspend (Long) -> BeetBacklogFetchResult<T>,
         eventTime: (T) -> Long,
         eventTimeValid: (T) -> Boolean,
         onAcceptedEvent: (T) -> Unit,
     ): StreamResult {
         if (done) {
-            return StreamResult(nextCursor = cursor, done = true, progressMade = false, congested = false, downloaded = 0)
+            return StreamResult(
+                nextCursor = cursor,
+                done = true,
+                progressMade = false,
+                congested = false,
+                downloaded = 0,
+                consecutiveNotFound = consecutiveNotFound,
+            )
         }
         var nextCursor = cursor
         var nextDone = nextCursor <= 0L
@@ -191,6 +206,7 @@ internal class BeetBacklogSyncRunner(
         var progressMade = false
         var congested = false
         var downloaded = 0
+        var currentConsecutiveNotFound = consecutiveNotFound
 
         while (!nextDone && inspected < batchSize && nextCursor > 0L) {
             val sequence = nextCursor
@@ -205,6 +221,7 @@ internal class BeetBacklogSyncRunner(
                 BeetBacklogFetchStatus.Accepted -> {
                     nextCursor -= 1L
                     inspected++
+                    currentConsecutiveNotFound = 0
                     failureCounts.remove(sequence)
                     existing += sequence
                     val event = result.event ?: continue
@@ -219,8 +236,16 @@ internal class BeetBacklogSyncRunner(
                 BeetBacklogFetchStatus.NotFound -> {
                     nextCursor -= 1L
                     inspected++
+                    currentConsecutiveNotFound++
                     failureCounts.remove(sequence)
                     existing += sequence
+                    if (currentConsecutiveNotFound >= config.maxConsecutiveNotFoundLimit) {
+                        BeetLog.d(TAG) {
+                            "Terminating stream scan at seq=$sequence after $currentConsecutiveNotFound consecutive NotFound responses"
+                        }
+                        nextDone = true
+                        break
+                    }
                 }
                 BeetBacklogFetchStatus.Busy,
                 BeetBacklogFetchStatus.RateLimited,
@@ -254,6 +279,7 @@ internal class BeetBacklogSyncRunner(
             progressMade = progressMade,
             congested = congested,
             downloaded = downloaded,
+            consecutiveNotFound = currentConsecutiveNotFound,
         )
     }
 
@@ -263,6 +289,7 @@ internal class BeetBacklogSyncRunner(
         val progressMade: Boolean,
         val congested: Boolean,
         val downloaded: Int,
+        val consecutiveNotFound: Int,
     )
 
     companion object {

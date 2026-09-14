@@ -958,6 +958,7 @@ internal class BeetGattSessionCoordinator(
                     pausePollDelayMs = SYNC_PAUSE_POLL_MS,
                     congestionDelayMs = SYNC_CONGESTION_DELAY_MS,
                     transientFailurePerSequenceLimit = SYNC_TRANSIENT_FAILURE_LIMIT,
+                    maxConsecutiveNotFoundLimit = SYNC_CONSECUTIVE_NOT_FOUND_LIMIT,
                 ),
                 nowUnixSeconds = { System.currentTimeMillis() / 1000L },
                 sleep = { delay(it) },
@@ -2583,6 +2584,7 @@ internal class BeetGattSessionCoordinator(
         private const val SYNC_PAUSE_POLL_MS = 50L
         private const val SYNC_CONGESTION_DELAY_MS = 150L
         private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
+        private const val SYNC_CONSECUTIVE_NOT_FOUND_LIMIT = 3
         private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
         private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L
