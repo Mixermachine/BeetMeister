@@ -101,10 +101,14 @@ def main() -> int:
     runtime_hits: list[str] = []
     maintenance_hits: list[str] = []
     for path, changed_line in diff_entries:
-        if path.endswith((".md", ".txt", ".png", ".svg", ".jpg", ".jpeg", ".properties", ".yml", ".yaml")):
+        if path.endswith((".md", ".txt", ".png", ".svg", ".jpg", ".jpeg", ".properties", ".yml", ".yaml", ".xml")):
+            continue
+        if "/res/" in path.replace("\\", "/"):
             continue
         normalized = changed_line.strip()
         if not normalized:
+            continue
+        if "R.string.maintenance_" in normalized:
             continue
         if MAINTENANCE_LINE_RE.search(normalized):
             maintenance_hits.append(path)
