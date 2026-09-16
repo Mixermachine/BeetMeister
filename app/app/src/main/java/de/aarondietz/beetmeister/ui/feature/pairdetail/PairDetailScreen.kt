@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.ui.feature.pairdetail
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,6 +26,7 @@ import de.aarondietz.beetmeister.model.controller.TargetMoistureLevel
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +35,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -93,24 +96,41 @@ internal fun PairDetailScreen(
 
     LazyColumn(
         modifier = modifier.testTag(PairDetailTestTags.Container),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
-            TextButton(
-                onClick = onBack,
-                modifier = Modifier.testTag(PairDetailTestTags.BackButton),
-            ) { Text(strings.get(R.string.common_back)) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.testTag(PairDetailTestTags.BackButton),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = strings.get(R.string.common_back),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                Text(
+                    text = strings.get(R.string.common_back),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF9F6EF)),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             if (pairName != null && pairName.isNotBlank()) pairName
@@ -183,10 +203,10 @@ internal fun PairDetailScreen(
                             )
                         }
                         pairWiringLoading -> {
-                            Text(strings.get(R.string.pair_detail_wiring_loading), color = Color(0xFF545454))
+                            Text(strings.get(R.string.pair_detail_wiring_loading), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         pairWiringError != null -> {
-                            Text(pairWiringError, color = Color(0xFF7D4632))
+                            Text(pairWiringError, color = MaterialTheme.colorScheme.error)
                             TextButton(onClick = { onLoadPairWiring(pairState.pairIndex) }) {
                                 Text(strings.get(R.string.pair_detail_wiring_retry))
                             }
@@ -194,12 +214,12 @@ internal fun PairDetailScreen(
                     }
                     if (!pairState.enabled) {
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text(strings.get(R.string.pair_detail_disabled_info), color = Color(0xFF545454))
+                        Text(strings.get(R.string.pair_detail_disabled_info), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else if (pairState.blocked || pairState.state == "FAULT") {
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             strings.get(R.string.common_reason_value, blockReasonCodeLabel(pairState.blockReason, strings)),
-                            color = Color(0xFF7D4632),
+                            color = MaterialTheme.colorScheme.error,
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
@@ -221,7 +241,7 @@ internal fun PairDetailScreen(
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEAF0E2)),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(strings.get(R.string.pair_detail_manual_watering), style = MaterialTheme.typography.titleLarge)
@@ -267,14 +287,14 @@ internal fun PairDetailScreen(
         item {
             ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF0E7DA)),
+                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(strings.get(R.string.pair_detail_irrigation_detection), style = MaterialTheme.typography.titleLarge)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         strings.get(R.string.pair_detail_detection_description),
-                        color = Color(0xFF545454),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
@@ -306,12 +326,24 @@ private fun PairConfigCard(
     val currentLevel = pairConfig?.targetLevel ?: TargetMoistureLevel.MEDIUM
     val currentMultFloat = pairConfig?.multiplierFloat ?: 1.0f
 
-    var selectedLevel by remember(pairConfig) { mutableStateOf(currentLevel) }
-    var sliderValue by remember(pairConfig) { mutableStateOf(currentMultFloat) }
+    var selectedLevel by remember(pairIndex) { mutableStateOf(currentLevel) }
+    var sliderValue by remember(pairIndex) { mutableStateOf(currentMultFloat) }
+
+    LaunchedEffect(pairConfig?.targetLevel) {
+        if (pairConfig?.targetLevel != null) {
+            selectedLevel = pairConfig.targetLevel
+        }
+    }
+
+    LaunchedEffect(pairConfig?.multiplierFloat) {
+        if (pairConfig?.multiplierFloat != null) {
+            sliderValue = pairConfig.multiplierFloat
+        }
+    }
 
     ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF3EFE0)),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -395,7 +427,7 @@ private fun PairConfigCard(
             Text(
                 text = "Scales automatic watering duration by ${String.format("%.1fx", sliderValue)}.",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFF545454),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

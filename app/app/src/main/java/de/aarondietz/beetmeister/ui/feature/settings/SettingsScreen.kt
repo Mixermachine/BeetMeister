@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.ui.feature.settings
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledIconButton
@@ -30,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -247,14 +250,15 @@ internal fun SettingsScreen(
     ) {
         LazyColumn(
             modifier = Modifier.testTag(SettingsTestTags.List),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
                 ElevatedCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(SettingsTestTags.ControllerInfoCard),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF2EFE8)),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(strings.get(R.string.settings_title), style = MaterialTheme.typography.headlineSmall)
@@ -309,7 +313,7 @@ internal fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(SettingsTestTags.FirmwareUpdateCard),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F0E5)),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(strings.get(R.string.settings_firmware_update_title), style = MaterialTheme.typography.titleMedium)
@@ -328,7 +332,7 @@ internal fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(SettingsTestTags.ControllerManagementCard),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF5E9E5)),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(strings.get(R.string.settings_controller_management_title), style = MaterialTheme.typography.titleMedium)
@@ -343,6 +347,10 @@ internal fun SettingsScreen(
                         Button(
                             onClick = { showFactoryResetDialog = true },
                             enabled = state.connection.phase == BeetConnectionPhase.Connected && !hasUnsavedChanges,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError,
+                            ),
                             modifier = Modifier.testTag(SettingsTestTags.ControllerManagementFactoryReset),
                         ) {
                             Text(strings.get(R.string.settings_factory_reset_action))
@@ -362,7 +370,7 @@ internal fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(SettingsTestTags.WateringIntervalCard),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEDEFF4)),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(strings.get(R.string.settings_watering_interval_title), style = MaterialTheme.typography.titleMedium)
@@ -426,7 +434,7 @@ internal fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(SettingsTestTags.ValveCard),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFE8EFE8)),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(strings.get(R.string.settings_valve_title), style = MaterialTheme.typography.titleMedium)
@@ -472,13 +480,14 @@ internal fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(SettingsTestTags.ValveConfigCard),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F2E9)),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(strings.get(R.string.settings_valve_config_title), style = MaterialTheme.typography.titleMedium)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(strings.get(R.string.settings_label_valve_enabled))
                             Switch(
@@ -541,7 +550,7 @@ internal fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(SettingsTestTags.MaxActivePumpsCard),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEFE6F2)),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(strings.get(R.string.settings_max_active_pumps_title), style = MaterialTheme.typography.titleMedium)
@@ -558,7 +567,7 @@ internal fun SettingsScreen(
                         val currentMax = maxPumpsDraft ?: 0
                         val liveMax = state.maxActivePumps
                         Row(
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             FilledIconButton(

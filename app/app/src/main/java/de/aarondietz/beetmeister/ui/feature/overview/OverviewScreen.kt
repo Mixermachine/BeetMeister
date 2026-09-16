@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.ui.feature.overview
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -44,6 +46,14 @@ import de.aarondietz.beetmeister.ui.core.formatting.pairStateLabel
 import de.aarondietz.beetmeister.ui.core.formatting.runSourceLabel
 import de.aarondietz.beetmeister.ui.core.formatting.valveStateLabel
 import de.aarondietz.beetmeister.ui.core.formatting.yesNo
+import de.aarondietz.beetmeister.ui.core.theme.StatusErrorContainer
+import de.aarondietz.beetmeister.ui.core.theme.StatusErrorOnContainer
+import de.aarondietz.beetmeister.ui.core.theme.StatusOkContainer
+import de.aarondietz.beetmeister.ui.core.theme.StatusOkOnContainer
+import de.aarondietz.beetmeister.ui.core.theme.StatusWarningContainer
+import de.aarondietz.beetmeister.ui.core.theme.StatusWarningOnContainer
+import de.aarondietz.beetmeister.ui.core.theme.StatusWaterContainer
+import de.aarondietz.beetmeister.ui.core.theme.StatusWaterOnContainer
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import de.aarondietz.beetmeister.ui.core.preview.PreviewData
@@ -62,7 +72,8 @@ internal fun OverviewScreen(
     val strings = rememberBeetStringResolver()
     LazyColumn(
         modifier = modifier.testTag(OverviewTestTags.List),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
             SystemValuesCard(state = state)
@@ -100,13 +111,17 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
         )
     }
     ElevatedCard(
-        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF6F1E4)),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = Modifier
             .fillMaxWidth()
             .testTag(OverviewTestTags.SystemValuesCard),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(strings.get(R.string.overview_title_system_values), style = MaterialTheme.typography.titleLarge)
+            Text(
+                strings.get(R.string.overview_title_system_values),
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
             Spacer(modifier = Modifier.height(12.dp))
             ValueGridRow(
                 strings.get(R.string.overview_label_battery),
@@ -157,18 +172,19 @@ private fun PairOverviewCard(
     onToggleEnabled: () -> Unit,
     strings: de.aarondietz.beetmeister.strings.BeetStringResolver,
 ) {
-    val tone = when {
-        !pair.enabled -> Color(0xFFE3E0DA)
-        pair.state == "FAULT" -> Color(0xFFF3D7D3)
-        pair.blocked -> Color(0xFFF0E1BF)
-        pair.state == "WATERING" -> Color(0xFFD5E7F3)
-        else -> Color(0xFFF9F8F2)
+    val (chipContainerColor, chipContentColor) = when {
+        !pair.enabled -> MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
+        pair.state == "FAULT" -> StatusErrorContainer to StatusErrorOnContainer
+        pair.blocked -> StatusWarningContainer to StatusWarningOnContainer
+        pair.state == "WATERING" -> StatusWaterContainer to StatusWaterOnContainer
+        else -> StatusOkContainer to StatusOkOnContainer
     }
+
     ElevatedCard(
-        colors = CardDefaults.elevatedCardColors(containerColor = tone),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (pair.enabled) 1f else 0.7f)
+            .alpha(if (pair.enabled) 1f else 0.75f)
             .testTag(OverviewTestTags.PairCard),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -181,11 +197,17 @@ private fun PairOverviewCard(
                     if (pairName != null && pairName.isNotBlank()) pairName
                     else strings.get(R.string.common_pair_number, pair.pairIndex),
                     style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.testTag(OverviewTestTags.PairName),
                 )
                 AssistChip(
                     onClick = {},
                     label = { Text(pairStateLabel(pair.state, strings)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = chipContainerColor,
+                        labelColor = chipContentColor,
+                    ),
+                    border = null,
                     modifier = Modifier.testTag(OverviewTestTags.PairState),
                 )
             }
@@ -208,18 +230,18 @@ private fun PairOverviewCard(
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = strings.get(R.string.overview_pair_disabled_info),
-                    color = Color(0xFF545454),
-                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelMedium,
                 )
             } else if (pair.blocked || pair.state == "FAULT") {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = strings.get(R.string.common_reason_value, blockReasonCodeLabel(pair.blockReason, strings)),
-                    color = Color(0xFF7D4632),
-                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.labelMedium,
                 )
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(
                     onClick = onDetails,

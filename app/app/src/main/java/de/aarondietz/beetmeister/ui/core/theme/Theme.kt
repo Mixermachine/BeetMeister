@@ -17,6 +17,17 @@ private val LightColorScheme = lightColorScheme(
     onSurface = Bark,
     surfaceVariant = Mist,
     onSurfaceVariant = Stone,
+    surfaceContainer = Color(0xFFF5EFE4),
+    surfaceContainerHigh = Color(0xFFEFE9DC),
+    surfaceContainerHighest = Color(0xFFE8E2D4),
+    surfaceContainerLow = Color(0xFFFAF5EC),
+    surfaceContainerLowest = Color(0xFFFFFFFF),
+    outline = Stone,
+    outlineVariant = Color(0xFFCBD5C0),
+    error = Color(0xFFB3261E),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = StatusErrorContainer,
+    onErrorContainer = StatusErrorOnContainer,
 )
 
 @Composable

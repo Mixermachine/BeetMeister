@@ -493,25 +493,23 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         },
     ) {
         Surface(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                Header(state = state)
-                state.lastCommandMessage?.let { message ->
-                    AssistChip(
-                        onClick = viewModel::clearMessage,
-                        label = { Text(message) },
-                        modifier = Modifier.padding(bottom = 12.dp),
-                    )
-                }
-                if (showMaintenanceReturnChip) {
-                    AssistChip(
-                        onClick = { openMaintenanceScreen(MaintenanceScreenOrigin.Optional) },
-                        label = { Text(stringResource(de.aarondietz.beetmeister.R.string.maintenance_screen_return_chip)) },
-                        modifier = Modifier.padding(bottom = 12.dp),
-                    )
+            Column(modifier = Modifier.fillMaxSize()) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Header(state = state)
+                    state.lastCommandMessage?.let { message ->
+                        AssistChip(
+                            onClick = viewModel::clearMessage,
+                            label = { Text(message) },
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
+                    if (showMaintenanceReturnChip) {
+                        AssistChip(
+                            onClick = { openMaintenanceScreen(MaintenanceScreenOrigin.Optional) },
+                            label = { Text(stringResource(de.aarondietz.beetmeister.R.string.maintenance_screen_return_chip)) },
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
                 }
                 AppMainContentRouter(
                     state = state,
