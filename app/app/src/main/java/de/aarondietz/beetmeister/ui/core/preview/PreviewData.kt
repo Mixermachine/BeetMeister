@@ -221,7 +221,7 @@ internal object PreviewData {
     )
 
     /** A mixed bag of pair states for the "all loaded" overview preview. */
-    fun mixedPairStates(): List<BeetPairState> = listOf(
+    fun mixedPairStates(): Map<Int, BeetPairState> = listOf(
         pairStateIdle(1, moisturePercent = 58, sensorMillivolts = 1520),
         pairStateWatering(2, moisturePercent = 42, sensorMillivolts = 1280, remainingSeconds = 87),
         pairStateFault(3, blockReason = "SENSOR_READING_INVALID"),
@@ -230,18 +230,23 @@ internal object PreviewData {
         pairStateIdle(6, moisturePercent = 71, sensorMillivolts = 1110),
         pairStateIdle(7, moisturePercent = 33, sensorMillivolts = 2050),
         pairStateFault(8, blockReason = "LOW_BATTERY_ABORT"),
-    )
+    ).associateBy { it.pairIndex }
 
-    fun allIdlePairStates(): List<BeetPairState> = (1..8).map { pairStateIdle(it) }
+    fun allIdlePairStates(): Map<Int, BeetPairState> = (1..8).associateWith { pairStateIdle(it) }
 
-    fun allFaultedPairStates(): List<BeetPairState> = (1..8).map {
+    fun allFaultedPairStates(): Map<Int, BeetPairState> = (1..8).associateWith {
         pairStateFault(it, blockReason = "SENSOR_READING_INVALID")
     }
 
-    fun fewPairStates(): List<BeetPairState> = listOf(
+    fun fewPairStates(): Map<Int, BeetPairState> = listOf(
         pairStateIdle(1, moisturePercent = 64, sensorMillivolts = 1400),
         pairStateWatering(2, moisturePercent = 30, sensorMillivolts = 2100, remainingSeconds = 14),
-    )
+    ).associateBy { it.pairIndex }
+
+    /** 7 of 8 pairs synced; pair 6 frame has not arrived yet (loading placeholder case). */
+    fun partiallySyncedPairStates(): Map<Int, BeetPairState> = (1..8)
+        .filter { it != 6 }
+        .associateWith { pairStateIdle(it, moisturePercent = it * 10, sensorMillivolts = it * 100) }
 
     fun pairNames(): Map<Int, String> = mapOf(
         1 to "Front Garden",
@@ -499,6 +504,6 @@ internal object PreviewData {
         ),
         maintenanceInfo = maintenanceInfo(),
         deviceState = null,
-        pairStates = emptyList(),
+        pairStates = emptyMap(),
     )
 }

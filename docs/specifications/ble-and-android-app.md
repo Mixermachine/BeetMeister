@@ -534,6 +534,9 @@ If a full command-result JSON payload exceeds the negotiated ATT indication payl
 - The app shall clearly distinguish sleeping or unreachable controller states from command rejection states.
 - The app shall clearly distinguish pairing failure or re-pair-required states from controller offline states.
 - The app shall show `Blocked`, `Low battery`, and `Fault` as explicit user-facing states.
+- The app shall track pair state per `pair` index (keyed lookup), never by list position, so a partially synced connection can never render one pair's values under another pair's label.
+- Until the first `pair_state` frame for a pair has been received, the app shall show a loading indicator for that pair's live values (moisture, sensor millivolts, state, remaining time) instead of numeric values; `0` is a valid measurement and must never be synthesized for an unsynced pair.
+- A received frame with `sensor_valid = false` shall still render its measured values (the reading is the diagnostic for a bad sensor or wrong calibration range).
 - The app shall show command failures with the machine-readable reason mapped to a human-readable message.
 - The app shall not assume the controller is continuously awake.
 - The app shall send `set_time` after connect when `time_valid = false` before downloading persisted history.

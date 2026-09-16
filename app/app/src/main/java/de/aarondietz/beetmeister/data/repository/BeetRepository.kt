@@ -136,7 +136,7 @@ internal class BeetRepository(
     fun enablePair(pairIndex: Int) = gattSessionCoordinator.enablePair(pairIndex)
 
     fun togglePairEnabled(pairIndex: Int) {
-        val pairState = state.value.pairStates.firstOrNull { it.pairIndex == pairIndex } ?: return
+        val pairState = state.value.pairStates[pairIndex] ?: return
         if (pairState.enabled) {
             disablePair(pairIndex)
         } else {
@@ -249,7 +249,7 @@ internal class BeetRepository(
                 wateringIntervalRefreshing = false,
                 connectedAtMillis = 0L,
                 connectedAtControllerUptimeSeconds = 0L,
-                pairStates = BeetRepositoryState().pairStates,
+                pairStates = emptyMap(),
             )
         }
     }

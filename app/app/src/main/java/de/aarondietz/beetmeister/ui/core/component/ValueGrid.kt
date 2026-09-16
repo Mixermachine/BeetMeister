@@ -10,6 +10,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Arrangement
@@ -82,7 +85,9 @@ private fun ValueCell(
             )
         } else {
             CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
+                modifier = valueModifier
+                    .size(16.dp)
+                    .semantics { progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate },
                 strokeWidth = 2.dp,
             )
         }

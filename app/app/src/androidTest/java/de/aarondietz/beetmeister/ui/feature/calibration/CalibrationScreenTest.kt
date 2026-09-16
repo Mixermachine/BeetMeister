@@ -3,7 +3,10 @@ package de.aarondietz.beetmeister.ui.feature.calibration
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasProgressBarRangeInfo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextClearance
@@ -58,16 +61,35 @@ class CalibrationScreenTest {
         pairNames = pairNames,
     )
 
+    private fun pairFrame(
+        pairIndex: Int,
+        moisturePercent: Int = 0,
+        sensorMillivolts: Int = 0,
+        sensorValid: Boolean = true,
+    ) = BeetPairState(
+        pairIndex = pairIndex,
+        state = "IDLE",
+        moisturePercent = moisturePercent,
+        sensorMillivolts = sensorMillivolts,
+        enabled = true,
+        sensorValid = sensorValid,
+        blocked = false,
+        blockReason = "NONE",
+        remainingSeconds = 0,
+        source = "AUTOMATIC",
+    )
+
     private fun withPairSensorMillivolts(
         state: BeetRepositoryState,
         pairIndex: Int,
         millivolts: Int,
     ): BeetRepositoryState {
-        val pairStates: List<BeetPairState> = state.pairStates.map { pair ->
-            if (pair.pairIndex == pairIndex) pair.copy(sensorMillivolts = millivolts) else pair
-        }
-        return state.copy(pairStates = pairStates)
+        val existing = state.pairStates[pairIndex] ?: return state
+        return state.copy(pairStates = state.pairStates + (pairIndex to existing.copy(sensorMillivolts = millivolts)))
     }
+
+    private fun withPairFrame(state: BeetRepositoryState, pair: BeetPairState): BeetRepositoryState =
+        state.copy(pairStates = state.pairStates + (pair.pairIndex to pair))
 
     private fun calibration(pairIndex: Int, dry: Int, wet: Int) = BeetCalibration(
         pairIndex = pairIndex,
@@ -79,7 +101,10 @@ class CalibrationScreenTest {
 
     @Test
     fun typedValuesSurviveLiveSensorUpdate() {
-        val initial = baseState(calibrations = mapOf(1 to calibration(1, dry = 2000, wet = 800)))
+        val initial = withPairFrame(
+            baseState(calibrations = mapOf(1 to calibration(1, dry = 2000, wet = 800))),
+            pairFrame(1, sensorMillivolts = 999),
+        )
         val harness = setScreen(initial)
 
         val dry = composeRule.onNodeWithTag(CalibrationTestTags.dryInput(1))
@@ -94,6 +119,49 @@ class CalibrationScreenTest {
 
         dry.assert(hasText("3000"))
         composeRule.onNodeWithTag(CalibrationTestTags.wetInput(1)).assert(hasText("800"))
+    }
+
+    @Test
+    fun typedValuesSurvivePartialSyncOfOtherPairs() {
+        val initial = withPairFrame(
+            baseState(calibrations = mapOf(1 to calibration(1, dry = 2000, wet = 800))),
+            pairFrame(1, sensorMillivolts = 999),
+        )
+        val harness = setScreen(initial)
+
+        val dry = composeRule.onNodeWithTag(CalibrationTestTags.dryInput(1))
+        dry.performTextClearance()
+        dry.performTextInput("3000")
+
+        // Frames for other pairs arrive while pair 1 field is being edited.
+        var next = initial
+        for (index in 2..8) {
+            next = withPairFrame(next, pairFrame(index, sensorMillivolts = index * 100))
+        }
+        composeRule.runOnIdle { harness.state.value = next }
+
+        dry.assert(hasText("3000"))
+        composeRule.onNodeWithTag(CalibrationTestTags.wetInput(1)).assert(hasText("800"))
+    }
+
+    @Test
+    fun captureButtonsDisabledUntilPairFrameReceived() {
+        val initial = baseState()
+        setScreen(initial)
+
+        composeRule.onNodeWithTag(CalibrationTestTags.captureDryButton(1)).assertIsNotEnabled()
+        composeRule.onNodeWithTag(CalibrationTestTags.captureWetButton(1)).assertIsNotEnabled()
+    }
+
+    @Test
+    fun captureButtonsEnabledAfterPairFrameReceived() {
+        val harness = setScreen(baseState())
+
+        harness.state.value = withPairFrame(baseState(), pairFrame(1, sensorMillivolts = 1234))
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag(CalibrationTestTags.captureDryButton(1)).assertIsEnabled()
+        composeRule.onNodeWithTag(CalibrationTestTags.captureWetButton(1)).assertIsEnabled()
     }
 
     @Test

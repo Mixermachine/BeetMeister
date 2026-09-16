@@ -61,7 +61,8 @@ internal fun AppMainContentRouter(
 ) {
     when {
         selectedPair != 0 -> PairDetailScreen(
-            pairState = state.pairStates.first { it.pairIndex == selectedPair },
+            pairIndex = selectedPair,
+            pairState = state.pairStates[selectedPair],
             pairWiring = state.pairWirings[selectedPair],
             pairWiringLoading = selectedPair in state.pairWiringLoading,
             pairWiringError = state.pairWiringErrors[selectedPair],

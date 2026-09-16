@@ -2058,9 +2058,7 @@ internal class BeetGattSessionCoordinator(
                 BeetLog.d(TAG) { "handleStatePayload(pairFrame pair=${pairState.pairIndex} state=${pairState.state} syncedPairs=$syncedPairs)" }
                 host.updateState { state ->
                     state.copy(
-                        pairStates = state.pairStates.map { existing ->
-                            if (existing.pairIndex == pairState.pairIndex) pairState else existing
-                        },
+                        pairStates = state.pairStates + (pairState.pairIndex to pairState),
                     )
                 }
                 handleMoistureTestState(pairState)

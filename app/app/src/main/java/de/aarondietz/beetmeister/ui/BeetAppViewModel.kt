@@ -48,7 +48,7 @@ internal class BeetAppViewModel(
     fun enablePair(pairIndex: Int) = repository.enablePair(pairIndex)
 
     fun togglePairEnabled(pairIndex: Int) {
-        val pairState = state.value.pairStates.firstOrNull { it.pairIndex == pairIndex } ?: return
+        val pairState = state.value.pairStates[pairIndex] ?: return
         if (pairState.enabled) {
             repository.disablePair(pairIndex)
         } else {

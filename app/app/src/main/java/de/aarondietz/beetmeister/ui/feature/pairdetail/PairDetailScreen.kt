@@ -61,7 +61,8 @@ import androidx.compose.ui.tooling.preview.Preview
 
 @Composable
 internal fun PairDetailScreen(
-    pairState: BeetPairState,
+    pairState: BeetPairState?,
+    pairIndex: Int = pairState?.pairIndex ?: 0,
     pairWiring: BeetPairWiring?,
     pairWiringLoading: Boolean,
     pairWiringError: String?,
@@ -81,17 +82,18 @@ internal fun PairDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
-    var durationText by rememberSaveable(pairState.pairIndex) { mutableStateOf("") }
+    var durationText by rememberSaveable(pairIndex) { mutableStateOf("") }
     var showRenameDialog by remember { mutableStateOf(showRenameDialogDefault) }
     var renameText by remember(pairName) { mutableStateOf(pairName ?: "") }
-    val canStartMoistureTest = pairState.enabled &&
+    val canStartMoistureTest = pairState != null &&
+        pairState.enabled &&
         pairState.sensorValid &&
         !pairState.blocked &&
         pairState.state !in setOf("FAULT", "WATERING", "SANITY_CHECK", "MOISTURE_TEST", "WAITING_FOR_SLOT")
 
-    LaunchedEffect(pairState.pairIndex) {
-        onLoadPairWiring(pairState.pairIndex)
-        onLoadPairConfig(pairState.pairIndex)
+    LaunchedEffect(pairIndex) {
+        onLoadPairWiring(pairIndex)
+        onLoadPairConfig(pairIndex)
     }
 
     LazyColumn(
@@ -134,7 +136,7 @@ internal fun PairDetailScreen(
                     ) {
                         Text(
                             if (pairName != null && pairName.isNotBlank()) pairName
-                            else strings.get(R.string.common_pair_number, pairState.pairIndex),
+                            else strings.get(R.string.common_pair_number, pairIndex),
                             style = MaterialTheme.typography.headlineSmall,
                             modifier = Modifier
                                 .weight(1f)
@@ -158,7 +160,7 @@ internal fun PairDetailScreen(
                             },
                             onSave = {
                                 val trimmed = renameText.trim()
-                                onStorePairName(pairState.pairIndex, trimmed)
+                                onStorePairName(pairIndex, trimmed)
                                 showRenameDialog = false
                             },
                             onDismiss = { showRenameDialog = false },
@@ -168,27 +170,29 @@ internal fun PairDetailScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     ValueGridRow(
                         strings.get(R.string.pair_detail_label_state),
-                        pairStateLabel(pairState.state, strings),
+                        pairState?.let { pairStateLabel(it.state, strings) },
                         strings.get(R.string.pair_detail_label_source),
-                        runSourceLabel(pairState.source, strings),
+                        pairState?.let { runSourceLabel(it.source, strings) },
                     )
                     ValueGridRow(
                         strings.get(R.string.pair_detail_label_moisture),
-                        formatPercent(pairState.moisturePercent, strings),
+                        pairState?.let { formatPercent(it.moisturePercent, strings) },
                         strings.get(R.string.pair_detail_label_sensor),
-                        formatMillivolts(pairState.sensorMillivolts, strings),
+                        pairState?.let { formatMillivolts(it.sensorMillivolts, strings) },
+                        leftValueModifier = Modifier.testTag(PairDetailTestTags.MoistureValue),
+                        rightValueModifier = Modifier.testTag(PairDetailTestTags.SensorValue),
                     )
                     ValueGridRow(
                         strings.get(R.string.pair_detail_label_enabled),
-                        yesNo(pairState.enabled, strings),
+                        pairState?.let { yesNo(it.enabled, strings) },
                         strings.get(R.string.pair_detail_label_sensor_valid),
-                        yesNo(pairState.sensorValid, strings),
+                        pairState?.let { yesNo(it.sensorValid, strings) },
                     )
                     ValueGridRow(
                         strings.get(R.string.pair_detail_label_blocked),
-                        yesNo(pairState.blocked, strings),
+                        pairState?.let { yesNo(it.blocked, strings) },
                         strings.get(R.string.pair_detail_label_remaining),
-                        formatDuration(pairState.remainingSeconds, strings),
+                        pairState?.let { formatDuration(it.remainingSeconds, strings) },
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(strings.get(R.string.pair_detail_wiring_title), style = MaterialTheme.typography.titleMedium)
@@ -207,25 +211,28 @@ internal fun PairDetailScreen(
                         }
                         pairWiringError != null -> {
                             Text(pairWiringError, color = MaterialTheme.colorScheme.error)
-                            TextButton(onClick = { onLoadPairWiring(pairState.pairIndex) }) {
+                            TextButton(onClick = { onLoadPairWiring(pairIndex) }) {
                                 Text(strings.get(R.string.pair_detail_wiring_retry))
                             }
                         }
                     }
-                    if (!pairState.enabled) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(strings.get(R.string.pair_detail_disabled_info), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else if (pairState.blocked || pairState.state == "FAULT") {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            strings.get(R.string.common_reason_value, blockReasonCodeLabel(pairState.blockReason, strings)),
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                    pairState?.let { st ->
+                        if (!st.enabled) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(strings.get(R.string.pair_detail_disabled_info), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else if (st.blocked || st.state == "FAULT") {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                strings.get(R.string.common_reason_value, blockReasonCodeLabel(st.blockReason, strings)),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     PairEnabledToggleButton(
-                        pairEnabled = pairState.enabled,
-                        onToggle = { onToggleEnabled(pairState.pairIndex) },
+                        pairEnabled = pairState?.enabled ?: true,
+                        onToggle = { onToggleEnabled(pairIndex) },
+                        enabled = pairState != null,
                         modifier = Modifier.testTag(PairDetailTestTags.EnabledToggle),
                     )
                 }
@@ -233,7 +240,7 @@ internal fun PairDetailScreen(
         }
         item {
             PairConfigCard(
-                pairIndex = pairState.pairIndex,
+                pairIndex = pairIndex,
                 pairConfig = pairConfig,
                 onStorePairConfig = onStorePairConfig,
             )
@@ -251,19 +258,20 @@ internal fun PairDetailScreen(
                         onValueChange = { input -> durationText = input.filter(Char::isDigit) },
                         label = { Text(strings.get(R.string.pair_detail_timed_start_label)) },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = pairState.enabled,
+                        enabled = pairState?.enabled ?: false,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         FilledTonalButton(
-                            onClick = { onManualStart(pairState.pairIndex, null) },
-                            enabled = pairState.enabled,
+                            onClick = { onManualStart(pairIndex, null) },
+                            enabled = pairState?.enabled ?: false,
+                            modifier = Modifier.testTag(PairDetailTestTags.ManualStartButton),
                         ) {
                             Text(strings.get(R.string.pair_detail_start_default))
                         }
                         Button(
-                            onClick = { onManualStart(pairState.pairIndex, durationText.toIntOrNull()) },
-                            enabled = pairState.enabled,
+                            onClick = { onManualStart(pairIndex, durationText.toIntOrNull()) },
+                            enabled = pairState?.enabled ?: false,
                         ) {
                             Text(strings.get(R.string.pair_detail_start_timed))
                         }
@@ -271,14 +279,16 @@ internal fun PairDetailScreen(
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedButton(
-                            onClick = { onManualStop(pairState.pairIndex) },
-                            enabled = pairState.enabled,
+                            onClick = { onManualStop(pairIndex) },
+                            enabled = pairState?.enabled ?: false,
                         ) {
                             Text(strings.get(R.string.pair_detail_stop))
                         }
                         PairErrorClearButton(
-                            canClearError = pairState.sensorValid && (pairState.blocked || pairState.state == "FAULT"),
-                            onClear = { onClearError(pairState.pairIndex) },
+                            canClearError = pairState != null &&
+                                pairState.sensorValid &&
+                                (pairState.blocked || pairState.state == "FAULT"),
+                            onClear = { onClearError(pairIndex) },
                         )
                     }
                 }
@@ -298,12 +308,13 @@ internal fun PairDetailScreen(
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Button(
-                        onClick = { onMoistureTestStart(pairState.pairIndex) },
+                        onClick = { onMoistureTestStart(pairIndex) },
                         enabled = canStartMoistureTest,
+                        modifier = Modifier.testTag(PairDetailTestTags.MoistureTestButton),
                     ) {
                         Text(
                             strings.get(
-                                if (pairState.state == "MOISTURE_TEST") {
+                                if (pairState?.state == "MOISTURE_TEST") {
                                     R.string.pair_detail_testing
                                 } else {
                                     R.string.pair_detail_test_detection
