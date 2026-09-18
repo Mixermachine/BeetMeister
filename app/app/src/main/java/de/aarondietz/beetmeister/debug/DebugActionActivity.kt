@@ -5,7 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.os.Bundle
-import android.util.Log
+import de.aarondietz.beetmeister.logging.BeetLog
 import java.lang.reflect.InvocationTargetException
 
 /**
@@ -88,15 +88,15 @@ class DebugActionActivity : Activity() {
         super.onCreate(savedInstanceState)
         val action = intent?.getStringExtra(EXTRA_ACTION)
         if (action.isNullOrBlank()) {
-            Log.w(TAG, "missing '$EXTRA_ACTION' extra; finishing")
+            BeetLog.w(TAG, "missing '$EXTRA_ACTION' extra; finishing")
             finish()
             return
         }
         try {
             val ok = dispatch(action, intent)
-            Log.i(TAG, "action='$action' ok=$ok; finishing")
+            BeetLog.i(TAG, "action='$action' ok=$ok; finishing")
         } catch (e: Throwable) {
-            Log.w(
+            BeetLog.w(
                 TAG,
                 "action='$action' threw ${e::class.java.simpleName}: ${e.message}; finishing",
             )
@@ -114,7 +114,7 @@ class DebugActionActivity : Activity() {
     private fun dispatch(action: String, intent: Intent): Boolean = when (action) {
         ACTION_CLEAR_BLE_BOND -> handleClearBleBond(intent)
         else -> {
-            Log.w(
+            BeetLog.w(
                 TAG,
                 "unknown action '$action' " +
                     "(supported: ${SUPPORTED_ACTIONS.joinToString(", ")}); finishing",
@@ -137,35 +137,34 @@ class DebugActionActivity : Activity() {
     private fun handleClearBleBond(intent: Intent): Boolean {
         val mac = intent.getStringExtra(EXTRA_BLE_MAC)
         if (mac.isNullOrBlank()) {
-            Log.w(TAG, "clear_ble_bond: missing '$EXTRA_BLE_MAC' extra; finishing")
+            BeetLog.w(TAG, "clear_ble_bond: missing '$EXTRA_BLE_MAC' extra; finishing")
             return false
         }
         val manager = getSystemService(BluetoothManager::class.java)
         if (manager == null) {
-            Log.w(TAG, "clear_ble_bond: no BluetoothManager on this device; finishing")
+            BeetLog.w(TAG, "clear_ble_bond: no BluetoothManager on this device; finishing")
             return false
         }
         val adapter = manager.adapter
         if (adapter == null) {
-            Log.w(TAG, "clear_ble_bond: no BluetoothAdapter (BT off? no radio?); finishing")
+            BeetLog.w(TAG, "clear_ble_bond: no BluetoothAdapter (BT off? no radio?); finishing")
             return false
         }
         val device: BluetoothDevice = try {
             adapter.getRemoteDevice(mac)
         } catch (e: IllegalArgumentException) {
-            Log.w(TAG, "clear_ble_bond: invalid MAC '$mac': ${e.message}; finishing")
+            BeetLog.w(TAG, "clear_ble_bond: invalid MAC '$mac': ${e.message}; finishing")
             return false
         }
         if (device.bondState != BluetoothDevice.BOND_BONDED) {
-            Log.d(
-                TAG,
+            BeetLog.d(TAG) {
                 "clear_ble_bond: device $mac is not bonded " +
-                    "(bondState=${device.bondState}); nothing to do; finishing",
-            )
+                    "(bondState=${device.bondState}); nothing to do; finishing"
+            }
             return true
         }
         val removed = tryRemoveBondViaReflection(device)
-        Log.i(
+        BeetLog.i(
             TAG,
             "clear_ble_bond: removeBond($mac) returned $removed " +
                 "(bondState now=${device.bondState}); finishing",
@@ -186,21 +185,21 @@ class DebugActionActivity : Activity() {
             val method = BluetoothDevice::class.java.getMethod("removeBond")
             (method.invoke(device) as? Boolean) ?: false
         } catch (e: NoSuchMethodException) {
-            Log.w(TAG, "BluetoothDevice.removeBond not found via reflection: ${e.message}")
+            BeetLog.w(TAG, "BluetoothDevice.removeBond not found via reflection: ${e.message}")
             false
         } catch (e: InvocationTargetException) {
             val cause = e.targetException
-            Log.w(
+            BeetLog.w(
                 TAG,
                 "removeBond invocation failed: " +
                     (cause?.javaClass?.simpleName ?: "null") + " " + (cause?.message ?: ""),
             )
             false
         } catch (e: SecurityException) {
-            Log.w(TAG, "removeBond denied (SecurityException): ${e.message}")
+            BeetLog.w(TAG, "removeBond denied (SecurityException): ${e.message}")
             false
         } catch (e: Throwable) {
-            Log.w(
+            BeetLog.w(
                 TAG,
                 "removeBond reflection failed: ${e::class.java.simpleName} ${e.message}",
             )

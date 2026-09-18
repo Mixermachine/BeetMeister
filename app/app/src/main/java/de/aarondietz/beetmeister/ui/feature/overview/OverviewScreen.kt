@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.model.repository.displayedPairCount
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.PairErrorClearButton
@@ -70,6 +71,7 @@ internal fun OverviewScreen(
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
+    val pairRange = remember(state.displayedPairCount) { (1..state.displayedPairCount).toList() }
     LazyColumn(
         modifier = modifier.testTag(OverviewTestTags.List),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
@@ -78,13 +80,14 @@ internal fun OverviewScreen(
         item {
             SystemValuesCard(state = state)
         }
-        items(state.pairStates, key = { pair -> pair.pairIndex }) { pair ->
+        items(pairRange, key = { pairIndex -> pairIndex }) { pairIndex ->
             PairOverviewCard(
-                pair = pair,
-                pairName = state.pairNames[pair.pairIndex],
-                onDetails = { onPairSelected(pair.pairIndex) },
-                onClearError = { onClearError(pair.pairIndex) },
-                onToggleEnabled = { onToggleEnabled(pair.pairIndex) },
+                pairIndex = pairIndex,
+                pair = state.pairStates[pairIndex],
+                pairName = state.pairNames[pairIndex],
+                onDetails = { onPairSelected(pairIndex) },
+                onClearError = { onClearError(pairIndex) },
+                onToggleEnabled = { onToggleEnabled(pairIndex) },
                 strings = strings,
             )
         }
@@ -165,7 +168,8 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
 
 @Composable
 private fun PairOverviewCard(
-    pair: BeetPairState,
+    pairIndex: Int,
+    pair: BeetPairState?,
     pairName: String?,
     onDetails: () -> Unit,
     onClearError: () -> Unit,
@@ -173,6 +177,7 @@ private fun PairOverviewCard(
     strings: de.aarondietz.beetmeister.strings.BeetStringResolver,
 ) {
     val (chipContainerColor, chipContentColor) = when {
+        pair == null -> MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
         !pair.enabled -> MaterialTheme.colorScheme.surfaceContainerHighest to MaterialTheme.colorScheme.onSurfaceVariant
         pair.state == "FAULT" -> StatusErrorContainer to StatusErrorOnContainer
         pair.blocked -> StatusWarningContainer to StatusWarningOnContainer
@@ -184,7 +189,7 @@ private fun PairOverviewCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (pair.enabled) 1f else 0.75f)
+            .alpha(if (pair == null || pair.enabled) 1f else 0.75f)
             .testTag(OverviewTestTags.PairCard),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -195,51 +200,57 @@ private fun PairOverviewCard(
             ) {
                 Text(
                     if (pairName != null && pairName.isNotBlank()) pairName
-                    else strings.get(R.string.common_pair_number, pair.pairIndex),
+                    else strings.get(R.string.common_pair_number, pairIndex),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.testTag(OverviewTestTags.PairName),
                 )
-                AssistChip(
-                    onClick = {},
-                    label = { Text(pairStateLabel(pair.state, strings)) },
-                    colors = AssistChipDefaults.assistChipColors(
-                        containerColor = chipContainerColor,
-                        labelColor = chipContentColor,
-                    ),
-                    border = null,
-                    modifier = Modifier.testTag(OverviewTestTags.PairState),
-                )
+                if (pair != null) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(pairStateLabel(pair.state, strings)) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = chipContainerColor,
+                            labelColor = chipContentColor,
+                        ),
+                        border = null,
+                        modifier = Modifier.testTag(OverviewTestTags.PairState),
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(10.dp))
             ValueGridRow(
                 strings.get(R.string.overview_label_moisture),
-                formatPercent(pair.moisturePercent, strings),
+                pair?.let { formatPercent(it.moisturePercent, strings) },
                 strings.get(R.string.overview_label_sensor),
-                formatMillivolts(pair.sensorMillivolts, strings),
+                pair?.let { formatMillivolts(it.sensorMillivolts, strings) },
                 leftValueModifier = Modifier.testTag(OverviewTestTags.PairMoisture),
                 rightValueModifier = Modifier.testTag(OverviewTestTags.PairSensor),
             )
             ValueGridRow(
                 strings.get(R.string.overview_label_source),
-                runSourceLabel(pair.source, strings),
+                pair?.let { runSourceLabel(it.source, strings) },
                 strings.get(R.string.overview_label_remaining),
-                formatDuration(pair.remainingSeconds, strings),
+                pair?.let { formatDuration(it.remainingSeconds, strings) },
             )
-            if (!pair.enabled) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = strings.get(R.string.overview_pair_disabled_info),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            } else if (pair.blocked || pair.state == "FAULT") {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = strings.get(R.string.common_reason_value, blockReasonCodeLabel(pair.blockReason, strings)),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.labelMedium,
-                )
+            when {
+                pair == null -> Unit
+                !pair.enabled -> {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = strings.get(R.string.overview_pair_disabled_info),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+                pair.blocked || pair.state == "FAULT" -> {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = strings.get(R.string.common_reason_value, blockReasonCodeLabel(pair.blockReason, strings)),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -248,13 +259,14 @@ private fun PairOverviewCard(
                     modifier = Modifier.testTag(OverviewTestTags.PairDetailsButton),
                 ) { Text(strings.get(R.string.common_details)) }
                 PairErrorClearButton(
-                    canClearError = pair.sensorValid && (pair.blocked || pair.state == "FAULT"),
+                    canClearError = pair != null && pair.sensorValid && (pair.blocked || pair.state == "FAULT"),
                     onClear = onClearError,
                     modifier = Modifier.testTag(OverviewTestTags.PairClearErrorButton),
                 )
                 PairEnabledToggleButton(
-                    pairEnabled = pair.enabled,
+                    pairEnabled = pair?.enabled ?: true,
                     onToggle = onToggleEnabled,
+                    enabled = pair != null,
                     modifier = Modifier.testTag(OverviewTestTags.PairEnableToggle),
                 )
             }

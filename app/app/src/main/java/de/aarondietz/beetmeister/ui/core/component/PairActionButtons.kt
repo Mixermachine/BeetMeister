@@ -8,9 +8,14 @@ import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 
 @Composable
-internal fun PairEnabledToggleButton(pairEnabled: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+internal fun PairEnabledToggleButton(
+    pairEnabled: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
     val strings = rememberBeetStringResolver()
-    Button(onClick = onToggle, modifier = modifier) {
+    Button(onClick = onToggle, enabled = enabled, modifier = modifier) {
         Text(strings.get(if (pairEnabled) R.string.action_disable_pair else R.string.action_enable_pair))
     }
 }

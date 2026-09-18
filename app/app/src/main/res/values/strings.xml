@@ -86,6 +86,10 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="settings_controller_management_title">Controller management</string>
     <string name="settings_controller_management_subtitle">Reboot the controller or wipe its local storage and Bluetooth bonds.</string>
     <string name="settings_controller_management_unsaved_hint">Save or discard your settings changes before running a controller-management action.</string>
+    <string name="settings_diagnostics_title">Diagnostic logs</string>
+    <string name="settings_diagnostics_subtitle">Save and send app diagnostic logs for troubleshooting.</string>
+    <string name="settings_label_detailed_logging">Detailed logging</string>
+    <string name="settings_send_logs_action">Send diagnostic logs</string>
     <string name="settings_reboot_action">Reboot controller</string>
     <string name="settings_factory_reset_action">Factory reset controller</string>
     <string name="settings_reboot_dialog_title">Reboot controller?</string>

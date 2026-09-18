@@ -28,20 +28,7 @@ data class BeetRepositoryState(
     val valveConfig: BeetValveConfig? = null,
     val wateringInterval: BeetWateringInterval? = null,
     val maxActivePumps: Int? = null,
-    val pairStates: List<BeetPairState> = List(8) { index ->
-        BeetPairState(
-            pairIndex = index + 1,
-            state = "IDLE",
-            moisturePercent = 0,
-            sensorMillivolts = 0,
-            enabled = true,
-            sensorValid = true,
-            blocked = false,
-            blockReason = "NONE",
-            remainingSeconds = 0,
-            source = "NONE",
-        )
-    },
+    val pairStates: Map<Int, BeetPairState> = emptyMap(),
     val calibrations: Map<Int, BeetCalibration> = emptyMap(),
     val pairNames: Map<Int, String> = emptyMap(),
     val pairWirings: Map<Int, BeetPairWiring> = emptyMap(),
@@ -64,3 +51,9 @@ data class BeetRepositoryState(
     val selectedAddress: String? = null,
     val maintenanceUpdate: BeetMaintenanceUpdateState = BeetMaintenanceUpdateState(),
 )
+
+const val BEET_FALLBACK_PAIR_COUNT = 8
+
+/** Number of pair slots the UI should render: reported pair count, else the firmware constant. */
+val BeetRepositoryState.displayedPairCount: Int
+    get() = controllerInfo?.pairCount ?: BEET_FALLBACK_PAIR_COUNT

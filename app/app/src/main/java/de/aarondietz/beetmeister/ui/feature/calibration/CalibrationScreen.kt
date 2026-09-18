@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
@@ -26,11 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.model.repository.displayedPairCount
 import de.aarondietz.beetmeister.strings.BeetStringResolver
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.BeetPullToRefreshBox
@@ -59,22 +63,18 @@ internal fun CalibrationScreen(
             onRefresh()
         }
     }
-    LaunchedEffect(state.calibrations, state.pairStates) {
-        val nextDry = mutableMapOf<Int, String>()
-        val nextWet = mutableMapOf<Int, String>()
-        state.pairStates.forEach { pair ->
-            val calibration = state.calibrations[pair.pairIndex]
-            nextDry[pair.pairIndex] = calibration?.dryMillivolts?.toString().orEmpty()
-            nextWet[pair.pairIndex] = calibration?.wetMillivolts?.toString().orEmpty()
-        }
-        dryTexts = nextDry
-        wetTexts = nextWet
+    // Text fields mirror calibration data only. Live pair-state pushes cannot
+    // clobber in-progress input; a (re)load of calibrations re-seeds the fields.
+    LaunchedEffect(state.calibrations) {
+        dryTexts = state.calibrations.mapValues { it.value.dryMillivolts.toString() }
+        wetTexts = state.calibrations.mapValues { it.value.wetMillivolts.toString() }
     }
 
-    val dirtyDrafts = state.pairStates.mapNotNull { pair ->
-        val calibration = state.calibrations[pair.pairIndex]
-        val currentDry = dryTexts[pair.pairIndex].orEmpty()
-        val currentWet = wetTexts[pair.pairIndex].orEmpty()
+    val pairRange = (1..state.displayedPairCount).toList()
+    val dirtyDrafts = pairRange.mapNotNull { index ->
+        val calibration = state.calibrations[index]
+        val currentDry = dryTexts[index].orEmpty()
+        val currentWet = wetTexts[index].orEmpty()
         val loadedDry = calibration?.dryMillivolts?.toString().orEmpty()
         val loadedWet = calibration?.wetMillivolts?.toString().orEmpty()
         if (currentDry == loadedDry && currentWet == loadedWet) {
@@ -83,7 +83,7 @@ internal fun CalibrationScreen(
             val dry = currentDry.toIntOrNull()
             val wet = currentWet.toIntOrNull()
             CalibrationSaveDraft(
-                pairIndex = pair.pairIndex,
+                pairIndex = index,
                 dryMillivolts = dry ?: 0,
                 wetMillivolts = wet ?: 0,
             ) to (dry != null && wet != null && dry > wet && wet > 0)
@@ -120,19 +120,22 @@ internal fun CalibrationScreen(
                     Text(strings.get(R.string.calibration_title), style = MaterialTheme.typography.headlineSmall)
                 }
             }
-            items(state.pairStates, key = { pair -> pair.pairIndex }) { pair ->
-                val calibration = state.calibrations[pair.pairIndex]
+            items(pairRange, key = { pairIndex -> pairIndex }) { index ->
+                val pairState = state.pairStates[index]
+                val calibration = state.calibrations[index]
                 CalibrationCard(
-                    pairState = pair,
+                    pairIndex = index,
+                    pairState = pairState,
+                    pairName = state.pairNames[index],
                     dryValue = calibration?.dryMillivolts,
                     wetValue = calibration?.wetMillivolts,
-                    dryText = dryTexts[pair.pairIndex].orEmpty(),
-                    wetText = wetTexts[pair.pairIndex].orEmpty(),
+                    dryText = dryTexts[index].orEmpty(),
+                    wetText = wetTexts[index].orEmpty(),
                     source = calibration?.source,
                     calibratedAtUnixSeconds = calibration?.calibratedAtUnixSeconds ?: 0L,
-                    onDryChange = { updated -> dryTexts = dryTexts + (pair.pairIndex to updated) },
-                    onWetChange = { updated -> wetTexts = wetTexts + (pair.pairIndex to updated) },
-                    onSave = { dry, wet -> onSave(pair.pairIndex, dry, wet) },
+                    onDryChange = { updated -> dryTexts = dryTexts + (index to updated) },
+                    onWetChange = { updated -> wetTexts = wetTexts + (index to updated) },
+                    onSave = { dry, wet -> onSave(index, dry, wet) },
                     strings = strings,
                 )
             }
@@ -142,7 +145,9 @@ internal fun CalibrationScreen(
 
 @Composable
 private fun CalibrationCard(
-    pairState: BeetPairState,
+    pairIndex: Int,
+    pairState: BeetPairState?,
+    pairName: String?,
     dryValue: Int?,
     wetValue: Int?,
     dryText: String,
@@ -155,7 +160,9 @@ private fun CalibrationCard(
     strings: BeetStringResolver,
 ) {
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(CalibrationTestTags.card(pairIndex)),
         colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF8F4EA)),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -164,14 +171,26 @@ private fun CalibrationCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(strings.get(R.string.common_pair_number, pairState.pairIndex), style = MaterialTheme.typography.titleLarge)
+                Text(
+                    if (pairName != null && pairName.isNotBlank()) pairName
+                    else strings.get(R.string.common_pair_number, pairIndex),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.testTag(CalibrationTestTags.title(pairIndex)),
+                )
                 AssistChip(
                     onClick = {},
                     label = { Text(source?.let { calibrationSourceLabel(it, strings) } ?: strings.get(R.string.common_unknown)) },
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text(strings.get(R.string.calibration_live_sensor_value, pairState.sensorMillivolts))
+            if (pairState != null) {
+                Text(strings.get(R.string.calibration_live_sensor_value, pairState.sensorMillivolts))
+            } else {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
             if (calibratedAtUnixSeconds > 0) {
                 Text(strings.get(R.string.calibration_calibrated_at, formatUnixSeconds(calibratedAtUnixSeconds, strings)))
             }
@@ -180,21 +199,33 @@ private fun CalibrationCard(
                 value = dryText,
                 onValueChange = { input -> onDryChange(input.filter(Char::isDigit)) },
                 label = { Text(strings.get(R.string.calibration_dry_reference)) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(CalibrationTestTags.dryInput(pairIndex)),
             )
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = wetText,
                 onValueChange = { input -> onWetChange(input.filter(Char::isDigit)) },
                 label = { Text(strings.get(R.string.calibration_wet_reference)) },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(CalibrationTestTags.wetInput(pairIndex)),
             )
             Spacer(modifier = Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = { onDryChange(pairState.sensorMillivolts.toString()) }) {
+                FilledTonalButton(
+                    onClick = { pairState?.let { onDryChange(it.sensorMillivolts.toString()) } },
+                    enabled = pairState != null,
+                    modifier = Modifier.testTag(CalibrationTestTags.captureDryButton(pairIndex)),
+                ) {
                     Text(strings.get(R.string.calibration_capture_dry))
                 }
-                FilledTonalButton(onClick = { onWetChange(pairState.sensorMillivolts.toString()) }) {
+                FilledTonalButton(
+                    onClick = { pairState?.let { onWetChange(it.sensorMillivolts.toString()) } },
+                    enabled = pairState != null,
+                    modifier = Modifier.testTag(CalibrationTestTags.captureWetButton(pairIndex)),
+                ) {
                     Text(strings.get(R.string.calibration_capture_wet))
                 }
             }
@@ -207,6 +238,7 @@ private fun CalibrationCard(
                         onSave(dry, wet)
                     }
                 },
+                modifier = Modifier.testTag(CalibrationTestTags.saveButton(pairIndex)),
             ) {
                 Text(strings.get(R.string.calibration_save))
             }

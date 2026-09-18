@@ -1,5 +1,10 @@
 package de.aarondietz.beetmeister.ui.feature.settings
 
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
+import de.aarondietz.beetmeister.logging.BeetLog
+import de.aarondietz.beetmeister.logging.BeetLogLevel
+import de.aarondietz.beetmeister.logging.BeetLogExporter
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -78,6 +83,8 @@ internal fun SettingsScreen(
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
+    val context = LocalContext.current
+    var debugLoggingEnabled by remember { mutableStateOf(BeetLogLevel.isDebugEnabled()) }
     val info = state.controllerInfo
     val maintenanceInfo = state.maintenanceInfo
     val valveConfig = state.valveConfig
@@ -106,11 +113,13 @@ internal fun SettingsScreen(
 
     LaunchedEffect(valveConfig) {
         if (valveConfig != null) {
-            android.util.Log.d("Settings", "LaunchedEffect(valveConfig) firing: " +
-                "userEditedMoveDuration=$userEditedMoveDuration " +
-                "userEditedSettleDelay=$userEditedSettleDelay " +
-                "userEditedOpenHold=$userEditedOpenHold " +
-                "vc.moveDuration=${valveConfig.moveDurationMillis}")
+            BeetLog.d("Settings") {
+                "LaunchedEffect(valveConfig) firing: " +
+                    "userEditedMoveDuration=$userEditedMoveDuration " +
+                    "userEditedSettleDelay=$userEditedSettleDelay " +
+                    "userEditedOpenHold=$userEditedOpenHold " +
+                    "vc.moveDuration=${valveConfig.moveDurationMillis}"
+            }
             if (!userEditedMoveDuration) {
                 moveDurationText = valveConfig.moveDurationMillis.toString()
             }
@@ -369,6 +378,51 @@ internal fun SettingsScreen(
                 ElevatedCard(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .testTag(SettingsTestTags.DiagnosticsCard),
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(strings.get(R.string.settings_diagnostics_title), style = MaterialTheme.typography.titleMedium)
+                        Text(strings.get(R.string.settings_diagnostics_subtitle), style = MaterialTheme.typography.bodyMedium)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = strings.get(R.string.settings_label_detailed_logging),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                            Switch(
+                                checked = debugLoggingEnabled,
+                                onCheckedChange = { enabled ->
+                                    BeetLogLevel.setDebugEnabled(enabled)
+                                    debugLoggingEnabled = enabled
+                                },
+                                modifier = Modifier.testTag(SettingsTestTags.DiagnosticsDetailedLoggingSwitch),
+                            )
+                        }
+                        val emailIntent = remember(context, state) { BeetLogExporter.createLogEmailIntent(context) }
+                        Button(
+                            onClick = {
+                                val intent = BeetLogExporter.createLogEmailIntent(context)
+                                if (intent != null) {
+                                    val chooser = Intent.createChooser(intent, strings.get(R.string.settings_send_logs_action))
+                                    context.startActivity(chooser)
+                                }
+                            },
+                            enabled = emailIntent != null,
+                            modifier = Modifier.testTag(SettingsTestTags.DiagnosticsSendLogsButton),
+                        ) {
+                            Text(strings.get(R.string.settings_send_logs_action))
+                        }
+                    }
+                }
+            }
+            item {
+                ElevatedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
                         .testTag(SettingsTestTags.WateringIntervalCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
@@ -499,7 +553,7 @@ internal fun SettingsScreen(
                         ValveNumberField(
                             value = moveDurationText,
                             label = strings.get(R.string.settings_label_valve_move_duration),
-                            onValueChange = { moveDurationText = it; userEditedMoveDuration = true; android.util.Log.d("Settings", "moveDurationText changed to $it, userEdited=true") },
+                            onValueChange = { moveDurationText = it; userEditedMoveDuration = true; BeetLog.d("Settings") { "moveDurationText changed to $it, userEdited=true" } },
                             isError = moveDurationError != null,
                             supportingText = moveDurationError,
                             onInfoClick = { activeInfo = ValveSettingInfo.MoveDuration },
@@ -509,7 +563,7 @@ internal fun SettingsScreen(
                         ValveNumberField(
                             value = settleDelayText,
                             label = strings.get(R.string.settings_label_valve_settle_delay),
-                            onValueChange = { settleDelayText = it; userEditedSettleDelay = true; android.util.Log.d("Settings", "settleDelayText changed to $it, userEdited=true") },
+                            onValueChange = { settleDelayText = it; userEditedSettleDelay = true; BeetLog.d("Settings") { "settleDelayText changed to $it, userEdited=true" } },
                             isError = settleDelayError != null,
                             supportingText = settleDelayError,
                             onInfoClick = { activeInfo = ValveSettingInfo.SettleDelay },
@@ -519,7 +573,7 @@ internal fun SettingsScreen(
                         ValveNumberField(
                             value = openHoldText,
                             label = strings.get(R.string.settings_label_valve_open_hold),
-                            onValueChange = { openHoldText = it; userEditedOpenHold = true; android.util.Log.d("Settings", "openHoldText changed to $it, userEdited=true") },
+                            onValueChange = { openHoldText = it; userEditedOpenHold = true; BeetLog.d("Settings") { "openHoldText changed to $it, userEdited=true" } },
                             isError = openHoldError != null,
                             supportingText = openHoldError,
                             onInfoClick = { activeInfo = ValveSettingInfo.OpenHold },

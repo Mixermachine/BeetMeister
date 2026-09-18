@@ -1,6 +1,6 @@
 package de.aarondietz.beetmeister.ui.feature.connection
 
-import android.util.Log
+import de.aarondietz.beetmeister.logging.BeetLog
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -468,7 +468,7 @@ internal fun MaintenanceUpdatePanel(
                 BeetMaintenanceUpdatePhase.Completed -> {
                     FilledTonalButton(
                         onClick = {
-                            Log.d(
+                            BeetLog.d(
                                 MAINTENANCE_PANEL_TAG,
                                 "Install button clicked phase=${update.phase} " +
                                     "selected=${selected?.metadata?.firmwareVersion}/${selected?.sourceLabel}",

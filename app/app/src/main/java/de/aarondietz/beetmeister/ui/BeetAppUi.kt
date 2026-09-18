@@ -4,7 +4,7 @@ import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import android.util.Log
+import de.aarondietz.beetmeister.logging.BeetLog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
@@ -147,21 +147,20 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
     }
 
     LaunchedEffect(state.connection.phase, state.selectedAddress) {
-        Log.d(
-            UI_TAG,
-            "phase=${state.connection.phase} detail=${state.connection.detail} selected=${state.selectedAddress} gateVisibleBefore=$connectionGateVisible",
-        )
+        BeetLog.d(UI_TAG) {
+            "phase=${state.connection.phase} detail=${state.connection.detail} selected=${state.selectedAddress} gateVisibleBefore=$connectionGateVisible"
+        }
         if (state.connection.phase == BeetConnectionPhase.Connected) {
             delay(CONNECTED_UI_STABILITY_MS)
             if (state.connection.phase == BeetConnectionPhase.Connected) {
                 connectionGateVisible = false
-                Log.d(UI_TAG, "Leaving connection gate after stable connected window")
+                BeetLog.d(UI_TAG, "Leaving connection gate after stable connected window")
             }
         } else if (state.connection.phase == BeetConnectionPhase.MaintenanceRequired) {
             connectionGateVisible = false
         } else {
             if (!connectionGateVisible) {
-                Log.d(UI_TAG, "Showing connection gate because phase=${state.connection.phase}")
+                BeetLog.d(UI_TAG) { "Showing connection gate because phase=${state.connection.phase}" }
             }
             connectionGateVisible = true
         }
