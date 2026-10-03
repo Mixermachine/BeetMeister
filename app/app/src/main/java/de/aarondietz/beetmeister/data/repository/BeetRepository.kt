@@ -71,18 +71,18 @@ internal class BeetRepository(
 
     fun close() {
         BeetLog.d(TAG, "close()")
-        // Guard: suppress close during maintenance flows.
-        // Activity recreation (ActivityScenarioRule) can trigger
-        // onCleared() during the E2E test. Don't kill the BLE
-        // connection while the Maintenance screen is active or an
-        // OTA transfer is in progress.
+        // Guard: suppress close during active BLE sessions in tests / maintenance flows.
+        // Activity recreation (ActivityScenarioRule) triggers onCleared() between @Test
+        // methods in test suites that share a connection. Don't tear down the BLE
+        // connection unless explicitly disconnected or maintenance/error requires it.
         val currentPhase = _state.value.connection.phase
         val updatePhase = _state.value.maintenanceUpdate.phase
-        if (currentPhase == BeetConnectionPhase.MaintenanceRequired ||
+        if (currentPhase == BeetConnectionPhase.Connected ||
+            currentPhase == BeetConnectionPhase.MaintenanceRequired ||
             updatePhase.isActiveMaintenancePhase()
         ) {
             BeetLog.w(TAG) {
-                "close() suppressed — maintenance is " +
+                "close() suppressed — connection is active: " +
                     "phase=$currentPhase updatePhase=$updatePhase"
             }
             return

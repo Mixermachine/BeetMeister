@@ -112,6 +112,7 @@ internal class E2eConnectionFixture(
         }
 
         dismissBluetoothPairingDialog()
+        handleBluetoothPermissionDialog()
 
         if (!gate.isAlreadyConnected()) {
             gate.tapScan()
@@ -126,6 +127,29 @@ internal class E2eConnectionFixture(
         gate.assertConnected()
         screenshots.captureStep("afterConnect")
         E2eConnectionState.isConnected = true
+    }
+
+    private fun handleBluetoothPermissionDialog() {
+        val device = UiDevice.getInstance(
+            InstrumentationRegistry.getInstrumentation(),
+        )
+        try {
+            device.takeScreenshot(java.io.File("/sdcard/e2e_during_test.png"))
+            android.util.Log.d("E2E_PERM", "Took screenshot during test to /sdcard/e2e_during_test.png")
+        } catch (e: Exception) {
+            android.util.Log.e("E2E_PERM", "Failed to take screenshot", e)
+        }
+        // Samsung / AOSP runtime permission dialog buttons: "Allow", "While using the app", "Only this time"
+        val candidates = listOf("While using the app", "Allow", "Nur dieses Mal", "Bei Verwendung der App", "Zulassen")
+        for (label in candidates) {
+            val btn = device.findObject(By.text(label))
+            if (btn != null) {
+                android.util.Log.d("E2E_PERM", "Found permission button: $label, clicking")
+                btn.click()
+                device.waitForIdle(2_000L)
+                return
+            }
+        }
     }
 
     /**

@@ -441,34 +441,48 @@ internal class BeetGattSessionCoordinator(
 
             // 1. If currently following an existing lead, remove from that lead's followers mask
             if (currentLead != null) {
-                val oldLeadCombined = currentState.pairCombined[currentLead]
-                if (oldLeadCombined != null) {
-                    val updatedOldMask = oldLeadCombined.followersMask and (1 shl (pairIndex - 1)).inv()
-                    // Optimistic update
-                    host.updateState { state ->
-                        state.copy(
-                            pairCombined = state.pairCombined + (currentLead to oldLeadCombined.copy(followersMask = updatedOldMask)),
-                        )
+                // Fetch fresh lead combined state from controller to prevent stale in-memory masks
+                val oldLeadFromController = runCatching {
+                    withSyncPausedForCommand {
+                        sendCommand(BeetJsonCodec.getPairCombined(currentLead))
                     }
-                    try {
-                        withSyncPausedForCommand {
-                            sendCommand(BeetJsonCodec.storePairCombined(currentLead, updatedOldMask))
-                        }
-                    } catch (_: Exception) {
-                        loadPairCombined(currentLead)
+                }.getOrNull()?.takeIf { it.status == "accepted" }?.pairCombined
+
+                val currentOldMask = oldLeadFromController?.followersMask
+                    ?: currentState.pairCombined[currentLead]?.followersMask
+                    ?: 0
+                val updatedOldMask = currentOldMask and (1 shl (pairIndex - 1)).inv()
+                // Optimistic update
+                host.updateState { state ->
+                    state.copy(
+                        pairCombined = state.pairCombined + (currentLead to de.aarondietz.beetmeister.model.controller.BeetPairCombined(currentLead, updatedOldMask)),
+                    )
+                }
+                try {
+                    withSyncPausedForCommand {
+                        sendCommand(BeetJsonCodec.storePairCombined(currentLead, updatedOldMask))
                     }
+                } catch (_: Exception) {
+                    loadPairCombined(currentLead)
                 }
             }
 
             // 2. If setting a new lead, add to that lead's followers mask
             if (leadPairIndex != null && beetIsValidPairIndex(leadPairIndex) && leadPairIndex != pairIndex) {
-                val newLeadCombined = host.state.value.pairCombined[leadPairIndex]
-                val currentNewMask = newLeadCombined?.followersMask ?: 0
+                // Fetch fresh lead combined state from controller to prevent stale in-memory masks
+                val leadFromController = runCatching {
+                    withSyncPausedForCommand {
+                        sendCommand(BeetJsonCodec.getPairCombined(leadPairIndex))
+                    }
+                }.getOrNull()?.takeIf { it.status == "accepted" }?.pairCombined
+
+                val currentNewMask = leadFromController?.followersMask
+                    ?: host.state.value.pairCombined[leadPairIndex]?.followersMask
+                    ?: 0
                 val updatedNewMask = currentNewMask or (1 shl (pairIndex - 1))
                 // Optimistic update
                 host.updateState { state ->
-                    val combinedObj = newLeadCombined?.copy(followersMask = updatedNewMask)
-                        ?: de.aarondietz.beetmeister.model.controller.BeetPairCombined(leadPairIndex, updatedNewMask)
+                    val combinedObj = de.aarondietz.beetmeister.model.controller.BeetPairCombined(leadPairIndex, updatedNewMask)
                     state.copy(
                         pairCombined = state.pairCombined + (leadPairIndex to combinedObj),
                     )

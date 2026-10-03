@@ -33,6 +33,10 @@ internal class BeetScanBondCoordinator(
 
     fun start() {
         BeetLog.d(TAG, "start()")
+        if (host.state.value.connection.phase == BeetConnectionPhase.Connected) {
+            BeetLog.d(TAG, "start() skipped: already connected")
+            return
+        }
         registerReceiverIfNeeded()
         refreshEnvironment()
         val savedAddress = host.appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
