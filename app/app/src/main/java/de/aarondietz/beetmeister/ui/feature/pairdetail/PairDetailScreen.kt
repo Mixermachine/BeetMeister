@@ -17,6 +17,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
@@ -47,6 +53,10 @@ import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.PairErrorClearButton
 import de.aarondietz.beetmeister.ui.core.component.PairEnabledToggleButton
 import de.aarondietz.beetmeister.ui.core.component.ValueGridRow
+import de.aarondietz.beetmeister.model.controller.BeetPairCombined
+import de.aarondietz.beetmeister.model.repository.leadFor
+import de.aarondietz.beetmeister.model.repository.followersFor
+import de.aarondietz.beetmeister.model.repository.availableLeadsFor
 import de.aarondietz.beetmeister.ui.core.formatting.blockReasonCodeLabel
 import de.aarondietz.beetmeister.ui.core.formatting.formatDuration
 import de.aarondietz.beetmeister.ui.core.formatting.formatMillivolts
@@ -78,6 +88,11 @@ internal fun PairDetailScreen(
     pairConfig: BeetPairConfig? = null,
     onLoadPairConfig: (Int) -> Unit = {},
     onStorePairConfig: (Int, TargetMoistureLevel, Int) -> Unit = { _, _, _ -> },
+    pairCombined: Map<Int, BeetPairCombined> = emptyMap(),
+    pairNames: Map<Int, String> = emptyMap(),
+    displayedPairCount: Int = 8,
+    onLoadPairCombined: (Int) -> Unit = {},
+    onSetPairSensorSource: (Int, Int?) -> Unit = { _, _ -> },
     showRenameDialogDefault: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -94,6 +109,7 @@ internal fun PairDetailScreen(
     LaunchedEffect(pairIndex) {
         onLoadPairWiring(pairIndex)
         onLoadPairConfig(pairIndex)
+        onLoadPairCombined(pairIndex)
     }
 
     LazyColumn(
@@ -243,6 +259,16 @@ internal fun PairDetailScreen(
                 pairIndex = pairIndex,
                 pairConfig = pairConfig,
                 onStorePairConfig = onStorePairConfig,
+            )
+        }
+        item {
+            SensorSourceCard(
+                pairIndex = pairIndex,
+                pairCombined = pairCombined,
+                pairNames = pairNames,
+                displayedPairCount = displayedPairCount,
+                onSetPairSensorSource = onSetPairSensorSource,
+                strings = strings,
             )
         }
         item {
@@ -440,6 +466,172 @@ private fun PairConfigCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SensorSourceCard(
+    pairIndex: Int,
+    pairCombined: Map<Int, BeetPairCombined>,
+    pairNames: Map<Int, String>,
+    displayedPairCount: Int,
+    onSetPairSensorSource: (Int, Int?) -> Unit,
+    strings: de.aarondietz.beetmeister.strings.BeetStringResolver,
+) {
+    val tempState = de.aarondietz.beetmeister.model.repository.BeetRepositoryState(
+        controllerInfo = de.aarondietz.beetmeister.model.controller.BeetControllerInfo(
+            deviceId = "dummy",
+            protocolVersion = 0,
+            firmwareVersion = "0.0.0",
+            pairCount = displayedPairCount,
+        ),
+        pairCombined = pairCombined,
+        pairNames = pairNames,
+    )
+
+    val currentLead = tempState.leadFor(pairIndex)
+    val followers = tempState.followersFor(pairIndex)
+    val isLead = followers.isNotEmpty()
+    val availableLeads = tempState.availableLeadsFor(pairIndex)
+
+    var expandedDropdown by remember { mutableStateOf(false) }
+
+    fun pairLabel(idx: Int): String {
+        val customName = pairNames[idx]
+        return if (!customName.isNullOrBlank()) "$customName (${strings.get(R.string.common_pair_number, idx)})"
+        else strings.get(R.string.common_pair_number, idx)
+    }
+
+    ElevatedCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PairDetailTestTags.SensorSourceCard),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = strings.get(R.string.pair_detail_sensor_source_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (isLead) {
+                val followerNames = followers.joinToString(", ") { pairLabel(it) }
+                Text(
+                    text = strings.get(R.string.pair_detail_sensor_source_lead_desc, followerNames),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                // Radio option: Dedicated sensor
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = currentLead == null,
+                        onClick = {
+                            if (currentLead != null) {
+                                onSetPairSensorSource(pairIndex, null)
+                            }
+                        },
+                        modifier = Modifier.testTag(PairDetailTestTags.SensorSourceDedicatedRadio),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = strings.get(R.string.pair_detail_sensor_source_dedicated),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = strings.get(R.string.pair_detail_sensor_source_dedicated_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Radio option: Share from another pair
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(
+                        selected = currentLead != null,
+                        onClick = {
+                            if (currentLead == null && availableLeads.isNotEmpty()) {
+                                onSetPairSensorSource(pairIndex, availableLeads.first())
+                            }
+                        },
+                        enabled = availableLeads.isNotEmpty() || currentLead != null,
+                        modifier = Modifier.testTag(PairDetailTestTags.SensorSourceSharedRadio),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = strings.get(R.string.pair_detail_sensor_source_shared),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        if (currentLead != null) {
+                            Text(
+                                text = strings.get(
+                                    R.string.pair_detail_sensor_source_follower_desc,
+                                    pairLabel(currentLead),
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else if (availableLeads.isEmpty()) {
+                            Text(
+                                text = strings.get(R.string.pair_detail_sensor_source_no_leads_available),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                }
+
+                // Lead picker dropdown (only when Shared is selected)
+                if (currentLead != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    ExposedDropdownMenuBox(
+                        expanded = expandedDropdown,
+                        onExpandedChange = { expandedDropdown = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        OutlinedTextField(
+                            value = pairLabel(currentLead),
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(strings.get(R.string.pair_detail_sensor_source_lead_picker_label)) },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedDropdown) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                                .testTag(PairDetailTestTags.SensorSourceDropdown),
+                        )
+                        ExposedDropdownMenu(
+                            expanded = expandedDropdown,
+                            onDismissRequest = { expandedDropdown = false },
+                        ) {
+                            availableLeads.forEach { leadIdx ->
+                                DropdownMenuItem(
+                                    text = { Text(pairLabel(leadIdx)) },
+                                    onClick = {
+                                        expandedDropdown = false
+                                        onSetPairSensorSource(pairIndex, leadIdx)
+                                    },
+                                    modifier = Modifier.testTag(PairDetailTestTags.SensorSourceDropdownItem + leadIdx),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

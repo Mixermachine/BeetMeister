@@ -30,6 +30,8 @@ import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
+import de.aarondietz.beetmeister.model.repository.displayedPairCount
+import de.aarondietz.beetmeister.model.repository.leadFor
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncPhase
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
@@ -396,6 +398,97 @@ internal class BeetGattSessionCoordinator(
                 }
             } catch (_: Exception) {
                 loadPairNames()
+            }
+        }
+    }
+
+    fun refreshPairCombined() {
+        host.scope.launch {
+            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
+                return@launch
+            }
+            try {
+                withSyncPausedForCommand {
+                    for (pairIndex in 1..host.state.value.displayedPairCount) {
+                        val result = runCatching {
+                            sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
+                        }.getOrNull()
+                        if (result?.status == "accepted" && result.pairCombined != null) {
+                            host.updateState { state ->
+                                state.copy(
+                                    pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // combined config is optional
+            }
+        }
+    }
+
+    fun setPairSensorSource(pairIndex: Int, leadPairIndex: Int?) {
+        host.scope.launch {
+            if (!beetIsValidPairIndex(pairIndex)) {
+                return@launch
+            }
+            val currentState = host.state.value
+            val currentLead = currentState.leadFor(pairIndex)
+            if (currentLead == leadPairIndex) {
+                return@launch
+            }
+
+            // 1. If currently following an existing lead, remove from that lead's followers mask
+            if (currentLead != null) {
+                val oldLeadCombined = currentState.pairCombined[currentLead]
+                if (oldLeadCombined != null) {
+                    val updatedOldMask = oldLeadCombined.followersMask and (1 shl (pairIndex - 1)).inv()
+                    // Optimistic update
+                    host.updateState { state ->
+                        state.copy(
+                            pairCombined = state.pairCombined + (currentLead to oldLeadCombined.copy(followersMask = updatedOldMask)),
+                        )
+                    }
+                    try {
+                        withSyncPausedForCommand {
+                            sendCommand(BeetJsonCodec.storePairCombined(currentLead, updatedOldMask))
+                        }
+                    } catch (_: Exception) {
+                        loadPairCombined(currentLead)
+                    }
+                }
+            }
+
+            // 2. If setting a new lead, add to that lead's followers mask
+            if (leadPairIndex != null && beetIsValidPairIndex(leadPairIndex) && leadPairIndex != pairIndex) {
+                val newLeadCombined = host.state.value.pairCombined[leadPairIndex]
+                val currentNewMask = newLeadCombined?.followersMask ?: 0
+                val updatedNewMask = currentNewMask or (1 shl (pairIndex - 1))
+                // Optimistic update
+                host.updateState { state ->
+                    val combinedObj = newLeadCombined?.copy(followersMask = updatedNewMask)
+                        ?: de.aarondietz.beetmeister.model.controller.BeetPairCombined(leadPairIndex, updatedNewMask)
+                    state.copy(
+                        pairCombined = state.pairCombined + (leadPairIndex to combinedObj),
+                    )
+                }
+                try {
+                    val result = withSyncPausedForCommand {
+                        sendCommand(BeetJsonCodec.storePairCombined(leadPairIndex, updatedNewMask))
+                    }
+                    if (result.status == "accepted" && result.pairCombined != null) {
+                        host.updateState { state ->
+                            state.copy(
+                                pairCombined = state.pairCombined + (leadPairIndex to result.pairCombined),
+                            )
+                        }
+                    } else {
+                        loadPairCombined(leadPairIndex)
+                    }
+                } catch (_: Exception) {
+                    loadPairCombined(leadPairIndex)
+                }
             }
         }
     }
@@ -1248,6 +1341,7 @@ internal class BeetGattSessionCoordinator(
         refreshWateringInterval()
         refreshMaxActivePumps()
         loadPairNames()
+        refreshPairCombined()
         host.scope.launch {
             delay(POST_CONNECT_EVENT_SYNC_DELAY_MS)
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) return@launch

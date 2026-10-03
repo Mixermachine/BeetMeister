@@ -11,7 +11,13 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.performScrollToNode
+import de.aarondietz.beetmeister.model.controller.BeetPairCombined
 import de.aarondietz.beetmeister.model.controller.BeetPairState
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -45,16 +51,25 @@ class PairDetailScreenTest {
         source = "AUTOMATIC",
     )
 
-    private fun setScreen(initial: BeetPairState?): Harness {
+    private fun setScreen(
+        initial: BeetPairState?,
+        pairIndex: Int = 1,
+        pairCombined: Map<Int, BeetPairCombined> = emptyMap(),
+        pairNames: Map<Int, String> = emptyMap(),
+        onSetPairSensorSource: (Int, Int?) -> Unit = { _, _ -> },
+    ): Harness {
         val pairState = mutableStateOf(initial)
         composeRule.setContent {
             PairDetailScreen(
                 pairState = pairState.value,
-                pairIndex = 1,
+                pairIndex = pairIndex,
                 pairWiring = null,
                 pairWiringLoading = false,
                 pairWiringError = null,
-                pairName = null,
+                pairName = pairNames[pairIndex],
+                pairCombined = pairCombined,
+                pairNames = pairNames,
+                onSetPairSensorSource = onSetPairSensorSource,
                 onStorePairName = { _, _ -> },
                 onBack = {},
                 onLoadPairWiring = {},
@@ -74,6 +89,8 @@ class PairDetailScreenTest {
         setScreen(null)
 
         composeRule.onNodeWithTag(PairDetailTestTags.MoistureValue).assert(hasLoadingIndicator)
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(hasTestTag(PairDetailTestTags.ManualStartButton))
         composeRule.onNodeWithTag(PairDetailTestTags.ManualStartButton).assertIsNotEnabled()
         composeRule.onNodeWithTag(PairDetailTestTags.EnabledToggle).assertIsNotEnabled()
         composeRule.onNodeWithTag(PairDetailTestTags.Name).assert(hasText("Pair 1"))
@@ -87,6 +104,8 @@ class PairDetailScreenTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag(PairDetailTestTags.MoistureValue).assert(hasText("58%"))
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(hasTestTag(PairDetailTestTags.ManualStartButton))
         composeRule.onNodeWithTag(PairDetailTestTags.ManualStartButton).assertIsDisplayed()
     }
 
@@ -96,6 +115,53 @@ class PairDetailScreenTest {
 
         composeRule.onNodeWithTag(PairDetailTestTags.MoistureValue).assert(hasText("0%"))
         composeRule.onNodeWithTag(PairDetailTestTags.SensorValue).assert(hasText("3900 mV"))
+    }
+
+    @Test
+    fun dedicatedSensorSelectedByDefault() {
+        setScreen(pairFrame(1))
+
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(hasTestTag(PairDetailTestTags.SensorSourceCard))
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceCard).assertIsDisplayed()
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceDedicatedRadio).assertIsSelected()
+    }
+
+    @Test
+    fun followerDisplaysSharedSensorAndLeadInfo() {
+        // Pair 2 follows Pair 1
+        val combined = mapOf(1 to BeetPairCombined(pairIndex = 1, followersMask = (1 shl 1)))
+        val names = mapOf(1 to "Tomato Bed")
+        setScreen(pairFrame(2), pairIndex = 2, pairCombined = combined, pairNames = names)
+
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(hasTestTag(PairDetailTestTags.SensorSourceCard))
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceSharedRadio).assertIsSelected()
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceDropdown).assertIsDisplayed()
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceDropdown).assert(hasText("Tomato Bed (Pair 1)"))
+    }
+
+    @Test
+    fun switchingSensorSourceDispatchesCallback() {
+        var dispatchedPair: Int? = null
+        var dispatchedLead: Int? = null
+
+        setScreen(
+            pairFrame(2),
+            pairIndex = 2,
+            onSetPairSensorSource = { p, l ->
+                dispatchedPair = p
+                dispatchedLead = l
+            },
+        )
+
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(hasTestTag(PairDetailTestTags.SensorSourceSharedRadio))
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceSharedRadio).performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(2, dispatchedPair)
+        assertEquals(1, dispatchedLead)
     }
 }
 

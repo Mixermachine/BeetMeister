@@ -72,4 +72,24 @@ internal class PairDetailRobot(
     fun assertTargetLevelMoistIsSelected() {
         composeRule.onNodeWithTag(PairDetailTestTags.TargetLevelMoist).assertIsSelected()
     }
+
+    /** Selects the Dedicated Sensor option. */
+    fun selectDedicatedSensor() {
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceDedicatedRadio).performClick()
+    }
+
+    /** Asserts Dedicated Sensor is selected. */
+    fun assertDedicatedSensorIsSelected() {
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceDedicatedRadio).assertIsSelected()
+    }
+
+    /** Selects the Shared Sensor option. */
+    fun selectSharedSensor() {
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceSharedRadio).performClick()
+    }
+
+    /** Asserts Shared Sensor is selected. */
+    fun assertSharedSensorIsSelected() {
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceSharedRadio).assertIsSelected()
+    }
 }

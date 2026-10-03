@@ -157,6 +157,10 @@ internal class BeetRepository(
 
     fun storePairCombined(pairIndex: Int, followersMask: Int) = gattSessionCoordinator.storePairCombined(pairIndex, followersMask)
 
+    fun refreshPairCombined() = gattSessionCoordinator.refreshPairCombined()
+
+    fun setPairSensorSource(pairIndex: Int, leadPairIndex: Int?) = gattSessionCoordinator.setPairSensorSource(pairIndex, leadPairIndex)
+
     fun loadPairConfig(pairIndex: Int) = gattSessionCoordinator.loadPairConfig(pairIndex)
 
     fun storePairConfig(pairIndex: Int, targetLevel: de.aarondietz.beetmeister.model.controller.TargetMoistureLevel, durationMultiplier: Int) =
