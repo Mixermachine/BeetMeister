@@ -208,6 +208,12 @@ internal fun systemEventLabel(value: String, strings: BeetStringResolver): Strin
         "OTA_STARTED" -> R.string.system_event_ota_started
         "OTA_FAILED" -> R.string.system_event_ota_failed
         "OTA_READY" -> R.string.system_event_ota_ready
+        "UPDATE_STARTED" -> R.string.system_event_update_started
+        "UPDATE_RECONNECT" -> R.string.system_event_update_reconnect
+        "UPDATE_INVALIDATED" -> R.string.system_event_update_invalidated
+        "UPDATE_INTERRUPTED" -> R.string.system_event_update_interrupted
+        "UPDATE_FAILED" -> R.string.system_event_update_failed
+        "UPDATE_COMPLETED" -> R.string.system_event_update_completed
         else -> return strings.get(R.string.common_unknown_with_code, value)
     }
     return strings.get(resId)

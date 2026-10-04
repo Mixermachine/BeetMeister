@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.BeetPullToRefreshBox
@@ -144,7 +145,9 @@ internal fun EventDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
-    val wateringEvents = state.recentEvents.sortedByDescending { it.sequenceNumber }
+    val wateringEvents = state.recentEvents.sortedWith(
+        compareByDescending<BeetWateringEvent> { it.bootId }.thenByDescending { it.sequenceNumber },
+    )
     BeetPullToRefreshBox(
         isRefreshing = state.eventsLoading || state.eventSync.active,
         onRefresh = onReload,

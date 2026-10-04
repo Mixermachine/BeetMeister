@@ -356,6 +356,12 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="system_event_ota_started">OTA started</string>
     <string name="system_event_ota_failed">OTA failed</string>
     <string name="system_event_ota_ready">OTA ready</string>
+    <string name="system_event_update_started">Update started</string>
+    <string name="system_event_update_reconnect">Update reconnect required</string>
+    <string name="system_event_update_invalidated">Update invalidated</string>
+    <string name="system_event_update_interrupted">Update interrupted</string>
+    <string name="system_event_update_failed">Update failed</string>
+    <string name="system_event_update_completed">Update completed</string>
 
     <string name="command_message_duration" localizePipeContext="Command result with accepted duration. %1$s is the base result text and %2$d is a duration in seconds; translate the seconds abbreviation for the locale.">%1$s (%2$ds)</string>
     <string name="command_message_calibration_saved_for_pair" localizePipeContext="Confirmation message. Keep %1$d as the irrigation pair number.">Calibration saved for pair %1$d.</string>

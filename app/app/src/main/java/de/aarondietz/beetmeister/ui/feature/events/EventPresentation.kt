@@ -29,7 +29,7 @@ internal fun EventFilter.acceptsSystem(event: BeetSystemEvent): Boolean = when (
     EventFilter.Sleep -> event.eventType == "SLEEP"
     EventFilter.Startup -> event.eventType == "STARTUP"
     EventFilter.MQTT -> event.eventType.startsWith("MQTT_")
-    EventFilter.Ota -> event.eventType.startsWith("OTA_")
+    EventFilter.Ota -> event.eventType.startsWith("OTA_") || event.eventType.startsWith("UPDATE_")
     EventFilter.Watering -> false
 }
 
@@ -57,6 +57,14 @@ internal fun wateringTotals(events: List<BeetWateringEvent>, window: WateringWin
     return totals
 }
 
+// Chronological order across the device lifetime: boot_id is a persisted monotonic counter,
+// while ring sequence numbers restart after the event partitions are wiped. Compare (bootId, seq)
+// so a newer boot never sorts below cached events from an older sequence era.
+private val bootSequenceAscending: Comparator<BeetSystemEvent> =
+    compareBy({ event -> event.bootId }, { event -> event.sequenceNumber })
+
+internal val systemEventChronology: Comparator<BeetSystemEvent> = bootSequenceAscending.reversed()
+
 internal fun groupSystemEvents(
     events: List<BeetSystemEvent>,
     state: BeetRepositoryState,
@@ -67,12 +75,17 @@ internal fun groupSystemEvents(
     val today = now.atZone(zoneId).toLocalDate()
     val grouped = events.groupBy { event -> systemEventSectionKey(event, state, strings, today, zoneId) }
     return grouped.entries
-        .sortedByDescending { (_, sectionEvents) -> sectionEvents.maxOf { event -> event.sequenceNumber } }
+        .sortedWith { left, right ->
+            bootSequenceAscending.compare(
+                right.value.maxWith(bootSequenceAscending),
+                left.value.maxWith(bootSequenceAscending),
+            )
+        }
         .map { (key, sectionEvents) ->
             SystemEventSection(
                 key = key.key,
                 title = key.title,
-                events = sectionEvents.sortedByDescending { event -> event.sequenceNumber },
+                events = sectionEvents.sortedWith(systemEventChronology),
             )
         }
 }
@@ -134,7 +147,7 @@ internal fun systemEventCategoryLabel(event: BeetSystemEvent, strings: BeetStrin
     when {
         event.eventType.startsWith("BLE_") -> R.string.events_filter_bluetooth
         event.eventType.startsWith("MQTT_") -> R.string.events_filter_mqtt
-        event.eventType.startsWith("OTA_") -> R.string.events_filter_ota
+        event.eventType.startsWith("OTA_") || event.eventType.startsWith("UPDATE_") -> R.string.events_filter_ota
         event.eventType == "SLEEP" -> R.string.events_filter_sleep
         event.eventType == "STARTUP" -> R.string.events_filter_startup
         else -> R.string.events_filter_system
