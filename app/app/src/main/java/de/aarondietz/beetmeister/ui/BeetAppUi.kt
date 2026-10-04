@@ -15,9 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -463,6 +467,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
 
     NavigationSuiteScaffold(
         modifier = rootModifier.fillMaxSize(),
+        layoutType = NavigationSuiteType.ShortNavigationBarCompact,
         navigationSuiteItems = {
             TopLevelScreen.entries.forEach { destination ->
                 item(
@@ -471,6 +476,7 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
                         Text(
                             text = stringResource(destination.labelRes),
                             modifier = Modifier.testTag(NavigationSuiteTestTags.tagFor(destination)),
+                            style = MaterialTheme.typography.labelSmall,
                         )
                     },
                     selected = topLevelScreen == destination,
