@@ -20,8 +20,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
+import de.aarondietz.beetmeister.ui.core.component.BeetBottomNavigationBar
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -465,40 +465,34 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         )
     }
 
-    NavigationSuiteScaffold(
+    Scaffold(
         modifier = rootModifier.fillMaxSize(),
-        layoutType = NavigationSuiteType.ShortNavigationBarCompact,
-        navigationSuiteItems = {
-            TopLevelScreen.entries.forEach { destination ->
-                item(
-                    icon = destination.icon,
-                    label = {
-                        Text(
-                            text = stringResource(destination.labelRes),
-                            modifier = Modifier.testTag(NavigationSuiteTestTags.tagFor(destination)),
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    },
-                    selected = topLevelScreen == destination,
-                    onClick = {
-                        if (showValveCalibration) {
-                            requestLeaveValveCalibration(destination)
-                        } else if (topLevelScreen == TopLevelScreen.Settings && destination != TopLevelScreen.Settings) {
-                            requestLeaveSettings(destination = destination)
-                        } else if (topLevelScreen == TopLevelScreen.Calibration && destination != TopLevelScreen.Calibration) {
-                            requestLeavePairCalibration(destination)
-                        } else {
-                            topLevelScreen = destination
-                            selectedPair = 0
-                            showEventTable = false
-                            showValveCalibration = false
-                        }
-                    },
-                )
-            }
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        bottomBar = {
+            BeetBottomNavigationBar(
+                selectedScreen = topLevelScreen,
+                onScreenSelected = { destination ->
+                    if (showValveCalibration) {
+                        requestLeaveValveCalibration(destination)
+                    } else if (topLevelScreen == TopLevelScreen.Settings && destination != TopLevelScreen.Settings) {
+                        requestLeaveSettings(destination = destination)
+                    } else if (topLevelScreen == TopLevelScreen.Calibration && destination != TopLevelScreen.Calibration) {
+                        requestLeavePairCalibration(destination)
+                    } else {
+                        topLevelScreen = destination
+                        selectedPair = 0
+                        showEventTable = false
+                        showValveCalibration = false
+                    }
+                },
+            )
         },
-    ) {
-        Surface(modifier = Modifier.fillMaxSize()) {
+    ) { innerPadding ->
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = innerPadding.calculateBottomPadding()),
+        ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
