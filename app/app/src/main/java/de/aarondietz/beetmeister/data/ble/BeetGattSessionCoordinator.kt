@@ -1055,7 +1055,7 @@ internal class BeetGattSessionCoordinator(
                         eventsLoading = false,
                         eventSync = BeetEventSyncState(
                             active = false,
-                            downloaded = 0,
+                            transferred = 0,
                             total = 0,
                             phase = BeetEventSyncPhase.PausedForCommand,
                         ),
@@ -1117,7 +1117,7 @@ internal class BeetGattSessionCoordinator(
                         it.copy(
                             eventSync = it.eventSync.copy(
                                 active = progress.active,
-                                downloaded = progress.downloaded,
+                                transferred = progress.transferred,
                                 total = progress.total,
                                 phase = progress.phase,
                             ),

@@ -382,15 +382,15 @@ internal object PreviewData {
 
     fun eventSyncIdle(): BeetEventSyncState = BeetEventSyncState(
         active = false,
-        downloaded = 0,
+        transferred = 0,
         total = 0,
         phase = BeetEventSyncPhase.Idle,
     )
 
-    fun eventSyncActive(downloaded: Int = 64, total: Int = 240): BeetEventSyncState =
+    fun eventSyncActive(transferred: Int = 64, total: Int = 240): BeetEventSyncState =
         BeetEventSyncState(
             active = true,
-            downloaded = downloaded,
+            transferred = transferred,
             total = total,
             phase = BeetEventSyncPhase.CatchingUp,
         )

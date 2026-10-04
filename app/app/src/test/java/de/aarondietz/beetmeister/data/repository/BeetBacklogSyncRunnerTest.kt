@@ -285,6 +285,86 @@ class BeetBacklogSyncRunnerTest {
         assertEquals(2, downloaded)
     }
 
+    @Test
+    fun progressCountsAgainstControllerTotalIncludingAlreadyCachedEvents() = runBlocking {
+        val fetched = mutableListOf<Long>()
+        val progress = mutableListOf<BeetBacklogProgress>()
+        val runner = runner()
+
+        runner.run(
+            input = BeetBacklogSyncInput(
+                wateringSummary = BeetHistorySummary(
+                    latestSequenceNumber = 300,
+                    eventCount = 300,
+                    pairTotalsSeconds = listOf(0, 0, 0, 0, 0, 0, 0, 0),
+                ),
+                systemSummary = null,
+                existingWateringSequences = (1L..280L).toSet(),
+                existingSystemSequences = emptySet(),
+                limit = 64,
+            ),
+            isConnected = { true },
+            isPauseRequested = { false },
+            onProgress = { progress += it },
+            onWateringEvent = {},
+            onSystemEvent = {},
+            fetchWateringEvent = { sequence ->
+                fetched += sequence
+                BeetBacklogFetchResult(
+                    status = BeetBacklogFetchStatus.Accepted,
+                    event = wateringEvent(sequence = sequence, endedAtUnixSeconds = 999_900),
+                )
+            },
+            fetchSystemEvent = { error("system stream is not used in this test") },
+        )
+
+        // Controller holds 300 events, app already has 280: start at 280/300, end at 300/300.
+        assertEquals(300, progress.first().total)
+        assertEquals(280, progress.first().transferred)
+        assertEquals((300L downTo 281L).toList(), fetched)
+        val last = progress.last()
+        assertEquals(300, last.total)
+        assertEquals(300, last.transferred)
+        assertTrue(progress.all { it.transferred <= it.total })
+    }
+
+    @Test
+    fun staleCacheOutsideControllerRangeDoesNotCollapseDenominator() = runBlocking {
+        val progress = mutableListOf<BeetBacklogProgress>()
+        val runner = runner(maxConsecutiveNotFoundLimit = 3)
+
+        runner.run(
+            input = BeetBacklogSyncInput(
+                wateringSummary = BeetHistorySummary(
+                    latestSequenceNumber = 10,
+                    eventCount = 10,
+                    pairTotalsSeconds = listOf(0, 0, 0, 0, 0, 0, 0, 0),
+                ),
+                systemSummary = null,
+                // Large cache from previous boots with sequences outside the current range.
+                existingWateringSequences = (100L..500L).toSet(),
+                existingSystemSequences = emptySet(),
+                limit = 64,
+            ),
+            isConnected = { true },
+            isPauseRequested = { false },
+            onProgress = { progress += it },
+            onWateringEvent = {},
+            onSystemEvent = {},
+            fetchWateringEvent = { sequence ->
+                BeetBacklogFetchResult(
+                    status = BeetBacklogFetchStatus.Accepted,
+                    event = wateringEvent(sequence = sequence, endedAtUnixSeconds = 999_900),
+                )
+            },
+            fetchSystemEvent = { error("system stream is not used in this test") },
+        )
+
+        // Denominator stays at the controller total (10); it never tracks the downloaded count.
+        assertTrue(progress.all { it.total == 10 })
+        assertEquals(10, progress.last().transferred)
+    }
+
     private fun runner(
         nowUnixSeconds: () -> Long = { 1_000_000L },
         sleep: suspend (Long) -> Unit = {},

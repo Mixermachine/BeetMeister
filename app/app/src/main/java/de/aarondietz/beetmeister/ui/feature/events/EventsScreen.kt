@@ -87,7 +87,7 @@ internal fun EventsScreen(
                     Spacer(modifier = Modifier.height(MaterialTheme.spacing.elementGap))
                     if (state.eventSync.active) {
                         Text(
-                            strings.get(R.string.events_synced_count, state.eventSync.downloaded, state.eventSync.total),
+                            strings.get(R.string.events_synced_count, state.eventSync.transferred, state.eventSync.total),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

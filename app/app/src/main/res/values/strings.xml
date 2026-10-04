@@ -236,7 +236,7 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="events_system_activity_title">System activity</string>
     <string name="events_system_activity_subtitle">Controller lifecycle, Bluetooth, MQTT, and OTA activity in a readable timeline.</string>
     <string name="events_watering_time_by_pair">Watering time by pair</string>
-    <string name="events_synced_count" localizePipeContext="Event sync progress text. %1$d is downloaded event count and %2$d is total event count.">Synced %1$d/%2$d events</string>
+    <string name="events_synced_count" localizePipeContext="Event sync progress text. %1$d is transferred event count and %2$d is total event count on the controller.">Synced %1$d/%2$d events</string>
     <string name="events_open_watering_history">Open watering history</string>
     <string name="events_watering_history_title">Watering history</string>
     <string name="events_watering_history_subtitle" localizePipeContext="Raw watering event count shown under the watering history title. Keep %1$d as the numeric count.">%1$d raw watering events</string>
