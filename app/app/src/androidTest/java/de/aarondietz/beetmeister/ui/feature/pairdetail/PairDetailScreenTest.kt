@@ -55,6 +55,7 @@ class PairDetailScreenTest {
         initial: BeetPairState?,
         pairIndex: Int = 1,
         pairCombined: Map<Int, BeetPairCombined> = emptyMap(),
+        isPairCombinedLoaded: Boolean = true,
         pairNames: Map<Int, String> = emptyMap(),
         onSetPairSensorSource: (Int, Int?) -> Unit = { _, _ -> },
     ): Harness {
@@ -68,6 +69,7 @@ class PairDetailScreenTest {
                 pairWiringError = null,
                 pairName = pairNames[pairIndex],
                 pairCombined = pairCombined,
+                isPairCombinedLoaded = isPairCombinedLoaded,
                 pairNames = pairNames,
                 onSetPairSensorSource = onSetPairSensorSource,
                 onStorePairName = { _, _ -> },
@@ -162,6 +164,21 @@ class PairDetailScreenTest {
 
         assertEquals(2, dispatchedPair)
         assertEquals(1, dispatchedLead)
+    }
+
+    @Test
+    fun sensorSourceLockedWhenCombinedNotLoaded() {
+        setScreen(
+            pairFrame(1),
+            pairIndex = 1,
+            isPairCombinedLoaded = false,
+        )
+
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(hasTestTag(PairDetailTestTags.SensorSourceCard))
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceLoading).assertIsDisplayed()
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceDedicatedRadio).assertIsNotEnabled()
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceSharedRadio).assertIsNotEnabled()
     }
 }
 

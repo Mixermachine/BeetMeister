@@ -13,6 +13,7 @@ class BeetPairCombinedExtensionsTest {
     fun defaultStateHasNoLeadsOrFollowers() {
         val state = BeetRepositoryState()
 
+        assertFalse(state.isPairCombinedLoaded)
         for (p in 1..8) {
             assertNull(state.leadFor(p))
             assertTrue(state.followersFor(p).isEmpty())

@@ -27,6 +27,7 @@ internal object PairDetailTestTags {
     const val MultiplierSlider = "pair_detail_multiplier_slider"
     const val SaveConfigButton = "pair_detail_save_config_button"
     const val SensorSourceCard = "pair_detail_sensor_source_card"
+    const val SensorSourceLoading = "pair_detail_sensor_source_loading"
     const val SensorSourceDedicatedRadio = "pair_detail_sensor_source_dedicated_radio"
     const val SensorSourceSharedRadio = "pair_detail_sensor_source_shared_radio"
     const val SensorSourceDropdown = "pair_detail_sensor_source_dropdown"

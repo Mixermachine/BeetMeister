@@ -72,6 +72,7 @@ internal fun AppMainContentRouter(
             pairName = state.pairNames[selectedPair],
             pairConfig = state.pairConfigs[selectedPair],
             pairCombined = state.pairCombined,
+            isPairCombinedLoaded = state.isPairCombinedLoaded,
             pairNames = state.pairNames,
             displayedPairCount = state.displayedPairCount,
             onLoadPairCombined = onLoadPairCombined,

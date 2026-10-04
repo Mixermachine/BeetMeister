@@ -36,6 +36,7 @@ data class BeetRepositoryState(
     val pairConfigs: Map<Int, BeetPairConfig> = emptyMap(),
     val pairWiringLoading: Set<Int> = emptySet(),
     val pairWiringErrors: Map<Int, String> = emptyMap(),
+    val isPairCombinedLoaded: Boolean = false,
     val calibrationsRefreshing: Boolean = false,
     val historySummary: BeetHistorySummary? = null,
     val systemHistorySummary: BeetSystemHistorySummary? = null,
