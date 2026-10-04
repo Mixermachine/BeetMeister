@@ -141,6 +141,11 @@ internal fun EventsScreen(
                     stickyHeader(key = "sec:${section.key}") {
                         SystemEventSectionHeading(
                             title = section.title,
+                            bootNote = if (section.key.startsWith("date:")) {
+                                sectionBootNote(section.bootIds, strings)
+                            } else {
+                                null
+                            },
                             count = section.events.size,
                             strings = strings,
                         )
@@ -245,29 +250,47 @@ private fun SectionHeading(
 @Composable
 private fun SystemEventSectionHeading(
     title: String,
+    bootNote: String?,
     count: Int,
     strings: BeetStringResolver,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant, contentColor = Color(0xFF31566B)) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = strings.get(R.string.events_section_event_count, count),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = strings.get(R.string.events_section_event_count, count),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (bootNote != null) {
+                Text(
+                    text = bootNote,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
+}
+
+private fun sectionBootNote(bootIds: List<Long>, strings: BeetStringResolver): String = when (bootIds.size) {
+    0 -> ""
+    1 -> strings.get(R.string.events_section_single_boot, bootIds.first())
+    else -> strings.get(R.string.events_section_multi_boot, bootIds.joinToString(", "))
 }
 
 @Composable

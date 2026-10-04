@@ -21,6 +21,7 @@ import java.util.Locale
 internal data class SystemEventSection(
     val key: String,
     val title: String,
+    val bootIds: List<Long>,
     val events: List<BeetSystemEvent>,
 )
 
@@ -86,6 +87,7 @@ internal fun groupSystemEvents(
             SystemEventSection(
                 key = key.key,
                 title = key.title,
+                bootIds = sectionEvents.map { event -> event.bootId }.distinct().sortedByDescending { bootId -> bootId },
                 events = sectionEvents.sortedWith(systemEventChronology),
             )
         }
