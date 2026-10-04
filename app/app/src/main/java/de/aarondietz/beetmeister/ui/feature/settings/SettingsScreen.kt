@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetLazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetCard
+import de.aarondietz.beetmeister.ui.core.theme.spacing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Info
@@ -257,29 +259,22 @@ internal fun SettingsScreen(
         enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier.testTag(SettingsTestTags.Container),
     ) {
-        LazyColumn(
+        BeetLazyColumn(
             modifier = Modifier.testTag(SettingsTestTags.List),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                ElevatedCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag(SettingsTestTags.ControllerInfoCard),
+                BeetCard(
+                    modifier = Modifier.testTag(SettingsTestTags.ControllerInfoCard),
                     colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(strings.get(R.string.settings_title), style = MaterialTheme.typography.headlineSmall)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        ValueGridRow(
-                            strings.get(R.string.settings_label_device_id),
-                            info?.deviceId ?: maintenanceInfo?.productId ?: strings.get(R.string.placeholder_dash),
-                            strings.get(R.string.settings_label_protocol),
-                            info?.protocolVersion?.toString()
-                                ?: maintenanceInfo?.runtimeProtocolVersion?.toString()
-                                ?: strings.get(R.string.placeholder_dash),
-                            leftValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoDeviceId),
+                    ValueGridRow(
+                        strings.get(R.string.settings_label_device_id),
+                        info?.deviceId ?: maintenanceInfo?.productId ?: strings.get(R.string.placeholder_dash),
+                        strings.get(R.string.settings_label_protocol),
+                        info?.protocolVersion?.toString()
+                            ?: maintenanceInfo?.runtimeProtocolVersion?.toString()
+                            ?: strings.get(R.string.placeholder_dash),
+                        leftValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoDeviceId),
                             rightValueModifier = Modifier.testTag(SettingsTestTags.ControllerInfoProtocolVersion),
                         )
                         ValueGridRow(
@@ -314,7 +309,6 @@ internal fun SettingsScreen(
                         ) {
                             Text(strings.get(R.string.common_disconnect))
                         }
-                    }
                 }
             }
             item {

@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetLazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetCard
+import de.aarondietz.beetmeister.ui.core.theme.spacing
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -117,10 +119,8 @@ internal fun PairDetailScreen(
         onLoadPairCombined(pairIndex)
     }
 
-    LazyColumn(
+    BeetLazyColumn(
         modifier = modifier.testTag(PairDetailTestTags.Container),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
             Row(
@@ -145,12 +145,10 @@ internal fun PairDetailScreen(
             }
         }
         item {
-            ElevatedCard(
-                modifier = Modifier.fillMaxWidth(),
+            BeetCard(
                 colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
+                Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
@@ -188,7 +186,7 @@ internal fun PairDetailScreen(
                             strings = strings,
                         )
                     }
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
                     ValueGridRow(
                         strings.get(R.string.pair_detail_label_state),
                         pairState?.let { pairStateLabel(it.state, strings) },
@@ -256,7 +254,6 @@ internal fun PairDetailScreen(
                         enabled = pairState != null,
                         modifier = Modifier.testTag(PairDetailTestTags.EnabledToggle),
                     )
-                }
             }
         }
         item {

@@ -3,6 +3,7 @@ package de.aarondietz.beetmeister.ui.core.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
 private val LightColorScheme = lightColorScheme(
@@ -31,10 +32,15 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun BeetMeisterTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = LightColorScheme,
-        typography = Typography,
-        content = content,
-    )
+fun BeetMeisterTheme(
+    spacing: BeetSpacing = BeetSpacing(),
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(LocalBeetSpacing provides spacing) {
+        MaterialTheme(
+            colorScheme = LightColorScheme,
+            typography = Typography,
+            content = content,
+        )
+    }
 }

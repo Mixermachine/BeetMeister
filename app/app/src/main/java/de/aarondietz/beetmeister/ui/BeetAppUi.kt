@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
@@ -492,8 +493,12 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         },
     ) {
         Surface(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+            ) {
+                Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 0.dp)) {
                     Header(state = state)
                     state.lastCommandMessage?.let { message ->
                         AssistChip(
