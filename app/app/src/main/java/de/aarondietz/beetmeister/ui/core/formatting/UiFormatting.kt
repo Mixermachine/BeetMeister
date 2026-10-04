@@ -225,5 +225,5 @@ internal fun formatRssi(value: Int, strings: BeetStringResolver): String =
 internal fun formatPercentAndMillivolts(percent: Int, millivolts: Int, strings: BeetStringResolver): String =
     strings.get(R.string.common_percent_and_millivolts, percent, millivolts)
 
-internal fun formatProgress(downloaded: Int, total: Int, strings: BeetStringResolver): String =
-    strings.get(R.string.common_progress_fraction, downloaded, total)
+internal fun formatProgress(transferred: Int, total: Int, strings: BeetStringResolver): String =
+    strings.get(R.string.common_progress_fraction, transferred, total)

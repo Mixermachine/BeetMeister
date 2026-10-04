@@ -35,7 +35,7 @@ internal data class BeetBacklogFetchResult<T>(
 )
 
 internal data class BeetBacklogProgress(
-    val downloaded: Int,
+    val transferred: Int,
     val total: Int,
     val active: Boolean,
     val phase: BeetEventSyncPhase,
@@ -73,27 +73,42 @@ internal class BeetBacklogSyncRunner(
         val maxBatchSize = max(config.initialBatchSize, min(config.maxBatchSize, input.limit))
         var batchSize = config.initialBatchSize
         val cutoffUnixSeconds = nowUnixSeconds() - config.retentionSeconds
-        val estimatedWateringMissing = max(0, (input.wateringSummary?.eventCount ?: 0) - existingWatering.size)
-        val estimatedSystemMissing = max(0, (input.systemSummary?.eventCount ?: 0) - existingSystem.size)
+        // Denominator: total events currently stored on the controller (both streams).
+        val wateringEventCount = (input.wateringSummary?.eventCount ?: 0).coerceAtLeast(0)
+        val systemEventCount = (input.systemSummary?.eventCount ?: 0).coerceAtLeast(0)
+        val total = wateringEventCount + systemEventCount
+        // Numerator starts at the events the controller holds that the local cache already has
+        // (sequences inside the controller's retained range) and grows as new events arrive.
+        val transferredAtStart =
+            (if (wateringEventCount > 0) {
+                existingWatering.count { it > wateringCursor - wateringEventCount && it <= wateringCursor }
+            } else {
+                0
+            }) +
+                (if (systemEventCount > 0) {
+                    existingSystem.count { it > systemCursor - systemEventCount && it <= systemCursor }
+                } else {
+                    0
+                })
         var downloaded = 0
-        val total = estimatedWateringMissing + estimatedSystemMissing
+        var transferred = min(total, transferredAtStart)
         val wateringFailureCounts = mutableMapOf<Long, Int>()
         val systemFailureCounts = mutableMapOf<Long, Int>()
         var wateringConsecutiveNotFound = 0
         var systemConsecutiveNotFound = 0
 
-        onProgress(BeetBacklogProgress(downloaded = 0, total = total, active = true, phase = BeetEventSyncPhase.CatchingUp))
+        onProgress(BeetBacklogProgress(transferred = transferred, total = total, active = true, phase = BeetEventSyncPhase.CatchingUp))
 
         while ((!wateringDone || !systemDone) && isConnected()) {
             if (isPauseRequested()) {
-                onProgress(BeetBacklogProgress(downloaded = downloaded, total = max(total, downloaded), active = true, phase = BeetEventSyncPhase.PausedForCommand))
+                onProgress(BeetBacklogProgress(transferred = transferred, total = total, active = true, phase = BeetEventSyncPhase.PausedForCommand))
                 sleep(config.pausePollDelayMs)
                 continue
             }
 
             var progressThisCycle = false
             var congestedThisCycle = false
-            onProgress(BeetBacklogProgress(downloaded = downloaded, total = max(total, downloaded), active = true, phase = BeetEventSyncPhase.CatchingUp))
+            onProgress(BeetBacklogProgress(transferred = transferred, total = total, active = true, phase = BeetEventSyncPhase.CatchingUp))
 
             if (!wateringDone) {
                 val result = processBatch(
@@ -115,6 +130,7 @@ internal class BeetBacklogSyncRunner(
                 progressThisCycle = progressThisCycle || result.progressMade
                 congestedThisCycle = congestedThisCycle || result.congested
                 downloaded += result.downloaded
+                transferred = min(total, transferred + result.downloaded)
             }
 
             if (!systemDone && !congestedThisCycle) {
@@ -137,13 +153,14 @@ internal class BeetBacklogSyncRunner(
                 progressThisCycle = progressThisCycle || result.progressMade
                 congestedThisCycle = congestedThisCycle || result.congested
                 downloaded += result.downloaded
+                transferred = min(total, transferred + result.downloaded)
             }
 
             val complete = wateringDone && systemDone
             onProgress(
                 BeetBacklogProgress(
-                    downloaded = downloaded,
-                    total = max(total, downloaded),
+                    transferred = transferred,
+                    total = total,
                     active = !complete,
                     phase = if (complete) BeetEventSyncPhase.Completed else BeetEventSyncPhase.CatchingUp,
                 ),
@@ -168,8 +185,8 @@ internal class BeetBacklogSyncRunner(
 
         onProgress(
             BeetBacklogProgress(
-                downloaded = downloaded,
-                total = max(total, downloaded),
+                transferred = transferred,
+                total = total,
                 active = false,
                 phase = BeetEventSyncPhase.Completed,
             ),

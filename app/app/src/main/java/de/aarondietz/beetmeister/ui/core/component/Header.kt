@@ -52,7 +52,7 @@ internal fun Header(state: BeetRepositoryState) {
         )
         ConnectedStatusChip(
             label = connectionPhaseLabel(state.connection.phase, strings),
-            syncLabel = if (state.eventSync.active) formatProgress(state.eventSync.downloaded, state.eventSync.total, strings) else null,
+            syncLabel = if (state.eventSync.active) formatProgress(state.eventSync.transferred, state.eventSync.total, strings) else null,
             progress = state.eventSync.progress,
             progressActive = state.eventSync.active,
         )
@@ -152,7 +152,7 @@ private fun HeaderPreview_Disconnected() {
 @Composable
 private fun HeaderPreview_Syncing() {
     val state = PreviewData.connectedState().copy(
-        eventSync = PreviewData.eventSyncActive(downloaded = 128, total = 320),
+        eventSync = PreviewData.eventSyncActive(transferred = 128, total = 320),
     )
     BeetMeisterTheme {
         Header(state = state)
