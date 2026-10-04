@@ -207,54 +207,52 @@ private fun PairOverviewCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (pairName != null && pairName.isNotBlank()) pairName
+                    text = if (pairName != null && pairName.isNotBlank()) pairName
                     else strings.get(R.string.common_pair_number, pairIndex),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.testTag(OverviewTestTags.PairName),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(end = 8.dp)
+                        .testTag(OverviewTestTags.PairName),
                 )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (leadIndex != null) {
-                        val label = if (!leadName.isNullOrBlank()) leadName
-                        else strings.get(R.string.common_pair_number, leadIndex)
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(strings.get(R.string.pair_detail_sensor_source_follower_badge, label)) },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            ),
-                            border = null,
-                            modifier = Modifier.testTag(OverviewTestTags.PairSensorSourceBadge),
-                        )
-                    } else if (followersCount > 0) {
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(strings.get(R.string.pair_detail_sensor_source_lead_badge, followersCount)) },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                            ),
-                            border = null,
-                            modifier = Modifier.testTag(OverviewTestTags.PairSensorSourceBadge),
-                        )
-                    }
-                    if (pair != null) {
-                        AssistChip(
-                            onClick = {},
-                            label = { Text(pairStateLabel(pair.state, strings)) },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = chipContainerColor,
-                                labelColor = chipContentColor,
-                            ),
-                            border = null,
-                            modifier = Modifier.testTag(OverviewTestTags.PairState),
-                        )
-                    }
+                if (pair != null) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text(pairStateLabel(pair.state, strings)) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = chipContainerColor,
+                            labelColor = chipContentColor,
+                        ),
+                        border = null,
+                        modifier = Modifier.testTag(OverviewTestTags.PairState),
+                    )
                 }
+            }
+            if (leadIndex != null) {
+                val label = if (!leadName.isNullOrBlank()) leadName
+                else strings.get(R.string.common_pair_number, leadIndex)
+                AssistChip(
+                    onClick = {},
+                    label = { Text(strings.get(R.string.pair_detail_sensor_source_follower_badge, label)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+                    border = null,
+                    modifier = Modifier.testTag(OverviewTestTags.PairSensorSourceBadge),
+                )
+            } else if (followersCount > 0) {
+                AssistChip(
+                    onClick = {},
+                    label = { Text(strings.get(R.string.pair_detail_sensor_source_lead_badge, followersCount)) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    ),
+                    border = null,
+                    modifier = Modifier.testTag(OverviewTestTags.PairSensorSourceBadge),
+                )
             }
             Spacer(modifier = Modifier.height(10.dp))
             ValueGridRow(
