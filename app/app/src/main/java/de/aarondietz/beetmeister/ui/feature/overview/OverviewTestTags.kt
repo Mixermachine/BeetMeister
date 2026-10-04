@@ -24,4 +24,5 @@ internal object OverviewTestTags {
     const val PairDetailsButton = "overview_pair_details_button"
     const val PairEnableToggle = "overview_pair_enable_toggle"
     const val PairClearErrorButton = "overview_pair_clear_error_button"
+    const val PairSensorSourceBadge = "overview_pair_sensor_source_badge"
 }

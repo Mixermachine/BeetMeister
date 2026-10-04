@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.performScrollToNode
 import de.aarondietz.beetmeister.ui.feature.pairdetail.PairDetailTestTags
 
 /**
@@ -60,6 +61,8 @@ internal class PairDetailRobot(
 
     /** Navigates back to the Overview (via the in-screen back button). */
     fun back() {
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(androidx.compose.ui.test.hasTestTag(PairDetailTestTags.BackButton))
         composeRule.onNodeWithTag(PairDetailTestTags.BackButton).performClick()
     }
 
@@ -71,5 +74,49 @@ internal class PairDetailRobot(
     /** Asserts that the Moist target level chip is selected. */
     fun assertTargetLevelMoistIsSelected() {
         composeRule.onNodeWithTag(PairDetailTestTags.TargetLevelMoist).assertIsSelected()
+    }
+
+    /** Selects the Shared Sensor option. */
+    fun selectSharedSensor() {
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(androidx.compose.ui.test.hasTestTag(PairDetailTestTags.SensorSourceSharedRadio))
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceSharedRadio).performClick()
+        composeRule.waitForIdle()
+    }
+
+    /** Asserts Shared Sensor is selected. */
+    fun assertSharedSensorIsSelected(timeoutMillis: Long = 10_000L) {
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(androidx.compose.ui.test.hasTestTag(PairDetailTestTags.SensorSourceSharedRadio))
+        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+            try {
+                composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceSharedRadio).assertIsSelected()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
+    }
+
+    /** Selects the Dedicated Sensor option. */
+    fun selectDedicatedSensor() {
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(androidx.compose.ui.test.hasTestTag(PairDetailTestTags.SensorSourceDedicatedRadio))
+        composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceDedicatedRadio).performClick()
+        composeRule.waitForIdle()
+    }
+
+    /** Asserts Dedicated Sensor is selected. */
+    fun assertDedicatedSensorIsSelected(timeoutMillis: Long = 10_000L) {
+        composeRule.onNodeWithTag(PairDetailTestTags.Container)
+            .performScrollToNode(androidx.compose.ui.test.hasTestTag(PairDetailTestTags.SensorSourceDedicatedRadio))
+        composeRule.waitUntil(timeoutMillis = timeoutMillis) {
+            try {
+                composeRule.onNodeWithTag(PairDetailTestTags.SensorSourceDedicatedRadio).assertIsSelected()
+                true
+            } catch (_: AssertionError) {
+                false
+            }
+        }
     }
 }

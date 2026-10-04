@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
 import de.aarondietz.beetmeister.model.repository.displayedPairCount
+import de.aarondietz.beetmeister.model.repository.leadFor
+import de.aarondietz.beetmeister.model.repository.followersFor
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.PairErrorClearButton
@@ -85,6 +87,9 @@ internal fun OverviewScreen(
                 pairIndex = pairIndex,
                 pair = state.pairStates[pairIndex],
                 pairName = state.pairNames[pairIndex],
+                leadIndex = state.leadFor(pairIndex),
+                leadName = state.leadFor(pairIndex)?.let { state.pairNames[it] },
+                followersCount = state.followersFor(pairIndex).size,
                 onDetails = { onPairSelected(pairIndex) },
                 onClearError = { onClearError(pairIndex) },
                 onToggleEnabled = { onToggleEnabled(pairIndex) },
@@ -171,6 +176,9 @@ private fun PairOverviewCard(
     pairIndex: Int,
     pair: BeetPairState?,
     pairName: String?,
+    leadIndex: Int? = null,
+    leadName: String? = null,
+    followersCount: Int = 0,
     onDetails: () -> Unit,
     onClearError: () -> Unit,
     onToggleEnabled: () -> Unit,
@@ -205,17 +213,47 @@ private fun PairOverviewCard(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.testTag(OverviewTestTags.PairName),
                 )
-                if (pair != null) {
-                    AssistChip(
-                        onClick = {},
-                        label = { Text(pairStateLabel(pair.state, strings)) },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = chipContainerColor,
-                            labelColor = chipContentColor,
-                        ),
-                        border = null,
-                        modifier = Modifier.testTag(OverviewTestTags.PairState),
-                    )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (leadIndex != null) {
+                        val label = if (!leadName.isNullOrBlank()) leadName
+                        else strings.get(R.string.common_pair_number, leadIndex)
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(strings.get(R.string.pair_detail_sensor_source_follower_badge, label)) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            ),
+                            border = null,
+                            modifier = Modifier.testTag(OverviewTestTags.PairSensorSourceBadge),
+                        )
+                    } else if (followersCount > 0) {
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(strings.get(R.string.pair_detail_sensor_source_lead_badge, followersCount)) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                            ),
+                            border = null,
+                            modifier = Modifier.testTag(OverviewTestTags.PairSensorSourceBadge),
+                        )
+                    }
+                    if (pair != null) {
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(pairStateLabel(pair.state, strings)) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = chipContainerColor,
+                                labelColor = chipContentColor,
+                            ),
+                            border = null,
+                            modifier = Modifier.testTag(OverviewTestTags.PairState),
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(10.dp))

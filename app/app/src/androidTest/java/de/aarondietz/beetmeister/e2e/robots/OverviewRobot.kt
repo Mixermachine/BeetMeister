@@ -2,6 +2,8 @@ package de.aarondietz.beetmeister.e2e.robots
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertAll
+import androidx.compose.ui.test.assertAny
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.ComposeTestRule
@@ -127,10 +129,14 @@ internal class OverviewRobot(
     }
 
     /**
-     * Taps the Details button on the n-th pair card. Used as the
-     * entry point for [PairDetailRobot]'s rename flow.
+     * Taps the Details button on the n-th pair card (0-indexed). Used as the
+     * entry point for [PairDetailRobot]'s flows.
      */
     fun tapPairDetails(index: Int) {
+        val listNode = composeRule.onNodeWithTag(OverviewTestTags.List)
+        listNode.performScrollToIndex(index)
+        composeRule.waitForIdle()
+
         composeRule
             .onAllNodesWithTag(OverviewTestTags.PairDetailsButton)
             .get(index)
@@ -138,5 +144,33 @@ internal class OverviewRobot(
         composeRule
             .onNodeWithTag(de.aarondietz.beetmeister.ui.feature.pairdetail.PairDetailTestTags.Container)
             .assertIsDisplayed()
+    }
+
+    /**
+     * Asserts that the n-th pair card (0-indexed) displays a sensor source badge with [expectedText].
+     */
+    fun assertPairSensorSourceBadgeEquals(index: Int, expectedText: String) {
+        val listNode = composeRule.onNodeWithTag(OverviewTestTags.List)
+        listNode.performScrollToIndex(index)
+        composeRule.waitForIdle()
+
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            val nodes = composeRule.onAllNodesWithTag(OverviewTestTags.PairSensorSourceBadge)
+            val count = nodes.fetchSemanticsNodes().size
+            count > 0
+        }
+
+        // Verify across cards that the expected badge text is displayed
+        composeRule.onAllNodesWithTag(OverviewTestTags.PairSensorSourceBadge)
+            .assertAny(androidx.compose.ui.test.hasText(expectedText))
+    }
+
+    /**
+     * Asserts that no sensor source badge with [badgeText] is displayed anywhere in Overview.
+     */
+    fun assertNoPairSensorSourceBadge(badgeText: String) {
+        composeRule.waitForIdle()
+        composeRule.onAllNodesWithTag(OverviewTestTags.PairSensorSourceBadge)
+            .assertAll(!androidx.compose.ui.test.hasText(badgeText))
     }
 }

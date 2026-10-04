@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import de.aarondietz.beetmeister.ui.feature.calibration.CalibrationSaveDraft
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.model.repository.displayedPairCount
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.ui.feature.battery.BatteryHistoryScreen
 import de.aarondietz.beetmeister.ui.feature.calibration.CalibrationScreen
@@ -57,6 +58,8 @@ internal fun AppMainContentRouter(
     onStorePairName: (Int, String) -> Unit,
     onLoadPairConfig: (Int) -> Unit = {},
     onStorePairConfig: (Int, de.aarondietz.beetmeister.model.controller.TargetMoistureLevel, Int) -> Unit = { _, _, _ -> },
+    onLoadPairCombined: (Int) -> Unit = {},
+    onSetPairSensorSource: (Int, Int?) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     when {
@@ -68,6 +71,11 @@ internal fun AppMainContentRouter(
             pairWiringError = state.pairWiringErrors[selectedPair],
             pairName = state.pairNames[selectedPair],
             pairConfig = state.pairConfigs[selectedPair],
+            pairCombined = state.pairCombined,
+            pairNames = state.pairNames,
+            displayedPairCount = state.displayedPairCount,
+            onLoadPairCombined = onLoadPairCombined,
+            onSetPairSensorSource = onSetPairSensorSource,
             onStorePairName = onStorePairName,
             onLoadPairConfig = onLoadPairConfig,
             onStorePairConfig = onStorePairConfig,

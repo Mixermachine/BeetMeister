@@ -87,6 +87,9 @@ internal class ConnectionGateRobot(
         // composition settles after the BLE state transitions
         // complete.
         composeRule.waitForIdle()
+        if (permissionsButtonVisible()) {
+            tapPermissions()
+        }
         composeRule.waitUntil(timeoutMillis = 30_000) {
             scanButtonVisible() || postConnectVisible() || hasDeviceCards()
         }
@@ -107,6 +110,34 @@ internal class ConnectionGateRobot(
             .isNotEmpty()
     } catch (e: IllegalStateException) {
         false
+    }
+
+    internal fun permissionsButtonVisible(): Boolean = try {
+        composeRule
+            .onAllNodesWithTag(ConnectionGateTestTags.PermissionsButton)
+            .fetchSemanticsNodes()
+            .isNotEmpty()
+    } catch (e: IllegalStateException) {
+        false
+    }
+
+    internal fun tapPermissions() {
+        composeRule
+            .onAllNodesWithTag(ConnectionGateTestTags.PermissionsButton)
+            .onFirst()
+            .performClick()
+        val device = androidx.test.uiautomator.UiDevice.getInstance(
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        )
+        val candidates = listOf("While using the app", "Allow", "Nur dieses Mal", "Bei Verwendung der App", "Zulassen")
+        for (label in candidates) {
+            val btn = device.findObject(androidx.test.uiautomator.By.text(label))
+            if (btn != null) {
+                btn.click()
+                device.waitForIdle(2_000L)
+                return
+            }
+        }
     }
 
     internal fun hasDeviceCards(): Boolean = try {

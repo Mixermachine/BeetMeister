@@ -211,6 +211,16 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="pair_detail_rename_title">Rename Pair</string>
     <string name="pair_detail_rename_label">Rename pair (max 15 chars)</string>
     <string name="pair_detail_rename_save">Save</string>
+    <string name="pair_detail_sensor_source_title">Sensor Source</string>
+    <string name="pair_detail_sensor_source_dedicated">Dedicated sensor</string>
+    <string name="pair_detail_sensor_source_shared">Share from another pair</string>
+    <string name="pair_detail_sensor_source_dedicated_desc">Uses this pair\'s own physical soil moisture sensor.</string>
+    <string name="pair_detail_sensor_source_follower_desc" localizePipeContext="Description of piggybacked sensor reading. %1$s is the lead pair name or label.">Shares sensor readings from %1$s. This pair retains its own calibration, target moisture, and watering duration multiplier.</string>
+    <string name="pair_detail_sensor_source_lead_desc" localizePipeContext="Notification that this pair shares its sensor with other pairs. %1$s is a comma-separated list of follower names.">Shares its physical sensor with: %1$s.</string>
+    <string name="pair_detail_sensor_source_lead_picker_label">Select lead sensor pair</string>
+    <string name="pair_detail_sensor_source_no_leads_available">No other pairs are available to share from.</string>
+    <string name="pair_detail_sensor_source_lead_badge" localizePipeContext="Chip label indicating shared sensor lead. %1$d is follower count.">Shared (%1$d)</string>
+    <string name="pair_detail_sensor_source_follower_badge" localizePipeContext="Chip label indicating shared sensor follower. %1$s is the lead pair name.">Follows %1$s</string>
 
     <string name="events_title">Events</string>
     <string name="events_watering_summary_title">Watering</string>
