@@ -133,12 +133,6 @@ internal class E2eConnectionFixture(
         val device = UiDevice.getInstance(
             InstrumentationRegistry.getInstrumentation(),
         )
-        try {
-            device.takeScreenshot(java.io.File("/sdcard/e2e_during_test.png"))
-            android.util.Log.d("E2E_PERM", "Took screenshot during test to /sdcard/e2e_during_test.png")
-        } catch (e: Exception) {
-            android.util.Log.e("E2E_PERM", "Failed to take screenshot", e)
-        }
         // Samsung / AOSP runtime permission dialog buttons: "Allow", "While using the app", "Only this time"
         val candidates = listOf("While using the app", "Allow", "Nur dieses Mal", "Bei Verwendung der App", "Zulassen")
         for (label in candidates) {
@@ -164,7 +158,7 @@ internal class E2eConnectionFixture(
             InstrumentationRegistry.getInstrumentation(),
         )
         val candidates = listOf("Pair", "Pairing", "OK", "Allow")
-        val deadline = System.currentTimeMillis() + 15_000L
+        val deadline = System.currentTimeMillis() + 1_500L
         android.util.Log.d("E2E_PASSKEY", "dismissBluetoothPairingDialog loop started")
         while (System.currentTimeMillis() < deadline) {
             val pinField = device.findObject(By.clazz("android.widget.EditText"))

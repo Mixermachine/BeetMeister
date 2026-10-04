@@ -74,5 +74,7 @@ object BeetLogConfig {
         rootLogger.level = Level.INFO
         rootLogger.addAppender(logcatAppender)
         rootLogger.addAppender(fileAppender)
+
+        BeetLogLevel.init(context)
     }
 }
