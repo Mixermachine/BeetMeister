@@ -71,8 +71,10 @@ object BeetLogConfig {
         }
 
         val rootLogger = loggerContext.getLogger(Logger.ROOT_LOGGER_NAME)
-        rootLogger.level = if (de.aarondietz.beetmeister.BuildConfig.DEBUG) Level.DEBUG else Level.INFO
+        rootLogger.level = Level.INFO
         rootLogger.addAppender(logcatAppender)
         rootLogger.addAppender(fileAppender)
+
+        BeetLogLevel.init(context)
     }
 }
