@@ -240,7 +240,7 @@ private fun MetricItem(
 internal fun buildBatteryPoints(events: List<BeetSystemEvent>): List<BatteryChartPoint> {
     return events
         .filter { it.batteryMillivolts > 0 }
-        .sortedBy { it.sequenceNumber }
+        .sortedWith(compareBy<BeetSystemEvent> { it.bootId }.thenBy { it.sequenceNumber })
         .map { event ->
             val label = if (event.unixSeconds > 0L) {
                 val totalSeconds = event.unixSeconds % (24 * 60 * 60)

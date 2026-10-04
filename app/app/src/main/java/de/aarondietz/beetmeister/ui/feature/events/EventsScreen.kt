@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import de.aarondietz.beetmeister.ui.core.component.BeetLazyColumn
@@ -18,6 +19,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,7 +34,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
+import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.repository.BeetRepositoryState
+import de.aarondietz.beetmeister.strings.BeetStringResolver
 import de.aarondietz.beetmeister.strings.rememberBeetStringResolver
 import de.aarondietz.beetmeister.ui.core.component.BeetPullToRefreshBox
 import de.aarondietz.beetmeister.ui.feature.events.component.DurationBarChart
@@ -50,9 +54,12 @@ internal fun EventsScreen(
     var window by remember { mutableStateOf(WateringWindow.Day) }
     var filter by remember { mutableStateOf(EventFilter.All) }
     val nowSeconds = System.currentTimeMillis() / 1000L
-    val totals = wateringTotals(state.recentEvents, window, nowSeconds)
-    val filteredSystemEvents = state.systemEvents.filter { filter.acceptsSystem(it) }
-    val systemSections = groupSystemEvents(filteredSystemEvents, state, strings)
+    // The repository state is re-emitted on every telemetry tick; keep grouping/sorting work off
+    // recomposition by memoizing it on the data it actually depends on.
+    val totals = remember(state.recentEvents, window) { wateringTotals(state.recentEvents, window, nowSeconds) }
+    val systemSections = remember(state.systemEvents, filter, state.deviceState?.bootId, strings) {
+        groupSystemEvents(state.systemEvents.filter { filter.acceptsSystem(it) }, state, strings)
+    }
     val isRefreshing = state.eventsLoading || state.eventSync.active
 
     BeetPullToRefreshBox(
@@ -128,8 +135,19 @@ internal fun EventsScreen(
                     )
                 }
             } else {
-                items(systemSections, key = { section -> section.key }) { section ->
-                    SystemEventSectionCard(section = section)
+                // One lazy item per event with a pinned section header per group. Rendering each
+                // section as a single card composed every event at once and stalled for seconds.
+                systemSections.forEach { section ->
+                    stickyHeader(key = "sec:${section.key}") {
+                        SystemEventSectionHeading(
+                            title = section.title,
+                            count = section.events.size,
+                            strings = strings,
+                        )
+                    }
+                    items(section.events, key = { event -> "sys:${section.key}:${event.bootId}:${event.sequenceNumber}" }) { event ->
+                        SystemEventRow(event = event)
+                    }
                 }
             }
         }
@@ -144,7 +162,11 @@ internal fun EventDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val strings = rememberBeetStringResolver()
-    val wateringEvents = state.recentEvents.sortedByDescending { it.sequenceNumber }
+    val wateringEvents = remember(state.recentEvents) {
+        state.recentEvents.sortedWith(
+            compareByDescending<BeetWateringEvent> { it.bootId }.thenByDescending { it.sequenceNumber },
+        )
+    }
     BeetPullToRefreshBox(
         isRefreshing = state.eventsLoading || state.eventSync.active,
         onRefresh = onReload,
@@ -176,7 +198,7 @@ internal fun EventDetailScreen(
                     )
                 }
             } else {
-                items(wateringEvents, key = { "wat${it.sequenceNumber}" }) { event ->
+                items(wateringEvents, key = { event -> "wat${event.bootId}_${event.sequenceNumber}" }) { event ->
                     WateringEventRow(event = event, state = state)
                 }
             }
@@ -219,27 +241,31 @@ private fun SectionHeading(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SystemEventSectionCard(
-    section: SystemEventSection,
+private fun SystemEventSectionHeading(
+    title: String,
+    count: Int,
+    strings: BeetStringResolver,
 ) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF7FAFC)),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, contentColor = Color(0xFF31566B)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = section.title,
+                text = title,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF31566B),
+                fontWeight = FontWeight.Bold,
             )
-            section.events.forEach { event ->
-                SystemEventRow(event = event)
-            }
+            Text(
+                text = strings.get(R.string.events_section_event_count, count),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

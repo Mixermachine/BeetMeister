@@ -11,6 +11,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.util.Locale
 
 internal fun bondStateLabel(bondState: Int, strings: BeetStringResolver): String = when (bondState) {
     BluetoothDevice.BOND_BONDED -> strings.get(R.string.bond_state_bonded)
@@ -33,9 +34,16 @@ internal fun formatDuration(seconds: Int, strings: BeetStringResolver): String {
     }
 }
 
+// DateTimeFormatter construction is expensive on Android; formatters are immutable and reusable.
+private val mediumDateTimeFormatters = mutableMapOf<Locale, DateTimeFormatter>()
+
+private fun mediumDateTimeFormatter(locale: Locale): DateTimeFormatter =
+    mediumDateTimeFormatters.getOrPut(locale) {
+        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withLocale(locale)
+    }
+
 internal fun formatUnixSeconds(unixSeconds: Long, strings: BeetStringResolver): String =
-    DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
-        .withLocale(strings.locale)
+    mediumDateTimeFormatter(strings.locale)
         .format(
             Instant.ofEpochSecond(unixSeconds)
                 .atZone(ZoneId.systemDefault())
@@ -208,6 +216,12 @@ internal fun systemEventLabel(value: String, strings: BeetStringResolver): Strin
         "OTA_STARTED" -> R.string.system_event_ota_started
         "OTA_FAILED" -> R.string.system_event_ota_failed
         "OTA_READY" -> R.string.system_event_ota_ready
+        "UPDATE_STARTED" -> R.string.system_event_update_started
+        "UPDATE_RECONNECT" -> R.string.system_event_update_reconnect
+        "UPDATE_INVALIDATED" -> R.string.system_event_update_invalidated
+        "UPDATE_INTERRUPTED" -> R.string.system_event_update_interrupted
+        "UPDATE_FAILED" -> R.string.system_event_update_failed
+        "UPDATE_COMPLETED" -> R.string.system_event_update_completed
         else -> return strings.get(R.string.common_unknown_with_code, value)
     }
     return strings.get(resId)

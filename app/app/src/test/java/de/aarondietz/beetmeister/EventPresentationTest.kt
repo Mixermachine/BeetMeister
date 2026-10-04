@@ -174,10 +174,10 @@ class EventPresentationTest {
         )
         val now = Instant.parse("2026-05-06T12:00:00Z")
         val events = listOf(
-            systemEvent(eventType = "STARTUP", bootId = 41, unix = 0, timeValid = false).copy(sequenceNumber = 1),
-            systemEvent(eventType = "BLE_CONNECT", unix = 1_778_068_800L, timeValid = true).copy(sequenceNumber = 2),
-            systemEvent(eventType = "MQTT_CONNECT", unix = 1_777_982_400L, timeValid = true).copy(sequenceNumber = 3),
-            systemEvent(eventType = "BLE_DISCONNECT", bootId = 40, unix = 0, timeValid = false).copy(sequenceNumber = 4),
+            systemEvent(eventType = "STARTUP", bootId = 41, unix = 0, timeValid = false).copy(sequenceNumber = 4),
+            systemEvent(eventType = "BLE_CONNECT", unix = 1_778_068_800L, timeValid = true).copy(sequenceNumber = 3),
+            systemEvent(eventType = "MQTT_CONNECT", unix = 1_777_982_400L, timeValid = true).copy(sequenceNumber = 2),
+            systemEvent(eventType = "BLE_DISCONNECT", bootId = 40, unix = 0, timeValid = false).copy(sequenceNumber = 1),
         )
 
         val sections = groupSystemEvents(
@@ -188,11 +188,47 @@ class EventPresentationTest {
             zoneId = ZoneId.of("UTC"),
         )
 
-        assertEquals(listOf("Boot 40", "Yesterday", "Today", "Boot 41"), sections.map { it.title })
+        assertEquals(listOf("Boot 41", "Today · Boot 41", "Yesterday · Boot 41", "Boot 40"), sections.map { it.title })
         assertEquals(listOf(4L), sections[0].events.map { it.sequenceNumber })
         assertEquals(listOf(3L), sections[1].events.map { it.sequenceNumber })
         assertEquals(listOf(2L), sections[2].events.map { it.sequenceNumber })
         assertEquals(listOf(1L), sections[3].events.map { it.sequenceNumber })
+    }
+
+    @Test
+    fun bootSectionsSortByBootIdWhenSequenceNumbersRestartAfterEventWipe() {
+        val state = BeetRepositoryState(
+            deviceState = BeetDeviceState(
+                batteryState = "ACTIVE",
+                batteryMillivolts = 3330,
+                timeValid = false,
+                bootId = 9,
+                nextCheckInSeconds = 100,
+                activePumps = 0,
+                wifiConnected = false,
+                mqttConnected = false,
+                uptimeSeconds = 123,
+            ),
+        )
+        // Old cached boots 1..3 keep high sequence numbers from before the event partitions were
+        // wiped; boots 8..9 restart at seq 1. Newest boot must still render on top.
+        val events = listOf(
+            systemEvent(eventType = "BLE_CONNECT", bootId = 3, unix = 0, timeValid = false).copy(sequenceNumber = 320),
+            systemEvent(eventType = "SLEEP", bootId = 2, unix = 0, timeValid = false).copy(sequenceNumber = 250),
+            systemEvent(eventType = "STARTUP", bootId = 1, unix = 0, timeValid = false).copy(sequenceNumber = 200),
+            systemEvent(eventType = "STARTUP", bootId = 8, unix = 0, timeValid = false).copy(sequenceNumber = 1),
+            systemEvent(eventType = "STARTUP", bootId = 9, unix = 0, timeValid = false).copy(sequenceNumber = 2),
+        )
+
+        val sections = groupSystemEvents(
+            events = events,
+            state = state,
+            strings = strings,
+            now = Instant.parse("2026-05-06T12:00:00Z"),
+            zoneId = ZoneId.of("UTC"),
+        )
+
+        assertEquals(listOf("Boot 9", "Boot 8", "Boot 3", "Boot 2", "Boot 1"), sections.map { it.title })
     }
 
     private fun wateringEvent(
