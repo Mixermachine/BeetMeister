@@ -11,6 +11,7 @@ artifacts/stage8/
 artifacts/script-logs/
 artifacts/tmp-bundled-firmware/
 artifacts/tmp-release-artifact/
+artifacts/screenshots/
 
 # Local ESP-IDF build outputs.
 firmware/esp-idf/build*/
