@@ -169,7 +169,8 @@ function Invoke-BeetProcess {
         Wait = $true
         PassThru = $true
     }
-    if ($IsWindows) {
+    $isWindowsHost = ($PSVersionTable.PSEdition -ne "Core") -or $IsWindows
+    if ($isWindowsHost) {
         $startInfo.WindowStyle = "Hidden"
     }
     if ($WorkingDirectory) {
