@@ -2743,8 +2743,24 @@ esp_err_t beet_iface_submit_command(
             response->reason = BEET_IFACE_REASON_INVALID_COMBINED;
             return ESP_OK;
         }
+        /* If pair_index is currently a follower of another lead, it cannot lead (no follower-as-lead) */
+        if (request->combined_mask != 0U) {
+            for (uint8_t p = 1U; p <= BEET_PAIR_COUNT; ++p) {
+                if (p == request->pair_index) continue;
+                if (s_state.combined_followers[p - 1U] & (1U << (request->pair_index - 1U))) {
+                    response->reason = BEET_IFACE_REASON_INVALID_COMBINED;
+                    return ESP_OK;
+                }
+            }
+        }
         for (uint8_t f = 0; f < BEET_PAIR_COUNT; ++f) {
             if (!(request->combined_mask & (1U << f))) continue;
+            /* Follower f cannot have its own followers (no lead-as-follower) */
+            if (s_state.combined_followers[f] != 0U) {
+                response->reason = BEET_IFACE_REASON_INVALID_COMBINED;
+                return ESP_OK;
+            }
+            /* Follower f cannot already be claimed by another lead p */
             for (uint8_t p = 1U; p <= BEET_PAIR_COUNT; ++p) {
                 if (p == request->pair_index) continue;
                 if (s_state.combined_followers[p - 1U] & (1U << f)) {

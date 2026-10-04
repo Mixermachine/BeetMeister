@@ -198,7 +198,7 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="pair_detail_label_relay_gpio">Relay GPIO</string>
     <string name="pair_detail_wiring_loading">Loading controller wiring...</string>
     <string name="pair_detail_wiring_retry">Retry wiring read</string>
-    <string name="pair_detail_disabled_info">This pair is disabled and excluded from watering and invalid-sensor alarms.</string>
+    <string name="pair_detail_disabled_info">This pair is disabled and excluded from watering and invalid-sensor alarms. Follower pairs can still use this pair\'s sensor readings for watering.</string>
     <string name="pair_detail_manual_watering">Manual watering</string>
     <string name="pair_detail_timed_start_label">Timed start (seconds)</string>
     <string name="pair_detail_start_default">Start default</string>
@@ -212,6 +212,7 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="pair_detail_rename_label">Rename pair (max 15 chars)</string>
     <string name="pair_detail_rename_save">Save</string>
     <string name="pair_detail_sensor_source_title">Sensor Source</string>
+    <string name="pair_detail_sensor_source_loading">Loading sensor source configuration…</string>
     <string name="pair_detail_sensor_source_dedicated">Dedicated sensor</string>
     <string name="pair_detail_sensor_source_shared">Share from another pair</string>
     <string name="pair_detail_sensor_source_dedicated_desc">Uses this pair\'s own physical soil moisture sensor.</string>

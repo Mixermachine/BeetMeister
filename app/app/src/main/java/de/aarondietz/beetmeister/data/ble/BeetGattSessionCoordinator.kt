@@ -26,11 +26,14 @@ import de.aarondietz.beetmeister.data.repository.commandMessageForResult
 import de.aarondietz.beetmeister.model.command.BeetCommandResult
 import de.aarondietz.beetmeister.model.connection.BeetConnectionPhase
 import de.aarondietz.beetmeister.model.controller.BeetMaintenanceInfo
+import de.aarondietz.beetmeister.model.controller.BeetPairCombined
 import de.aarondietz.beetmeister.model.controller.BeetPairState
 import de.aarondietz.beetmeister.model.controller.BeetValveConfig
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
 import de.aarondietz.beetmeister.model.repository.displayedPairCount
+import de.aarondietz.beetmeister.model.repository.isFollower
+import de.aarondietz.beetmeister.model.repository.isLead
 import de.aarondietz.beetmeister.model.repository.leadFor
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncPhase
 import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
@@ -358,23 +361,27 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    suspend fun fetchPairNamesInternal() {
+        try {
+            val result = withSyncPausedForCommand { sendCommand(BeetJsonCodec.getPairNames()) }
+            result.pairNames?.let { names ->
+                val namesMap = names.names.mapIndexed { index, name ->
+                    (index + 1) to name
+                }.toMap()
+                host.updateState { it.copy(pairNames = namesMap) }
+            }
+        } catch (_: Exception) {
+            // names are optional — if the command fails (e.g. unsupported on old firmware),
+            // the UI falls back to "Pair N"
+        }
+    }
+
     fun loadPairNames() {
         host.scope.launch {
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
                 return@launch
             }
-            try {
-                val result = withSyncPausedForCommand { sendCommand(BeetJsonCodec.getPairNames()) }
-                result.pairNames?.let { names ->
-                    val namesMap = names.names.mapIndexed { index, name ->
-                        (index + 1) to name
-                    }.toMap()
-                    host.updateState { it.copy(pairNames = namesMap) }
-                }
-            } catch (_: Exception) {
-                // names are optional — if the command fails (e.g. unsupported on old firmware),
-                // the UI falls back to "Pair N"
-            }
+            fetchPairNamesInternal()
         }
     }
 
@@ -402,29 +409,37 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    suspend fun fetchPairCombinedInternal() {
+        try {
+            withSyncPausedForCommand {
+                val pairCount = host.state.value.displayedPairCount
+                val combinedMap = mutableMapOf<Int, BeetPairCombined>()
+                for (pairIndex in 1..pairCount) {
+                    val result = runCatching {
+                        sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
+                    }.getOrNull()
+                    if (result?.status == "accepted" && result.pairCombined != null) {
+                        combinedMap[pairIndex] = result.pairCombined
+                    }
+                }
+                host.updateState { state ->
+                    state.copy(
+                        pairCombined = state.pairCombined + combinedMap,
+                        isPairCombinedLoaded = true,
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            host.updateState { it.copy(isPairCombinedLoaded = true) }
+        }
+    }
+
     fun refreshPairCombined() {
         host.scope.launch {
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
                 return@launch
             }
-            try {
-                withSyncPausedForCommand {
-                    for (pairIndex in 1..host.state.value.displayedPairCount) {
-                        val result = runCatching {
-                            sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
-                        }.getOrNull()
-                        if (result?.status == "accepted" && result.pairCombined != null) {
-                            host.updateState { state ->
-                                state.copy(
-                                    pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
-                                )
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-                // combined config is optional
-            }
+            fetchPairCombinedInternal()
         }
     }
 
@@ -433,9 +448,25 @@ internal class BeetGattSessionCoordinator(
             if (!beetIsValidPairIndex(pairIndex)) {
                 return@launch
             }
+            if (!host.state.value.isPairCombinedLoaded) {
+                BeetLog.w(TAG, "Cannot set sensor source: pair combined configuration is not loaded yet")
+                return@launch
+            }
             val currentState = host.state.value
             val currentLead = currentState.leadFor(pairIndex)
             if (currentLead == leadPairIndex) {
+                return@launch
+            }
+
+            // Cannot set a sensor source if pairIndex is currently a lead for other pairs
+            if (leadPairIndex != null && currentState.isLead(pairIndex)) {
+                BeetLog.w(TAG, "Cannot set sensor source for lead pair $pairIndex without clearing followers first")
+                return@launch
+            }
+
+            // Cannot choose a pair that is itself a follower
+            if (leadPairIndex != null && currentState.isFollower(leadPairIndex)) {
+                BeetLog.w(TAG, "Cannot set follower pair $leadPairIndex as lead for pair $pairIndex")
                 return@launch
             }
 
@@ -1345,18 +1376,30 @@ internal class BeetGattSessionCoordinator(
         cancelControllerInfoRetry("initial sync completed")
         host.persistLastAddress(host.currentAddress)
         clearExpectedControllerAction()
-        BeetLog.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
-        host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
-        if (maintenanceUploadJob?.isActive == true) {
-            BeetLog.d(TAG, "Skipping post-sync refreshes because maintenance update is active")
-            return
-        }
-        refreshValveConfig()
-        refreshWateringInterval()
-        refreshMaxActivePumps()
-        loadPairNames()
-        refreshPairCombined()
+        BeetLog.d(TAG, "Initial sync started for session address=${host.currentAddress}")
+
         host.scope.launch {
+            if (maintenanceUploadJob?.isActive == true) {
+                BeetLog.d(TAG, "Skipping post-sync refreshes because maintenance update is active")
+                host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
+                return@launch
+            }
+
+            // Load pair names and combined piggyback configuration FIRST before marking connected
+            fetchPairNamesInternal()
+            fetchPairCombinedInternal()
+
+            if (host.session.currentGatt == null || host.state.value.connection.phase == BeetConnectionPhase.Disconnected) {
+                return@launch
+            }
+
+            BeetLog.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
+            host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
+
+            refreshValveConfig()
+            refreshWateringInterval()
+            refreshMaxActivePumps()
+
             delay(POST_CONNECT_EVENT_SYNC_DELAY_MS)
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) return@launch
             startBackgroundEventSync()

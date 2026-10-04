@@ -254,6 +254,9 @@ internal class BeetRepository(
                 connectedAtMillis = 0L,
                 connectedAtControllerUptimeSeconds = 0L,
                 pairStates = emptyMap(),
+                pairCombined = emptyMap(),
+                pairConfigs = emptyMap(),
+                isPairCombinedLoaded = false,
             )
         }
     }

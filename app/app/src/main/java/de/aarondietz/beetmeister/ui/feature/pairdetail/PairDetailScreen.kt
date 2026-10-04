@@ -1,5 +1,6 @@
 package de.aarondietz.beetmeister.ui.feature.pairdetail
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,9 +9,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
@@ -43,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -89,6 +93,7 @@ internal fun PairDetailScreen(
     onLoadPairConfig: (Int) -> Unit = {},
     onStorePairConfig: (Int, TargetMoistureLevel, Int) -> Unit = { _, _, _ -> },
     pairCombined: Map<Int, BeetPairCombined> = emptyMap(),
+    isPairCombinedLoaded: Boolean = true,
     pairNames: Map<Int, String> = emptyMap(),
     displayedPairCount: Int = 8,
     onLoadPairCombined: (Int) -> Unit = {},
@@ -265,6 +270,7 @@ internal fun PairDetailScreen(
             SensorSourceCard(
                 pairIndex = pairIndex,
                 pairCombined = pairCombined,
+                isPairCombinedLoaded = isPairCombinedLoaded,
                 pairNames = pairNames,
                 displayedPairCount = displayedPairCount,
                 onSetPairSensorSource = onSetPairSensorSource,
@@ -475,6 +481,7 @@ private fun PairConfigCard(
 private fun SensorSourceCard(
     pairIndex: Int,
     pairCombined: Map<Int, BeetPairCombined>,
+    isPairCombinedLoaded: Boolean,
     pairNames: Map<Int, String>,
     displayedPairCount: Int,
     onSetPairSensorSource: (Int, Int?) -> Unit,
@@ -488,6 +495,7 @@ private fun SensorSourceCard(
             pairCount = displayedPairCount,
         ),
         pairCombined = pairCombined,
+        isPairCombinedLoaded = isPairCombinedLoaded,
         pairNames = pairNames,
     )
 
@@ -515,6 +523,24 @@ private fun SensorSourceCard(
                 text = strings.get(R.string.pair_detail_sensor_source_title),
                 style = MaterialTheme.typography.titleLarge,
             )
+            if (!isPairCombinedLoaded) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.testTag(PairDetailTestTags.SensorSourceLoading),
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Text(
+                        text = strings.get(R.string.pair_detail_sensor_source_loading),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(12.dp))
 
             if (isLead) {
@@ -525,6 +551,19 @@ private fun SensorSourceCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
+                val dedicatedEnabled = isPairCombinedLoaded
+                val onSelectDedicated = {
+                    if (dedicatedEnabled && currentLead != null) {
+                        onSetPairSensorSource(pairIndex, null)
+                    }
+                }
+                val sharedEnabled = isPairCombinedLoaded && (availableLeads.isNotEmpty() || currentLead != null)
+                val onSelectShared = {
+                    if (sharedEnabled && currentLead == null && availableLeads.isNotEmpty()) {
+                        onSetPairSensorSource(pairIndex, availableLeads.first())
+                    }
+                }
+
                 // Radio option: Dedicated sensor
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -532,15 +571,20 @@ private fun SensorSourceCard(
                 ) {
                     RadioButton(
                         selected = currentLead == null,
-                        onClick = {
-                            if (currentLead != null) {
-                                onSetPairSensorSource(pairIndex, null)
-                            }
-                        },
+                        onClick = onSelectDedicated,
+                        enabled = dedicatedEnabled,
                         modifier = Modifier.testTag(PairDetailTestTags.SensorSourceDedicatedRadio),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(
+                                enabled = dedicatedEnabled,
+                                role = Role.RadioButton,
+                                onClick = onSelectDedicated,
+                            ),
+                    ) {
                         Text(
                             text = strings.get(R.string.pair_detail_sensor_source_dedicated),
                             style = MaterialTheme.typography.titleMedium,
@@ -562,16 +606,20 @@ private fun SensorSourceCard(
                 ) {
                     RadioButton(
                         selected = currentLead != null,
-                        onClick = {
-                            if (currentLead == null && availableLeads.isNotEmpty()) {
-                                onSetPairSensorSource(pairIndex, availableLeads.first())
-                            }
-                        },
-                        enabled = availableLeads.isNotEmpty() || currentLead != null,
+                        onClick = onSelectShared,
+                        enabled = sharedEnabled,
                         modifier = Modifier.testTag(PairDetailTestTags.SensorSourceSharedRadio),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(
+                                enabled = sharedEnabled,
+                                role = Role.RadioButton,
+                                onClick = onSelectShared,
+                            ),
+                    ) {
                         Text(
                             text = strings.get(R.string.pair_detail_sensor_source_shared),
                             style = MaterialTheme.typography.titleMedium,
@@ -585,7 +633,7 @@ private fun SensorSourceCard(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        } else if (availableLeads.isEmpty()) {
+                        } else if (availableLeads.isEmpty() && isPairCombinedLoaded) {
                             Text(
                                 text = strings.get(R.string.pair_detail_sensor_source_no_leads_available),
                                 style = MaterialTheme.typography.bodySmall,
@@ -599,14 +647,15 @@ private fun SensorSourceCard(
                 if (currentLead != null) {
                     Spacer(modifier = Modifier.height(12.dp))
                     ExposedDropdownMenuBox(
-                        expanded = expandedDropdown,
-                        onExpandedChange = { expandedDropdown = it },
+                        expanded = expandedDropdown && isPairCombinedLoaded,
+                        onExpandedChange = { if (isPairCombinedLoaded) expandedDropdown = it },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         OutlinedTextField(
                             value = pairLabel(currentLead),
                             onValueChange = {},
                             readOnly = true,
+                            enabled = isPairCombinedLoaded,
                             label = { Text(strings.get(R.string.pair_detail_sensor_source_lead_picker_label)) },
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedDropdown) },
                             modifier = Modifier
@@ -615,7 +664,7 @@ private fun SensorSourceCard(
                                 .testTag(PairDetailTestTags.SensorSourceDropdown),
                         )
                         ExposedDropdownMenu(
-                            expanded = expandedDropdown,
+                            expanded = expandedDropdown && isPairCombinedLoaded,
                             onDismissRequest = { expandedDropdown = false },
                         ) {
                             availableLeads.forEach { leadIdx ->
