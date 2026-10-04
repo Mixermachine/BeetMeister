@@ -42,21 +42,14 @@ internal fun Header(state: BeetRepositoryState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 12.dp),
+            .padding(bottom = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
-            Text(
-                text = info?.deviceId ?: strings.get(de.aarondietz.beetmeister.R.string.header_connected_controller),
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = strings.get(de.aarondietz.beetmeister.R.string.header_live_ble_session),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            text = info?.deviceId ?: strings.get(de.aarondietz.beetmeister.R.string.header_connected_controller),
+            style = MaterialTheme.typography.headlineSmall,
+        )
         ConnectedStatusChip(
             label = connectionPhaseLabel(state.connection.phase, strings),
             syncLabel = if (state.eventSync.active) formatProgress(state.eventSync.downloaded, state.eventSync.total, strings) else null,

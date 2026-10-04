@@ -42,6 +42,13 @@
     <string name="battery_history_title">Battery Voltage History</string>
     <string name="battery_history_insufficient_data">Not enough data yet.
 Connect to your BeetMeister controller and wait for events to accumulate.</string>
+    <string name="battery_history_current_voltage">Current Voltage</string>
+    <string name="battery_history_min">Min</string>
+    <string name="battery_history_avg">Avg</string>
+    <string name="battery_history_max">Max</string>
+    <string name="battery_history_samples_count">%1$d readings</string>
+    <string name="battery_history_chart_title">Voltage Trend</string>
+    <string name="battery_history_recent_readings">Recent Readings</string>
 
     <string name="header_connected_controller">Connected controller</string>
     <string name="header_live_ble_session">Live BLE session</string>

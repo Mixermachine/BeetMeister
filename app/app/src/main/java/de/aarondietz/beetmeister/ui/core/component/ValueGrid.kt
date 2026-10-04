@@ -49,7 +49,7 @@ internal fun ValueGridRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp),
+            .padding(vertical = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ValueCell(

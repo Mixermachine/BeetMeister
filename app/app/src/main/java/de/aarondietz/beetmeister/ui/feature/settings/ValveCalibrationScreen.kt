@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetLazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetCard
+import de.aarondietz.beetmeister.ui.core.theme.spacing
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
@@ -120,9 +122,7 @@ internal fun ValveCalibrationScreen(
         enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
     ) {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+        BeetLazyColumn {
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

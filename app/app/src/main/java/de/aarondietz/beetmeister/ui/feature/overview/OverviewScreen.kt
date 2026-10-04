@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetLazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetCard
+import de.aarondietz.beetmeister.ui.core.theme.spacing
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -74,10 +76,8 @@ internal fun OverviewScreen(
 ) {
     val strings = rememberBeetStringResolver()
     val pairRange = remember(state.displayedPairCount) { (1..state.displayedPairCount).toList() }
-    LazyColumn(
+    BeetLazyColumn(
         modifier = modifier.testTag(OverviewTestTags.List),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
             SystemValuesCard(state = state)
@@ -118,19 +118,16 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
             nowMillis = nowMillis,
         )
     }
-    ElevatedCard(
+    BeetCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(OverviewTestTags.SystemValuesCard),
+        modifier = Modifier.testTag(OverviewTestTags.SystemValuesCard),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                strings.get(R.string.overview_title_system_values),
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+        Text(
+            strings.get(R.string.overview_title_system_values),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(MaterialTheme.spacing.headerGap))
             ValueGridRow(
                 strings.get(R.string.overview_label_battery),
                 device?.let { formatMillivolts(it.batteryMillivolts, strings) },
@@ -167,7 +164,6 @@ private fun SystemValuesCard(state: BeetRepositoryState) {
                 strings.get(R.string.settings_label_valve_enabled),
                 device?.let { yesNo(it.valveEnabled, strings) },
             )
-        }
     }
 }
 
@@ -193,15 +189,13 @@ private fun PairOverviewCard(
         else -> StatusOkContainer to StatusOkOnContainer
     }
 
-    ElevatedCard(
+    BeetCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         modifier = Modifier
-            .fillMaxWidth()
             .alpha(if (pair == null || pair.enabled) 1f else 0.75f)
             .testTag(OverviewTestTags.PairCard),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
+        Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -254,7 +248,7 @@ private fun PairOverviewCard(
                     modifier = Modifier.testTag(OverviewTestTags.PairSensorSourceBadge),
                 )
             }
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(6.dp))
             ValueGridRow(
                 strings.get(R.string.overview_label_moisture),
                 pair?.let { formatPercent(it.moisturePercent, strings) },
@@ -288,8 +282,8 @@ private fun PairOverviewCard(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.elementGap)) {
                 Button(
                     onClick = onDetails,
                     modifier = Modifier.testTag(OverviewTestTags.PairDetailsButton),
@@ -306,7 +300,6 @@ private fun PairOverviewCard(
                     modifier = Modifier.testTag(OverviewTestTags.PairEnableToggle),
                 )
             }
-        }
     }
 }
 

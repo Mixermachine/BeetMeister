@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetLazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetCard
+import de.aarondietz.beetmeister.ui.core.theme.spacing
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -108,18 +110,7 @@ internal fun CalibrationScreen(
         enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
     ) {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(strings.get(R.string.calibration_title), style = MaterialTheme.typography.headlineSmall)
-                }
-            }
+        BeetLazyColumn {
             items(pairRange, key = { pairIndex -> pairIndex }) { index ->
                 val pairState = state.pairStates[index]
                 val calibration = state.calibrations[index]
@@ -159,14 +150,11 @@ private fun CalibrationCard(
     onSave: (Int, Int) -> Unit,
     strings: BeetStringResolver,
 ) {
-    ElevatedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(CalibrationTestTags.card(pairIndex)),
-        colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF8F4EA)),
+    BeetCard(
+        modifier = Modifier.testTag(CalibrationTestTags.card(pairIndex)),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
+        Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -212,8 +200,8 @@ private fun CalibrationCard(
                     .fillMaxWidth()
                     .testTag(CalibrationTestTags.wetInput(pairIndex)),
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Spacer(modifier = Modifier.height(MaterialTheme.spacing.elementGap))
+            Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.elementGap)) {
                 FilledTonalButton(
                     onClick = { pairState?.let { onDryChange(it.sensorMillivolts.toString()) } },
                     enabled = pairState != null,
@@ -242,6 +230,5 @@ private fun CalibrationCard(
             ) {
                 Text(strings.get(R.string.calibration_save))
             }
-        }
     }
 }

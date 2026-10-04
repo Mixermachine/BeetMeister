@@ -9,14 +9,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.height
+import de.aarondietz.beetmeister.ui.core.component.BeetBottomNavigationBar
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -460,40 +465,40 @@ internal fun BeetMeisterApp(viewModel: BeetAppViewModel, modifier: Modifier = Mo
         )
     }
 
-    NavigationSuiteScaffold(
+    Scaffold(
         modifier = rootModifier.fillMaxSize(),
-        navigationSuiteItems = {
-            TopLevelScreen.entries.forEach { destination ->
-                item(
-                    icon = destination.icon,
-                    label = {
-                        Text(
-                            text = stringResource(destination.labelRes),
-                            modifier = Modifier.testTag(NavigationSuiteTestTags.tagFor(destination)),
-                        )
-                    },
-                    selected = topLevelScreen == destination,
-                    onClick = {
-                        if (showValveCalibration) {
-                            requestLeaveValveCalibration(destination)
-                        } else if (topLevelScreen == TopLevelScreen.Settings && destination != TopLevelScreen.Settings) {
-                            requestLeaveSettings(destination = destination)
-                        } else if (topLevelScreen == TopLevelScreen.Calibration && destination != TopLevelScreen.Calibration) {
-                            requestLeavePairCalibration(destination)
-                        } else {
-                            topLevelScreen = destination
-                            selectedPair = 0
-                            showEventTable = false
-                            showValveCalibration = false
-                        }
-                    },
-                )
-            }
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        bottomBar = {
+            BeetBottomNavigationBar(
+                selectedScreen = topLevelScreen,
+                onScreenSelected = { destination ->
+                    if (showValveCalibration) {
+                        requestLeaveValveCalibration(destination)
+                    } else if (topLevelScreen == TopLevelScreen.Settings && destination != TopLevelScreen.Settings) {
+                        requestLeaveSettings(destination = destination)
+                    } else if (topLevelScreen == TopLevelScreen.Calibration && destination != TopLevelScreen.Calibration) {
+                        requestLeavePairCalibration(destination)
+                    } else {
+                        topLevelScreen = destination
+                        selectedPair = 0
+                        showEventTable = false
+                        showValveCalibration = false
+                    }
+                },
+            )
         },
-    ) {
-        Surface(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+    ) { innerPadding ->
+        Surface(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = innerPadding.calculateBottomPadding()),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+            ) {
+                Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 0.dp)) {
                     Header(state = state)
                     state.lastCommandMessage?.let { message ->
                         AssistChip(

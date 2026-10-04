@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetLazyColumn
+import de.aarondietz.beetmeister.ui.core.component.BeetCard
+import de.aarondietz.beetmeister.ui.core.theme.spacing
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
@@ -59,70 +61,54 @@ internal fun EventsScreen(
         enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
     ) {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
+        BeetLazyColumn {
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                BeetCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 ) {
-                    Text(strings.get(R.string.events_title), style = MaterialTheme.typography.headlineSmall)
-                }
-            }
-            item {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFF5EBDD)),
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        SectionHeading(
-                            title = strings.get(R.string.events_watering_summary_title),
-                            subtitle = strings.get(R.string.events_watering_summary_subtitle),
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(strings.get(R.string.events_watering_time_by_pair), style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            WateringWindow.entries.forEach { option ->
-                                FilterChip(
-                                    selected = window == option,
-                                    onClick = { window = option },
-                                    label = { Text(strings.get(option.labelRes)) },
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(14.dp))
-                        DurationBarChart(totals)
-                        Spacer(modifier = Modifier.height(14.dp))
-                        if (state.eventSync.active) {
-                            Text(
-                                strings.get(R.string.events_synced_count, state.eventSync.downloaded, state.eventSync.total),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    SectionHeading(
+                        title = strings.get(R.string.events_watering_summary_title),
+                        subtitle = strings.get(R.string.events_watering_summary_subtitle),
+                    )
+                    Spacer(modifier = Modifier.height(MaterialTheme.spacing.headerGap))
+                    Text(strings.get(R.string.events_watering_time_by_pair), style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(MaterialTheme.spacing.headerGap))
+                    Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.elementGap)) {
+                        WateringWindow.entries.forEach { option ->
+                            FilterChip(
+                                selected = window == option,
+                                onClick = { window = option },
+                                label = { Text(strings.get(option.labelRes)) },
                             )
-                            Spacer(modifier = Modifier.height(14.dp))
                         }
-                        Button(onClick = onLoadDetails) { Text(strings.get(R.string.events_open_watering_history)) }
                     }
+                    Spacer(modifier = Modifier.height(MaterialTheme.spacing.elementGap))
+                    DurationBarChart(totals)
+                    Spacer(modifier = Modifier.height(MaterialTheme.spacing.elementGap))
+                    if (state.eventSync.active) {
+                        Text(
+                            strings.get(R.string.events_synced_count, state.eventSync.downloaded, state.eventSync.total),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(modifier = Modifier.height(MaterialTheme.spacing.elementGap))
+                    }
+                    Button(onClick = onLoadDetails) { Text(strings.get(R.string.events_open_watering_history)) }
                 }
             }
             item {
-                ElevatedCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFFEAF2F8)),
+                BeetCard(
+                    colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
                 ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        SectionHeading(
-                            title = strings.get(R.string.events_system_activity_title),
-                            subtitle = strings.get(R.string.events_system_activity_subtitle),
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
+                    SectionHeading(
+                        title = strings.get(R.string.events_system_activity_title),
+                        subtitle = strings.get(R.string.events_system_activity_subtitle),
+                    )
+                    Spacer(modifier = Modifier.height(MaterialTheme.spacing.headerGap))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.elementGap),
+                        verticalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.elementGap),
+                    ) {
                             systemEventFilters().forEach { option ->
                                 FilterChip(
                                     selected = filter == option,
@@ -131,7 +117,6 @@ internal fun EventsScreen(
                                 )
                             }
                         }
-                    }
                 }
             }
             if (systemSections.isEmpty()) {
@@ -166,9 +151,7 @@ internal fun EventDetailScreen(
         enabled = state.connection.phase == BeetConnectionPhase.Connected,
         modifier = modifier,
     ) {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+        BeetLazyColumn {
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

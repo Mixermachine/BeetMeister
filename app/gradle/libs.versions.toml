@@ -14,7 +14,6 @@ coroutines = "1.11.0"
 koinBom = "4.2.2"
 slf4j = "2.0.17"
 logbackAndroid = "3.0.0"
-charty = "3.0.0-rc01"
 moshi = "1.15.2"
 
 [libraries]
@@ -44,7 +43,6 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 koin-bom = { module = "io.insert-koin:koin-bom", version.ref = "koinBom" }
 koin-android = { module = "io.insert-koin:koin-android" }
 moshi = { module = "com.squareup.moshi:moshi", version.ref = "moshi" }
-charty = { module = "com.himanshoe:charty", version.ref = "charty" }
 moshi-kotlin = { module = "com.squareup.moshi:moshi-kotlin", version.ref = "moshi" }
 slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 logback-android = { module = "com.github.tony19:logback-android", version.ref = "logbackAndroid" }
