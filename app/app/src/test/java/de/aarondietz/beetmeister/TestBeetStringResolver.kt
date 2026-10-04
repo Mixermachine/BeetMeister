@@ -22,6 +22,7 @@ internal class TestBeetStringResolver : BeetStringResolver {
             R.string.events_pending_time_sync -> "Pending time sync"
             R.string.events_ignored_legacy -> "Ignored legacy"
             R.string.events_boot_section_title -> "Boot %1\$d"
+            R.string.events_section_date_boot -> "%1\$s · Boot %2\$d"
             R.string.events_relative_uptime -> "t+%1\$s"
             R.string.events_filter_system -> "System"
             R.string.events_filter_bluetooth -> "Bluetooth"

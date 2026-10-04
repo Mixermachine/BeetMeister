@@ -265,8 +265,7 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="events_ignored_legacy">Ignored legacy</string>
     <string name="events_boot_section_title" localizePipeContext="Section title for unresolved system events belonging to a specific boot session. Keep %1$d as the controller boot id.">Boot %1$d</string>
     <string name="events_section_event_count" localizePipeContext="Count of system events inside a grouped section header. Keep %1$d as the numeric count.">%1$d events</string>
-    <string name="events_section_single_boot" localizePipeContext="Note under a date group header stating the controller boot whose events it contains. Keep %1$d as the boot id.">from Boot %1$d</string>
-    <string name="events_section_multi_boot" localizePipeContext="Note under a date group header listing the controller boot ids whose events it contains, comma separated. Keep %1$s as the boot id list.">from Boots %1$s</string>
+    <string name="events_section_date_boot" localizePipeContext="System event group header: a calendar day label and the controller boot id whose events within that day it contains. Keep %1$s as the date label and %2$d as the boot id.">%1$s · Boot %2$d</string>
     <string name="events_relative_uptime" localizePipeContext="Relative event time within one controller boot. Keep %1$s as the already formatted duration.">t+%1$s</string>
     <string name="events_disconnected_reason">Disconnected</string>
     <string name="events_disconnect_code" localizePipeContext="Bluetooth disconnect reason with numeric status code. Keep %1$d as the raw code.">Disconnect code %1$d</string>

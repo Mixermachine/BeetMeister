@@ -21,7 +21,6 @@ import java.util.Locale
 internal data class SystemEventSection(
     val key: String,
     val title: String,
-    val bootIds: List<Long>,
     val events: List<BeetSystemEvent>,
 )
 
@@ -87,7 +86,6 @@ internal fun groupSystemEvents(
             SystemEventSection(
                 key = key.key,
                 title = key.title,
-                bootIds = sectionEvents.map { event -> event.bootId }.distinct().sortedByDescending { bootId -> bootId },
                 events = sectionEvents.sortedWith(systemEventChronology),
             )
         }
@@ -238,14 +236,15 @@ private fun systemEventSectionKey(
 ): SystemEventSectionKey {
     if (event.timeValid && event.unixSeconds > 0L) {
         val eventDate = Instant.ofEpochSecond(event.unixSeconds).atZone(zoneId).toLocalDate()
-        val title = when (eventDate) {
+        val dateTitle = when (eventDate) {
             today -> strings.get(R.string.common_today)
             today.minusDays(1) -> strings.get(R.string.common_yesterday)
             else -> mediumDateFormatter(strings.locale).format(eventDate)
         }
+        // Boot stays the primary identity: a calendar day that spans reboots is split per boot.
         return SystemEventSectionKey(
-            key = "date:$eventDate",
-            title = title,
+            key = "boot:${event.bootId}:date:$eventDate",
+            title = strings.get(R.string.events_section_date_boot, dateTitle, event.bootId),
         )
     }
 

@@ -188,7 +188,7 @@ class EventPresentationTest {
             zoneId = ZoneId.of("UTC"),
         )
 
-        assertEquals(listOf("Boot 41", "Today", "Yesterday", "Boot 40"), sections.map { it.title })
+        assertEquals(listOf("Boot 41", "Today · Boot 41", "Yesterday · Boot 41", "Boot 40"), sections.map { it.title })
         assertEquals(listOf(4L), sections[0].events.map { it.sequenceNumber })
         assertEquals(listOf(3L), sections[1].events.map { it.sequenceNumber })
         assertEquals(listOf(2L), sections[2].events.map { it.sequenceNumber })
