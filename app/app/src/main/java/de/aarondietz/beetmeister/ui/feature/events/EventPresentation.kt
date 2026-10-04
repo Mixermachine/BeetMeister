@@ -16,6 +16,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.util.Locale
 
 internal data class SystemEventSection(
     val key: String,
@@ -218,6 +219,14 @@ private data class SystemEventSectionKey(
     val title: String,
 )
 
+// DateTimeFormatter construction is expensive on Android; formatters are immutable and reusable.
+private val mediumDateFormatters = mutableMapOf<Locale, DateTimeFormatter>()
+
+private fun mediumDateFormatter(locale: Locale): DateTimeFormatter =
+    mediumDateFormatters.getOrPut(locale) {
+        DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
+    }
+
 private fun systemEventSectionKey(
     event: BeetSystemEvent,
     state: BeetRepositoryState,
@@ -230,9 +239,7 @@ private fun systemEventSectionKey(
         val title = when (eventDate) {
             today -> strings.get(R.string.common_today)
             today.minusDays(1) -> strings.get(R.string.common_yesterday)
-            else -> DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
-                .withLocale(strings.locale)
-                .format(eventDate)
+            else -> mediumDateFormatter(strings.locale).format(eventDate)
         }
         return SystemEventSectionKey(
             key = "date:$eventDate",

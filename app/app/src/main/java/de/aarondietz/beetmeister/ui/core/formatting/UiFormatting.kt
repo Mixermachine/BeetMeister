@@ -11,6 +11,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.util.Locale
 
 internal fun bondStateLabel(bondState: Int, strings: BeetStringResolver): String = when (bondState) {
     BluetoothDevice.BOND_BONDED -> strings.get(R.string.bond_state_bonded)
@@ -33,9 +34,16 @@ internal fun formatDuration(seconds: Int, strings: BeetStringResolver): String {
     }
 }
 
+// DateTimeFormatter construction is expensive on Android; formatters are immutable and reusable.
+private val mediumDateTimeFormatters = mutableMapOf<Locale, DateTimeFormatter>()
+
+private fun mediumDateTimeFormatter(locale: Locale): DateTimeFormatter =
+    mediumDateTimeFormatters.getOrPut(locale) {
+        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withLocale(locale)
+    }
+
 internal fun formatUnixSeconds(unixSeconds: Long, strings: BeetStringResolver): String =
-    DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
-        .withLocale(strings.locale)
+    mediumDateTimeFormatter(strings.locale)
         .format(
             Instant.ofEpochSecond(unixSeconds)
                 .atZone(ZoneId.systemDefault())
