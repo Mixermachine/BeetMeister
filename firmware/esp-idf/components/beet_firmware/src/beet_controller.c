@@ -13,11 +13,14 @@
 #include "sdkconfig.h"
 #include "beet_board.h"
 #include "beet_ble.h"
+#include "beet_ble_codec.h"
 #include "beet_iface.h"
 #include "beet_storage.h"
 #include "beet_types.h"
 
 static const char *TAG = "beet_controller";
+
+#define BEET_IFACE_STREAM_TOTAL_MAX 20000U
 
 #define BEET_DISPLAY_BLE_ACTIVITY_WINDOW_US (1500LL * 1000LL)
 #define BEET_DISPLAY_BLE_WAVE_PERIOD_US (500LL * 1000LL)
@@ -2124,6 +2127,68 @@ esp_err_t beet_iface_get_system_event(uint64_t seq_no, beet_iface_system_event_t
 }
 
 /*
+ * Runtime event streaming (stream_events): frame a single stored record for
+ * notification delivery. Resolves boot epochs the same way the get_event and
+ * get_system_event command handlers do. Returns ESP_ERR_NOT_FOUND for ring gaps.
+ */
+esp_err_t beet_iface_format_event_frame_json(
+    uint64_t seq_no,
+    char *buf,
+    size_t len,
+    size_t *out_len)
+{
+    beet_iface_event_t event = { 0 };
+    uint32_t boot_epoch_unix_s = 0U;
+    uint32_t started_unix_s = 0U;
+    uint32_t ended_unix_s = 0U;
+    int written;
+
+    if (beet_iface_get_event(seq_no, &event) != ESP_OK) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (beet_lookup_boot_epoch(event.record.boot_id, &boot_epoch_unix_s)) {
+        started_unix_s = boot_epoch_unix_s + event.record.started_uptime_s;
+        ended_unix_s = boot_epoch_unix_s + event.record.ended_uptime_s;
+    }
+    written = beet_ble_format_watering_event_frame_json(
+        buf, len, &event.record, started_unix_s, ended_unix_s);
+    if (written < 0 || (size_t)written >= len) {
+        return ESP_FAIL;
+    }
+    if (out_len != NULL) {
+        *out_len = (size_t)written;
+    }
+    return ESP_OK;
+}
+
+esp_err_t beet_iface_format_system_event_frame_json(
+    uint64_t seq_no,
+    char *buf,
+    size_t len,
+    size_t *out_len)
+{
+    beet_iface_system_event_t event = { 0 };
+    uint32_t boot_epoch_unix_s = 0U;
+    uint32_t unix_s = 0U;
+    int written;
+
+    if (beet_iface_get_system_event(seq_no, &event) != ESP_OK) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (beet_lookup_boot_epoch(event.record.boot_id, &boot_epoch_unix_s)) {
+        unix_s = boot_epoch_unix_s + event.record.occurred_uptime_s;
+    }
+    written = beet_ble_format_system_event_frame_json(buf, len, &event.record, unix_s);
+    if (written < 0 || (size_t)written >= len) {
+        return ESP_FAIL;
+    }
+    if (out_len != NULL) {
+        *out_len = (size_t)written;
+    }
+    return ESP_OK;
+}
+
+/*
  * Drain a bounded slice of queued synthetic events per controller tick.
  * Test-only benchmark support; harmless when counters stay zero in normal operation.
  */
@@ -2459,6 +2524,37 @@ esp_err_t beet_iface_submit_command(
         }
         return ESP_OK;
     }
+
+    case BEET_IFACE_COMMAND_STREAM_EVENTS: {
+        uint64_t latest = request->stream_kind == 1U ?
+            beet_iface_get_latest_system_event_seq_no() :
+            beet_iface_get_latest_event_seq_no();
+        uint64_t total;
+        if (latest < request->seq_no) {
+            total = 0U;
+        } else {
+            total = latest - request->seq_no + 1ULL;
+            if (total > BEET_IFACE_STREAM_TOTAL_MAX) {
+                total = BEET_IFACE_STREAM_TOTAL_MAX;
+            }
+            if (request->stream_max_events != 0U && total > request->stream_max_events) {
+                total = request->stream_max_events;
+            }
+        }
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        response->has_stream_ack = true;
+        response->stream_kind = request->stream_kind;
+        response->stream_from_seq = request->seq_no;
+        response->stream_latest_seq = latest;
+        response->stream_total = (uint32_t)total;
+        return ESP_OK;
+    }
+
+    case BEET_IFACE_COMMAND_STREAM_CANCEL:
+        response->status = BEET_IFACE_STATUS_ACCEPTED;
+        response->reason = BEET_IFACE_REASON_NONE;
+        return ESP_OK;
 
     case BEET_IFACE_COMMAND_SET_TIME:
         if (request->unix_s == 0U || request->unix_s > UINT32_MAX) {

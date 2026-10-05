@@ -914,6 +914,118 @@ static void test_maintenance_data_rejects_offset_mismatch(void)
     TEST_ASSERT_U32_EQ(BLE_ATT_ERR_UNLIKELY, beet_ble_host_test_write_maintenance_data(chunk, chunk_len, true));
 }
 
+static void beet_stream_arm(uint8_t kind, uint64_t from_seq, uint32_t total)
+{
+    beet_iface_command_response_t response;
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_STREAM_EVENTS;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_stream_ack = true;
+    response.stream_kind = kind;
+    response.stream_from_seq = from_seq;
+    response.stream_latest_seq = from_seq + total - 1ULL;
+    response.stream_total = total;
+    beet_ble_host_test_set_pending_result(&response);
+}
+
+static void beet_prepare_stream_session(void)
+{
+    beet_iface_device_state_t device = { 0 };
+
+    beet_prepare_session(247U);
+    beet_ble_host_test_set_state_stream_subscription(true);
+    device.battery_state = BEET_BATTERY_STATE_ACTIVE;
+    device.valve_state = BEET_VALVE_STATE_CLOSED;
+    device.battery_mv = 3348U;
+    strcpy(device.device_id, "beetmeister-01");
+    ble_host_test_set_device_state(&device);
+    beet_flush_state_stream_initial_sync();
+    ble_host_test_clear_captures();
+}
+
+static void test_stream_pump_delivers_batch_then_end(void)
+{
+    beet_prepare_stream_session();
+
+    ble_host_test_set_stream_frame_stub(0U, 11U, "{\"type\":\"event\",\"data\":{\"seq\":11}}");
+    ble_host_test_set_stream_frame_stub(0U, 12U, "{\"type\":\"event\",\"data\":{\"seq\":12}}");
+    ble_host_test_set_stream_frame_stub(0U, 13U, "{\"type\":\"event\",\"data\":{\"seq\":13}}");
+    beet_stream_arm(0U, 11U, 3U);
+
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(3U, ble_host_test_notification_count());
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"seq\":13");
+    /* Ack indication carries the assigned stream id. */
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"cmd\":\"stream_events\"");
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_indication(), "\"stream_id\"");
+
+    ble_host_test_clear_captures();
+    beet_ble_service();
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"type\":\"stream_end\"");
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"status\":\"complete\"");
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"delivered\":3");
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"last_seq\":13");
+}
+
+static void test_stream_pump_backpressure_resumes_same_seq(void)
+{
+    beet_prepare_stream_session();
+
+    ble_host_test_set_stream_frame_stub(0U, 21U, "{\"type\":\"event\",\"data\":{\"seq\":21}}");
+    ble_host_test_set_stream_frame_stub(0U, 22U, "{\"type\":\"event\",\"data\":{\"seq\":22}}");
+    ble_host_test_set_stream_frame_stub(0U, 23U, "{\"type\":\"event\",\"data\":{\"seq\":23}}");
+    beet_stream_arm(0U, 21U, 3U);
+
+    ble_host_test_set_notify_result(1);
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(0U, ble_host_test_notification_count());
+
+    ble_host_test_set_notify_result(0);
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(3U, ble_host_test_notification_count());
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"seq\":23");
+}
+
+static void test_stream_pump_gap_abort(void)
+{
+    uint8_t ticks;
+
+    beet_prepare_stream_session();
+
+    /* No frame stubs: every sequence in the range is a ring gap. */
+    beet_stream_arm(1U, 100U, 300U);
+
+    for (ticks = 0U; ticks < 20U; ++ticks) {
+        beet_ble_service();
+    }
+
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"type\":\"stream_end\"");
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"delivered\":0");
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"gaps\":256");
+}
+
+static void test_stream_cancelled_by_maintenance(void)
+{
+    beet_prepare_stream_session();
+
+    ble_host_test_set_stream_frame_stub(1U, 5U, "{\"type\":\"system_event\",\"data\":{\"seq\":5}}");
+    ble_host_test_set_stream_frame_stub(1U, 6U, "{\"type\":\"system_event\",\"data\":{\"seq\":6}}");
+    beet_stream_arm(1U, 5U, 2U);
+
+    beet_ble_host_test_set_maintenance_status_subscription(true);
+    beet_start_maintenance_update(beet_begin_update_json());
+    ble_host_test_clear_captures();
+
+    /* Maintenance is detected at the pump's yield point: no events are emitted
+       and the cancelled stream_end goes out on the first service tick. */
+    beet_ble_service();
+    TEST_ASSERT_TRUE(ble_host_test_notification_count() >= 1U);
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"type\":\"stream_end\"");
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"status\":\"cancelled\"");
+}
+
 int main(void)
 {
     const beet_test_case_t tests[] = {
@@ -944,6 +1056,10 @@ int main(void)
         {"maintenance_data_upload_and_finish_reboots", test_maintenance_data_upload_and_finish_reboots},
         {"maintenance_reboot_falls_back_without_confirmation", test_maintenance_reboot_falls_back_without_confirmation},
         {"maintenance_data_rejects_offset_mismatch", test_maintenance_data_rejects_offset_mismatch},
+        {"stream_pump_delivers_batch_then_end", test_stream_pump_delivers_batch_then_end},
+        {"stream_pump_backpressure_resumes_same_seq", test_stream_pump_backpressure_resumes_same_seq},
+        {"stream_pump_gap_abort", test_stream_pump_gap_abort},
+        {"stream_cancelled_by_maintenance", test_stream_cancelled_by_maintenance},
     };
 
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); ++i) {

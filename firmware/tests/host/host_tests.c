@@ -444,6 +444,27 @@ static void test_ble_command_parsing(void)
     TEST_ASSERT_U32_EQ(42U, request.seq_no);
 
     TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"stream_events\",\"data\":{\"kind\":\"system\",\"from_seq\":42,\"max_events\":500}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STREAM_EVENTS, request.command);
+    TEST_ASSERT_U32_EQ(1U, request.stream_kind);
+    TEST_ASSERT_U32_EQ(42U, request.seq_no);
+    TEST_ASSERT_U32_EQ(500U, request.stream_max_events);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"stream_events\",\"data\":{\"kind\":\"watering\",\"from_seq\":7}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STREAM_EVENTS, request.command);
+    TEST_ASSERT_U32_EQ(0U, request.stream_kind);
+    TEST_ASSERT_U32_EQ(7U, request.seq_no);
+    TEST_ASSERT_U32_EQ(0U, request.stream_max_events);
+
+    TEST_ASSERT_FALSE(beet_ble_parse_command_json(
+        "{\"cmd\":\"stream_events\",\"data\":{\"kind\":\"bogus\",\"from_seq\":7}}", &request));
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
+        "{\"cmd\":\"stream_cancel\",\"data\":{}}", &request));
+    TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_STREAM_CANCEL, request.command);
+
+    TEST_ASSERT_TRUE(beet_ble_parse_command_json(
         "{\"cmd\":\"get_system_history_summary\",\"data\":{}}", &request));
     TEST_ASSERT_U32_EQ(BEET_IFACE_COMMAND_GET_SYSTEM_HISTORY_SUMMARY, request.command);
 
@@ -708,6 +729,7 @@ static void test_ble_rejection_response_builder(void)
 static void test_ble_json_formatting(void)
 {
     char json[512];
+    beet_event_record_t event_buf;
     beet_iface_device_state_t device = {
         .battery_state = BEET_BATTERY_STATE_ACTIVE,
         .battery_mv = 3325U,
@@ -758,6 +780,51 @@ static void test_ble_json_formatting(void)
     TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
     TEST_ASSERT_STR_EQ(
         "{\"cmd\":\"manual_start\",\"status\":\"accepted\",\"reason\":\"slot_allocated\",\"data\":{\"pair\":3,\"duration_s\":120}}",
+        json);
+
+    memset(&response, 0, sizeof(response));
+    response.command = BEET_IFACE_COMMAND_STREAM_EVENTS;
+    response.status = BEET_IFACE_STATUS_ACCEPTED;
+    response.reason = BEET_IFACE_REASON_NONE;
+    response.has_stream_ack = true;
+    response.stream_id = 4U;
+    response.stream_kind = 1U;
+    response.stream_from_seq = 900U;
+    response.stream_latest_seq = 1200U;
+    response.stream_total = 301U;
+    TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"cmd\":\"stream_events\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"stream_id\":4,\"kind\":\"system\",\"from_seq\":900,\"latest_seq\":1200,\"total\":301}}",
+        json);
+
+    memset(&event_buf, 0, sizeof(event_buf));
+    event_buf.seq_no = 512U;
+    event_buf.pair_index = 2U;
+    event_buf.boot_id = 77U;
+    event_buf.trigger_source = 1U;
+    event_buf.moisture_before_pct = 40U;
+    event_buf.moisture_after_pct = 55U;
+    event_buf.sensor_before_mv = 1200U;
+    event_buf.sensor_after_mv = 1800U;
+    event_buf.requested_duration_s = 60U;
+    event_buf.actual_duration_s = 58U;
+    event_buf.stop_reason = 0U;
+    event_buf.block_reason = 0U;
+    event_buf.battery_start_mv = 3300U;
+    event_buf.battery_end_mv = 3280U;
+    event_buf.started_uptime_s = 100U;
+    event_buf.ended_uptime_s = 158U;
+    TEST_ASSERT_TRUE(beet_ble_format_watering_event_frame_json(
+        json, sizeof(json), &event_buf, 1700000100U, 1700000158U) > 0);
+    TEST_ASSERT_STR_CONTAINS(json, "\"type\":\"event\"");
+    TEST_ASSERT_STR_CONTAINS(json, "\"seq\":512");
+    TEST_ASSERT_STR_CONTAINS(json, "\"start\":1700000100");
+    TEST_ASSERT_STR_CONTAINS(json, "\"eu\":158");
+
+    TEST_ASSERT_TRUE(beet_ble_format_stream_end_frame_json(
+        json, sizeof(json), 4U, 1U, "complete", 301U, 1200U, 3U) > 0);
+    TEST_ASSERT_STR_EQ(
+        "{\"type\":\"stream_end\",\"data\":{\"id\":4,\"kind\":\"system\",\"status\":\"complete\",\"delivered\":301,\"last_seq\":1200,\"gaps\":3}}",
         json);
 
     memset(&response, 0, sizeof(response));

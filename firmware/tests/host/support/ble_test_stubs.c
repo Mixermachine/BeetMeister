@@ -7,6 +7,8 @@
 
 ble_hs_cfg_t ble_hs_cfg;
 
+static void ble_host_test_clear_stream_frame_stubs(void);
+
 static esp_app_desc_t s_app_desc = { "host-test" };
 static int64_t s_now_us = 1000;
 static uint16_t s_att_mtu = 247U;
@@ -411,6 +413,7 @@ void ble_host_test_reset(void)
     s_conn_bonded = true;
     s_indicate_rc = 0;
     s_notify_rc = 0;
+    ble_host_test_clear_stream_frame_stubs();
     s_indication_count = 0U;
     s_notification_count = 0U;
     s_last_indication[0] = '\0';
@@ -565,4 +568,85 @@ esp_err_t beet_iface_submit_command(const beet_iface_command_request_t *request,
     }
     memset(response, 0, sizeof(*response));
     return ESP_OK;
+}
+
+#define BLE_HOST_TEST_STREAM_FRAME_STUB_SLOTS 24
+
+typedef struct {
+    bool used;
+    uint8_t kind;
+    uint64_t seq;
+    char json[256];
+} ble_host_test_stream_frame_stub_t;
+
+static ble_host_test_stream_frame_stub_t s_stream_frame_stubs[BLE_HOST_TEST_STREAM_FRAME_STUB_SLOTS];
+
+static void ble_host_test_clear_stream_frame_stubs(void)
+{
+    memset(s_stream_frame_stubs, 0, sizeof(s_stream_frame_stubs));
+}
+
+void ble_host_test_set_stream_frame_stub(uint8_t kind, uint64_t seq, const char *json)
+{
+    size_t i;
+    size_t free_slot = BLE_HOST_TEST_STREAM_FRAME_STUB_SLOTS;
+
+    for (i = 0U; i < BLE_HOST_TEST_STREAM_FRAME_STUB_SLOTS; ++i) {
+        if (s_stream_frame_stubs[i].used &&
+            s_stream_frame_stubs[i].kind == kind &&
+            s_stream_frame_stubs[i].seq == seq) {
+            break;
+        }
+        if (!s_stream_frame_stubs[i].used && i < free_slot) {
+            free_slot = i;
+        }
+    }
+    if (json == NULL) {
+        if (i < BLE_HOST_TEST_STREAM_FRAME_STUB_SLOTS) {
+            s_stream_frame_stubs[i].used = false;
+        }
+        return;
+    }
+    if (i >= BLE_HOST_TEST_STREAM_FRAME_STUB_SLOTS) {
+        i = free_slot;
+    }
+    if (i >= BLE_HOST_TEST_STREAM_FRAME_STUB_SLOTS) {
+        return;
+    }
+    s_stream_frame_stubs[i].used = true;
+    s_stream_frame_stubs[i].kind = kind;
+    s_stream_frame_stubs[i].seq = seq;
+    snprintf(s_stream_frame_stubs[i].json, sizeof(s_stream_frame_stubs[i].json), "%s", json);
+}
+
+static esp_err_t ble_host_test_lookup_stream_frame(uint8_t kind, uint64_t seq, char *buf, size_t len, size_t *out_len)
+{
+    size_t i;
+
+    for (i = 0U; i < BLE_HOST_TEST_STREAM_FRAME_STUB_SLOTS; ++i) {
+        if (s_stream_frame_stubs[i].used &&
+            s_stream_frame_stubs[i].kind == kind &&
+            s_stream_frame_stubs[i].seq == seq) {
+            size_t json_len = strlen(s_stream_frame_stubs[i].json);
+            if (json_len + 1U > len) {
+                return ESP_FAIL;
+            }
+            memcpy(buf, s_stream_frame_stubs[i].json, json_len + 1U);
+            if (out_len != NULL) {
+                *out_len = json_len;
+            }
+            return ESP_OK;
+        }
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t beet_iface_format_event_frame_json(uint64_t seq_no, char *buf, size_t len, size_t *out_len)
+{
+    return ble_host_test_lookup_stream_frame(0U, seq_no, buf, len, out_len);
+}
+
+esp_err_t beet_iface_format_system_event_frame_json(uint64_t seq_no, char *buf, size_t len, size_t *out_len)
+{
+    return ble_host_test_lookup_stream_frame(1U, seq_no, buf, len, out_len);
 }

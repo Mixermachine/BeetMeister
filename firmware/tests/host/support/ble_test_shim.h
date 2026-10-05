@@ -295,6 +295,7 @@ unsigned ble_host_test_restart_count(void);
 void ble_host_test_reset_ota_state(void);
 void ble_host_test_set_indicate_result(int rc);
 void ble_host_test_set_notify_result(int rc);
+void ble_host_test_set_stream_frame_stub(uint8_t kind, uint64_t seq, const char *json);
 void ble_host_test_set_device_state(const beet_iface_device_state_t *state);
 void ble_host_test_set_pair_state(uint8_t pair_index, const beet_iface_pair_state_t *state);
 void ble_host_test_clear_captures(void);
