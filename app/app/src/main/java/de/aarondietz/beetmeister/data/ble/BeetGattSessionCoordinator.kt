@@ -84,6 +84,12 @@ internal class BeetGattSessionCoordinator(
     private val burstWateringBuffer = ArrayList<BeetWateringEvent>()
     private val burstSystemBuffer = ArrayList<BeetSystemEvent>()
     private val burstLock = Any()
+    /* Burst UI coalescing: state emissions are rate-limited during streams so
+       the Events screen does not recompose multi-thousand-item lists several
+       times per second (this recomposition storm fed a rare Compose SlotTable
+       dispose crash). Persistence keeps its own batch cadence; stream_end and
+       abort paths flush unconditionally, so no event can be stranded. */
+    private var lastBurstUiFlushElapsedMs = 0L
     private var negotiatedMtu = DEFAULT_MTU
     private var expectedControllerAction: ExpectedControllerAction = ExpectedControllerAction.None
     private var expectedControllerActionUntilMs: Long = 0L
@@ -1054,24 +1060,27 @@ internal class BeetGattSessionCoordinator(
     private fun ingestBurstWateringEvent(event: BeetWateringEvent) {
         synchronized(burstLock) {
             burstWateringBuffer += event
-            if (burstWateringBuffer.size >= EVENT_UI_BATCH_SIZE) flushBurstBuffersLocked()
+            if (burstWateringBuffer.size >= EVENT_UI_BATCH_SIZE && burstUiFlushAllowedLocked()) flushBurstBuffersLocked()
         }
     }
 
     private fun ingestBurstSystemEvent(event: BeetSystemEvent) {
         synchronized(burstLock) {
             burstSystemBuffer += event
-            if (burstSystemBuffer.size >= EVENT_UI_BATCH_SIZE) flushBurstBuffersLocked()
+            if (burstSystemBuffer.size >= EVENT_UI_BATCH_SIZE && burstUiFlushAllowedLocked()) flushBurstBuffersLocked()
         }
     }
 
     /* Caller must hold [burstLock]. */
+    private fun burstUiFlushAllowedLocked(): Boolean =
+        SystemClock.elapsedRealtime() - lastBurstUiFlushElapsedMs >= BURST_UI_FLUSH_MIN_INTERVAL_MS
     private fun flushBurstBuffersLocked() {
         if (burstWateringBuffer.isEmpty() && burstSystemBuffer.isEmpty()) return
         val watering = burstWateringBuffer.toList()
         val system = burstSystemBuffer.toList()
         burstWateringBuffer.clear()
         burstSystemBuffer.clear()
+        lastBurstUiFlushElapsedMs = SystemClock.elapsedRealtime()
         val deviceId = host.state.value.controllerInfo?.deviceId
         if (deviceId != null) {
             runCatching { eventCache.saveWateringEvents(deviceId, watering) }
@@ -1091,6 +1100,7 @@ internal class BeetGattSessionCoordinator(
         synchronized(burstLock) {
             burstWateringBuffer.clear()
             burstSystemBuffer.clear()
+            lastBurstUiFlushElapsedMs = 0L
         }
         streamRouter.abort(BeetStreamKind.WATERING)
         streamRouter.abort(BeetStreamKind.SYSTEM)
@@ -1500,6 +1510,8 @@ internal class BeetGattSessionCoordinator(
         private const val EVENT_UI_MEMORY_CAP = 2000
         // Batch size for coalescing bulk-sync event ingestion into repository state.
         private const val EVENT_UI_BATCH_SIZE = 20
+        // Minimum interval between burst UI state emissions (see lastBurstUiFlushElapsedMs).
+        private const val BURST_UI_FLUSH_MIN_INTERVAL_MS = 500L
         private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L
         private const val EXPECTED_REBOOT_RECONNECT_DELAY_MS = 1_000L
         private const val POST_CONNECT_EVENT_SYNC_DELAY_MS = 3_000L
