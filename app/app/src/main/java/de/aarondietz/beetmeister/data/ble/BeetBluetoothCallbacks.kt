@@ -60,7 +60,6 @@ internal fun beetGattCallback(
     onCharacteristicWrite: (BluetoothGatt, BluetoothGattCharacteristic, Int) -> Unit,
     onCharacteristicRead: (BluetoothGatt, BluetoothGattCharacteristic, Int) -> Unit,
     onCharacteristicChanged: (BluetoothGatt, BluetoothGattCharacteristic) -> Unit,
-    onPhyUpdate: ((BluetoothGatt, Int, Int, Int) -> Unit)? = null,
 ): BluetoothGattCallback = object : BluetoothGattCallback() {
     override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
         onConnectionStateChange(gatt, status, newState)
@@ -96,9 +95,5 @@ internal fun beetGattCallback(
 
     override fun onCharacteristicChanged(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic) {
         onCharacteristicChanged(gatt, characteristic)
-    }
-
-    override fun onPhyUpdate(gatt: BluetoothGatt, txPhy: Int, rxPhy: Int, status: Int) {
-        onPhyUpdate?.invoke(gatt, txPhy, rxPhy, status)
     }
 }

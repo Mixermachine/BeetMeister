@@ -219,23 +219,6 @@ int ble_gap_terminate(uint16_t conn_handle, uint8_t reason)
     return 0;
 }
 
-int ble_gap_set_data_len(uint16_t conn_handle, uint16_t octets, uint16_t time)
-{
-    (void)conn_handle;
-    (void)octets;
-    (void)time;
-    return 0;
-}
-
-int ble_gap_set_prefered_le_phy(uint16_t conn_handle, uint8_t tx_phys_mask, uint8_t rx_phys_mask, uint16_t phy_opts)
-{
-    (void)conn_handle;
-    (void)tx_phys_mask;
-    (void)rx_phys_mask;
-    (void)phy_opts;
-    return 0;
-}
-
 int ble_gatts_count_cfg(const struct ble_gatt_svc_def *svcs)
 {
     (void)svcs;

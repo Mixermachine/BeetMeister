@@ -2501,7 +2501,6 @@ static const char *beet_ble_gap_event_name(uint8_t type)
     case BLE_GAP_EVENT_NOTIFY_TX:       return "NOTIFY_TX";
     case BLE_GAP_EVENT_SUBSCRIBE:       return "SUBSCRIBE";
     case BLE_GAP_EVENT_MTU:             return "MTU";
-    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE: return "PHY_UPDATE_COMPLETE";
     case BLE_GAP_EVENT_REPEAT_PAIRING:  return "REPEAT_PAIRING";
     case BLE_GAP_EVENT_PARING_COMPLETE:return "PARING_COMPLETE";
     default:                            return "?";
@@ -2575,9 +2574,6 @@ static void beet_ble_log_gap_event_verbose(const char *event_name, struct ble_ga
     case BLE_GAP_EVENT_MTU:
         conn_handle = event->mtu.conn_handle;
         break;
-    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
-        conn_handle = event->phy_updated.conn_handle;
-        break;
     case BLE_GAP_EVENT_PARING_COMPLETE:
         conn_handle = event->pairing_complete.conn_handle;
         break;
@@ -2611,11 +2607,6 @@ static void beet_ble_log_gap_event_verbose(const char *event_name, struct ble_ga
         break;
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "gap_event %s handle=%u mtu=%u", event_name, event->mtu.conn_handle, event->mtu.value);
-        break;
-    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
-        ESP_LOGI(TAG, "gap_event %s handle=%u status=%d tx_phy=%u rx_phy=%u",
-            event_name, event->phy_updated.conn_handle, event->phy_updated.status,
-            (unsigned)event->phy_updated.tx_phy, (unsigned)event->phy_updated.rx_phy);
         break;
     case BLE_GAP_EVENT_PARING_COMPLETE:
         ESP_LOGI(TAG, "gap_event %s handle=%u status=%d bonded=%d",
@@ -2846,17 +2837,6 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
 #if BEET_BLE_DIAGNOSTIC_VERBOSE
         ESP_LOGI(TAG, "mtu negotiated handle=%u mtu=%u", event->mtu.conn_handle, event->mtu.value);
 #endif
-        /*
-         * After MTU exchange is complete, negotiate Link Layer Data Length Extension (DLE)
-         * to allow up to 251-byte packets on the physical radio layer without L2CAP fragmentation.
-         */
-        (void)ble_gap_set_data_len(event->mtu.conn_handle, 251, 2120);
-        return 0;
-
-    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
-        ESP_LOGI(TAG, "phy update complete handle=%u status=%d tx_phy=%u rx_phy=%u",
-            event->phy_updated.conn_handle, event->phy_updated.status,
-            (unsigned)event->phy_updated.tx_phy, (unsigned)event->phy_updated.rx_phy);
         return 0;
 
     case BLE_GAP_EVENT_PARING_COMPLETE:
@@ -3249,14 +3229,10 @@ esp_err_t beet_ble_init(const char *device_name)
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
 
     /*
-     * Preferred MTU stays at 247. Rationale:
-     * 1. NimBLE on ESP32-S3 uses 255-byte ACL buffers (CONFIG_BT_NIMBLE_ACL_BUF_SIZE=255)
-     *    without reliable mbuf chaining. An ATT MTU above ~251 overflows the buffer pool
-     *    and silently stalls indications (verified: phone-side 517 negotiation caused
-     *    command result timeouts).
-     * 2. Even when a newer client requests MTU 517, the ATT exchange clamps to
-     *    min(client, server) = 247, so this value is a hard server-side guard.
-     * Link-layer speed comes from DLE (251-byte LL packets) and 2M PHY instead.
+     * MTU is FROZEN at 247. DO NOT INCREASE.
+     * The device frame JSON fits within the 244-byte ATT payload budget
+     * only at this MTU. Larger MTU on new firmware breaks backward
+     * compatibility with older Android apps that request 247.
      */
     ble_att_set_preferred_mtu(247);
 

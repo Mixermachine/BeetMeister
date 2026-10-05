@@ -112,14 +112,6 @@ typedef struct {
 
 static beet_controller_state_t s_state;
 static TaskHandle_t s_controller_task;
-/*
- * Benchmark-only synthetic event injection counters. The runtime command
- * queues the requested counts here and answers immediately; the controller
- * task drains them gradually so a bulk injection never blocks the NimBLE
- * host task (synchronous NVS bursts previously stalled all GATT traffic).
- */
-static volatile uint16_t s_pending_synthetic_watering;
-static volatile uint16_t s_pending_synthetic_system;
 
 static esp_err_t beet_controller_save_power_state(void);
 static void beet_controller_enter_idle_light_sleep(void);
@@ -2123,48 +2115,6 @@ esp_err_t beet_iface_get_system_event(uint64_t seq_no, beet_iface_system_event_t
     return beet_storage_read_system_event_by_seq_no(s_state.boot_id, seq_no, &event->record);
 }
 
-/*
- * Drain a bounded slice of queued synthetic events per controller tick.
- * Test-only benchmark support; harmless when counters stay zero in normal operation.
- */
-static void beet_service_synthetic_generation(void)
-{
-    const uint16_t k_batch = 10U;
-    uint32_t now_uptime = beet_elapsed_s(s_state.boot_time_us, beet_now_us());
-
-    uint16_t w_drain = s_pending_synthetic_watering > k_batch ? k_batch : s_pending_synthetic_watering;
-    for (uint16_t i = 0; i < w_drain; ++i) {
-        beet_event_record_t record = { 0 };
-        record.schema_version = BEET_EVENT_RECORD_VERSION;
-        record.boot_id = s_state.boot_id;
-        record.pair_index = (uint8_t)((i % BEET_PAIR_COUNT) + 1U);
-        record.trigger_source = (uint8_t)BEET_RUN_SOURCE_AUTOMATIC;
-        record.requested_duration_s = 15U + (i % 30U);
-        record.actual_duration_s = record.requested_duration_s;
-        record.stop_reason = (uint8_t)BEET_STOP_REASON_COMPLETED;
-        record.block_reason = (uint8_t)BEET_BLOCK_REASON_NONE;
-        record.battery_start_mv = 3300U;
-        record.battery_end_mv = 3290U;
-        record.started_uptime_s = (now_uptime > (uint32_t)(w_drain - i) * 60U) ? now_uptime - (uint32_t)(w_drain - i) * 60U : 1U;
-        record.ended_uptime_s = record.started_uptime_s + record.actual_duration_s;
-        (void)beet_storage_append_event(&s_state.event_ring, &record);
-        s_pending_synthetic_watering--;
-    }
-
-    uint16_t s_drain = s_pending_synthetic_system > k_batch ? k_batch : s_pending_synthetic_system;
-    for (uint16_t i = 0; i < s_drain; ++i) {
-        beet_system_event_record_t record = { 0 };
-        record.schema_version = BEET_SYSTEM_EVENT_RECORD_VERSION;
-        record.boot_id = s_state.boot_id;
-        record.event_type = (uint8_t)((i % 2 == 0) ? BEET_SYSTEM_EVENT_VALVE_OPENED : BEET_SYSTEM_EVENT_VALVE_CLOSED);
-        record.reason = (uint16_t)((i % BEET_PAIR_COUNT) + 1U);
-        record.battery_mv = 3300U;
-        record.occurred_uptime_s = (now_uptime > (uint32_t)(s_drain - i) * 60U) ? now_uptime - (uint32_t)(s_drain - i) * 60U : 1U;
-        (void)beet_storage_append_system_event(&s_state.system_event_ring, &record);
-        s_pending_synthetic_system--;
-    }
-}
-
 esp_err_t beet_iface_submit_command(
     const beet_iface_command_request_t *request,
     beet_iface_command_response_t *response)
@@ -2869,24 +2819,6 @@ esp_err_t beet_iface_submit_command(
         response->pair_config = s_state.pair_configs[request->pair_index - 1U];
         return ESP_OK;
 
-    case BEET_IFACE_COMMAND_GENERATE_SYNTHETIC_EVENTS: {
-        beet_mark_activity(now_us);
-        uint32_t total_watering = (uint32_t)s_pending_synthetic_watering + request->synthetic_watering_count;
-        uint32_t total_system = (uint32_t)s_pending_synthetic_system + request->synthetic_system_count;
-        if (total_watering > BEET_EVENT_RING_CAPACITY) {
-            total_watering = BEET_EVENT_RING_CAPACITY;
-        }
-        if (total_system > BEET_SYSTEM_EVENT_RING_CAPACITY) {
-            total_system = BEET_SYSTEM_EVENT_RING_CAPACITY;
-        }
-        s_pending_synthetic_watering = (uint16_t)total_watering;
-        s_pending_synthetic_system = (uint16_t)total_system;
-
-        response->status = BEET_IFACE_STATUS_ACCEPTED;
-        response->reason = BEET_IFACE_REASON_NONE;
-        return ESP_OK;
-    }
-
     default:
         response->reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
         return ESP_OK;
@@ -3243,7 +3175,6 @@ static void beet_controller_task(void *arg)
         beet_ble_get_diag_status(&ble_status);
         beet_ble_get_pairing_display(&pairing_display);
         beet_service_pending_action(now_us);
-        beet_service_synthetic_generation();
 
         if (beet_controller_scheduler_due(now_us, elapsed_s)) {
             beet_run_scheduler_cycle(now_us);
