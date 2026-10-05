@@ -257,6 +257,54 @@ class BeetJsonCodecTest {
     }
 
     @Test
+    fun buildsAndParsesStreamEventsProtocolV19() {
+        val request = BeetJsonCodec.streamEvents("system", 42, 500)
+        assertTrue(request.contains("\"cmd\":\"stream_events\""))
+        assertTrue(request.contains("\"kind\":\"system\""))
+        assertTrue(request.contains("\"from_seq\":42"))
+        assertTrue(request.contains("\"max_events\":500"))
+
+        val minimal = BeetJsonCodec.streamEvents("watering", 1, null)
+        assertFalse(minimal.contains("max_events"))
+        assertTrue(BeetJsonCodec.streamCancel().contains("\"cmd\":\"stream_cancel\""))
+
+        val ackResult = BeetJsonCodec.parseCommandResult(
+            """
+                {"cmd":"stream_events","status":"accepted","reason":"none",
+                 "data":{"stream_id":4,"kind":"system","from_seq":900,"latest_seq":1200,"total":301}}
+            """.trimIndent(),
+        )
+        val ack = ackResult.streamAck!!
+        assertEquals(4L, ack.streamId)
+        assertEquals("system", ack.kind)
+        assertEquals(900L, ack.fromSeq)
+        assertEquals(1200L, ack.latestSeq)
+        assertEquals(301L, ack.total)
+
+        val eventFrame = BeetJsonCodec.parseStateMessage(
+            """
+                {"type":"event","data":{"seq":512,"pair":2,"boot_id":77,"src":1,
+                 "start":1700000100,"end":1700000158,"mb":40,"ma":55,"sb":1200,"sa":1800,
+                 "req":60,"act":58,"stop":0,"block":0,"bs":3300,"be":3280,"su":100,"eu":158}}
+            """.trimIndent(),
+        ) as BeetStateMessage.WateringEventUpdate
+        assertEquals(512L, eventFrame.data.sequenceNumber)
+        assertEquals(2, eventFrame.data.pairIndex)
+        assertEquals(1700000100L, eventFrame.data.startedAtUnixSeconds)
+
+        val endFrame = BeetJsonCodec.parseStateMessage(
+            """
+                {"type":"stream_end","data":{"id":4,"kind":"system","status":"complete",
+                 "delivered":301,"last_seq":1200,"gaps":3}}
+            """.trimIndent(),
+        ) as BeetStateMessage.StreamEndUpdate
+        assertEquals(4L, endFrame.data.streamId)
+        assertEquals("complete", endFrame.data.status)
+        assertEquals(1200L, endFrame.data.lastSeq)
+        assertEquals(3L, endFrame.data.gaps)
+    }
+
+    @Test
     fun parsesControllerSleepEventPayload() {
         val payload = """
             {
