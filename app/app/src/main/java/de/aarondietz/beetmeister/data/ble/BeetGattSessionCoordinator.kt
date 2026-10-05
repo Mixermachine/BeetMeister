@@ -228,6 +228,16 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
+    fun sendRawCommand(payload: String): BeetCommandResult {
+        return kotlinx.coroutines.runBlocking {
+            withSyncPausedForCommand { sendCommand(payload) }
+        }
+    }
+
+    fun refreshEvents() {
+        startBackgroundEventSync(limit = 10000)
+    }
+
     fun refreshCalibrations() {
         host.scope.launch {
             if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
@@ -1086,7 +1096,36 @@ internal class BeetGattSessionCoordinator(
                 )
             }
 
-            val runner = BeetBacklogSyncRunner(
+            /* Request high connection priority to reduce connection interval during bulk event sync */
+            @Suppress("MissingPermission")
+            val priorityRequested = host.session.currentGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) ?: false
+            BeetLog.d(TAG) { "startBackgroundEventSync: requested CONNECTION_PRIORITY_HIGH success=$priorityRequested" }
+
+            try {
+                /*
+                 * Coalesce event ingestion into the repository state in batches.
+                 * Per-event state updates during a bulk backlog sync (thousands of events)
+                 * cause a recomposition storm on the UI thread which can race with
+                 * AndroidComposeView.draw (performMeasureAndLayout crash). SQLite caching
+                 * stays per-event; only the state emission is batched.
+                 */
+                val wateringBuffer = ArrayList<BeetWateringEvent>(EVENT_UI_BATCH_SIZE)
+                val systemBuffer = ArrayList<BeetSystemEvent>(EVENT_UI_BATCH_SIZE)
+                fun flushIngestedEvents() {
+                    if (wateringBuffer.isEmpty() && systemBuffer.isEmpty()) return
+                    val watering = wateringBuffer.toList()
+                    val system = systemBuffer.toList()
+                    wateringBuffer.clear()
+                    systemBuffer.clear()
+                    host.updateState { state ->
+                        state.copy(
+                            recentEvents = if (watering.isEmpty()) state.recentEvents else mergeWateringEvents(state.recentEvents, watering),
+                            systemEvents = if (system.isEmpty()) state.systemEvents else mergeSystemEvents(state.systemEvents, system),
+                        )
+                    }
+                }
+
+                val runner = BeetBacklogSyncRunner(
                 config = BeetBacklogSyncConfig(
                     retentionSeconds = EVENT_RETENTION_SECONDS,
                     initialBatchSize = INITIAL_SYNC_BATCH_SIZE,
@@ -1124,12 +1163,28 @@ internal class BeetGattSessionCoordinator(
                         )
                     }
                 },
-                onWateringEvent = { event -> ingestWateringEvent(deviceId, event) },
-                onSystemEvent = { event -> ingestSystemEvent(deviceId, event) },
+                onWateringEvent = { event ->
+                    eventCache.saveWateringEvent(deviceId, event)
+                    wateringBuffer += event
+                    if (wateringBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
+                },
+                onSystemEvent = { event ->
+                    eventCache.saveSystemEvent(deviceId, event)
+                    systemBuffer += event
+                    if (systemBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
+                },
                 fetchWateringEvent = { sequence -> fetchWateringEventForSync(sequence) },
                 fetchSystemEvent = { sequence -> fetchSystemEventForSync(sequence) },
             )
 
+            /* Publish any events still buffered when the sync loop finishes */
+            flushIngestedEvents()
+            } finally {
+                /* Restore balanced connection priority when event sync finishes or is cancelled */
+                @Suppress("MissingPermission")
+                host.session.currentGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+                BeetLog.d(TAG) { "startBackgroundEventSync: restored CONNECTION_PRIORITY_BALANCED" }
+            }
             host.updateState { state ->
                 state.copy(
                     calibrationsRefreshing = false,
@@ -1395,6 +1450,39 @@ internal class BeetGattSessionCoordinator(
 
             BeetLog.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
             host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
+
+            /*
+             * Safely optimize link layer parameters now that connection, discovery, and initial sync are complete:
+             * 1. Request 2M PHY if supported by client hardware.
+             * 2. Request MTU up to 517 (NimBLE and Android clamp to negotiated max, safe fallback).
+             * Never do this during maintenance or initial handshake.
+             */
+            val currentGatt = host.session.currentGatt
+            if (currentGatt != null && maintenanceUploadJob?.isActive != true) {
+                @Suppress("MissingPermission")
+                try {
+                    val phyRequested = currentGatt.setPreferredPhy(
+                        BluetoothDevice.PHY_LE_2M_MASK,
+                        BluetoothDevice.PHY_LE_2M_MASK,
+                        BluetoothDevice.PHY_OPTION_NO_PREFERRED,
+                    )
+                    BeetLog.i(TAG) { "Requested 2M PHY post-connect: success=$phyRequested" }
+                } catch (e: Exception) {
+                    BeetLog.w(TAG, "setPreferredPhy failed or unsupported", e)
+                }
+
+                @Suppress("MissingPermission")
+                try {
+                    if (negotiatedMtu < HIGH_SPEED_MTU) {
+                        val mtuRequested = currentGatt.requestMtu(HIGH_SPEED_MTU)
+                        BeetLog.i(TAG) { "Requested MTU $HIGH_SPEED_MTU post-connect: success=$mtuRequested" }
+                    } else {
+                        BeetLog.i(TAG) { "Skipping post-connect MTU upgrade; already negotiated $negotiatedMtu" }
+                    }
+                } catch (e: Exception) {
+                    BeetLog.w(TAG, "requestMtu post-connect failed", e)
+                }
+            }
 
             refreshValveConfig()
             refreshWateringInterval()
@@ -2556,7 +2644,7 @@ internal class BeetGattSessionCoordinator(
                         },
                     )
                     @Suppress("MissingPermission")
-                    if (!gatt.requestMtu(DESIRED_MTU)) {
+                    if (!gatt.requestMtu(INITIAL_MTU)) {
                         negotiatedMtu = DEFAULT_MTU
                         host.session.serviceDiscoveryStarted = true
                         @Suppress("MissingPermission")
@@ -2596,7 +2684,7 @@ internal class BeetGattSessionCoordinator(
             if (!isCurrentGatt(gatt, "onMtuChanged")) {
                 return@beetGattCallback
             }
-            BeetLog.d(TAG) { "onMtuChanged status=$status mtu=$mtu" }
+            BeetLog.i(TAG) { "onMtuChanged status=$status mtu=$mtu" }
             negotiatedMtu = if (status == BluetoothGatt.GATT_SUCCESS) mtu else DEFAULT_MTU
             if (host.session.serviceDiscoveryStarted) {
                 BeetLog.d(TAG, "Ignoring duplicate onMtuChanged after service discovery already started")
@@ -2699,6 +2787,12 @@ internal class BeetGattSessionCoordinator(
                 BeetBluetoothSupport.maintenanceStatusUuid -> handleMaintenanceStatusPayload(payload)
             }
         },
+        onPhyUpdate = { gatt, txPhy, rxPhy, status ->
+            if (!isCurrentGatt(gatt, "onPhyUpdate")) {
+                return@beetGattCallback
+            }
+            BeetLog.i(TAG) { "onPhyUpdate status=$status txPhy=$txPhy rxPhy=$rxPhy" }
+        },
     )
 
     companion object {
@@ -2720,21 +2814,26 @@ internal class BeetGattSessionCoordinator(
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
         private const val DEFAULT_MTU = 23
-        // MTU is FROZEN at 247. DO NOT INCREASE.
-        // See firmware comment in beet_ble.c for rationale.
-        private const val DESIRED_MTU = 247
+        // MTU requested during initial handshake and used for maintenance budgets.
+        private const val INITIAL_MTU = 247
+        // Runtime request after Connected. The effective MTU is always min(client, server);
+        // firmware clamps to 247 because NimBLE ESP32-S3 uses 255-byte ACL buffers.
+        // If firmware buffer sizing ever increases, this upgrades automatically.
+        private const val HIGH_SPEED_MTU = 517
         private const val MIN_MAINTENANCE_PAYLOAD_BYTES = 20
         private const val MAX_MAINTENANCE_PAYLOAD_BYTES = 236
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
         private const val INITIAL_SYNC_BATCH_SIZE = 1
         private const val MAX_SYNC_BATCH_SIZE = 8
         private const val SYNC_BATCH_GROWTH_STEP = 1
-        private const val SYNC_BURST_DELAY_MS = 20L
+        private const val SYNC_BURST_DELAY_MS = 0L
         private const val SYNC_PAUSE_POLL_MS = 50L
         private const val SYNC_CONGESTION_DELAY_MS = 150L
         private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
         private const val SYNC_CONSECUTIVE_NOT_FOUND_LIMIT = 3
         private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
+        // Batch size for coalescing bulk-sync event ingestion into repository state.
+        private const val EVENT_UI_BATCH_SIZE = 20
         private const val MAX_MANUAL_DURATION_SECONDS = 1200
         private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L
         private const val EXPECTED_REBOOT_RECONNECT_DELAY_MS = 1_000L

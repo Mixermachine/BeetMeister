@@ -373,7 +373,7 @@ static void test_event_ring_reconstruction_and_summary(void)
     beet_event_record_t a = beet_make_event(4U, 1U, 30U);
     beet_event_record_t b = beet_make_event(7U, 3U, 50U);
     beet_event_record_t unresolved_current = beet_make_event(8U, 4U, 15U);
-    beet_event_record_t c = beet_make_event(999U, 2U, 20U);
+    beet_event_record_t c = beet_make_event(4999U, 2U, 20U);
     beet_event_record_t test = beet_make_event(10U, 2U, 10U);
     beet_event_record_t unresolved_old = beet_make_event(11U, 5U, 25U);
     beet_event_record_t bad = beet_make_event(12U, 6U, 15U);
@@ -401,7 +401,7 @@ static void test_event_ring_reconstruction_and_summary(void)
     beet_event_ring_reset(&state);
     beet_event_ring_accept_record(&state, &c);
     beet_event_ring_finalize(&state);
-    TEST_ASSERT_U32_EQ(999U, state.highest_valid_seq_no);
+    TEST_ASSERT_U32_EQ(4999U, state.highest_valid_seq_no);
     TEST_ASSERT_U32_EQ(0U, state.next_write_slot);
 
     memset(totals, 0, sizeof(totals));

@@ -724,13 +724,31 @@ esp_err_t beet_storage_read_event_by_seq_no(uint32_t current_boot_id, uint64_t s
     ESP_RETURN_ON_FALSE(record != NULL, ESP_ERR_INVALID_ARG, TAG, "record is null");
     ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
 
-    for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
-        beet_event_record_t candidate;
-        size_t required_size = sizeof(candidate);
-        char key[8];
+    // Fast-path: O(1) direct slot lookup by modulo arithmetic.
+    uint16_t primary_slot = (uint16_t)(seq_no % BEET_EVENT_RING_CAPACITY);
+    beet_event_record_t candidate;
+    size_t required_size = sizeof(candidate);
+    char key[8];
 
+    beet_event_key(key, sizeof(key), primary_slot);
+    esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+    if (err == ESP_OK &&
+        required_size == sizeof(candidate) &&
+        beet_event_record_is_visible(&candidate, current_boot_id) &&
+        candidate.seq_no == seq_no) {
+        *record = candidate;
+        nvs_close(handle);
+        return ESP_OK;
+    }
+
+    // Fallback: full ring scan only if primary slot did not match (e.g. ring corruption recovery).
+    for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
+        if (slot == primary_slot) {
+            continue;
+        }
         beet_event_key(key, sizeof(key), slot);
-        esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+        required_size = sizeof(candidate);
+        err = nvs_get_blob(handle, key, &candidate, &required_size);
         if (err != ESP_OK ||
             required_size != sizeof(candidate) ||
             !beet_event_record_is_visible(&candidate, current_boot_id)) {
@@ -843,13 +861,31 @@ esp_err_t beet_storage_read_system_event_by_seq_no(uint32_t current_boot_id, uin
     ESP_RETURN_ON_FALSE(record != NULL, ESP_ERR_INVALID_ARG, TAG, "record is null");
     ESP_RETURN_ON_ERROR(beet_open_namespace("sysevents", "ring", NVS_READWRITE, &handle), TAG, "system event namespace open failed");
 
-    for (uint16_t slot = 0U; slot < BEET_SYSTEM_EVENT_RING_CAPACITY; ++slot) {
-        beet_system_event_record_t candidate;
-        size_t required_size = sizeof(candidate);
-        char key[8];
+    // Fast-path: O(1) direct slot lookup by modulo arithmetic.
+    uint16_t primary_slot = (uint16_t)(seq_no % BEET_SYSTEM_EVENT_RING_CAPACITY);
+    beet_system_event_record_t candidate;
+    size_t required_size = sizeof(candidate);
+    char key[8];
 
+    beet_event_key(key, sizeof(key), primary_slot);
+    esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+    if (err == ESP_OK &&
+        required_size == sizeof(candidate) &&
+        beet_system_event_record_is_visible(&candidate, current_boot_id) &&
+        candidate.seq_no == seq_no) {
+        *record = candidate;
+        nvs_close(handle);
+        return ESP_OK;
+    }
+
+    // Fallback: full ring scan only if primary slot did not match (e.g. ring corruption recovery).
+    for (uint16_t slot = 0U; slot < BEET_SYSTEM_EVENT_RING_CAPACITY; ++slot) {
+        if (slot == primary_slot) {
+            continue;
+        }
         beet_event_key(key, sizeof(key), slot);
-        esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+        required_size = sizeof(candidate);
+        err = nvs_get_blob(handle, key, &candidate, &required_size);
         if (err != ESP_OK ||
             required_size != sizeof(candidate) ||
             !beet_system_event_record_is_visible(&candidate, current_boot_id)) {
