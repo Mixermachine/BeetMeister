@@ -90,7 +90,7 @@ internal class ConnectionGateRobot(
         if (permissionsButtonVisible()) {
             tapPermissions()
         }
-        composeRule.waitUntil(timeoutMillis = 30_000) {
+        composeRule.waitUntil(timeoutMillis = 10_000) {
             scanButtonVisible() || postConnectVisible() || hasDeviceCards()
         }
         if (scanButtonVisible()) {
@@ -181,18 +181,18 @@ internal class ConnectionGateRobot(
      * require the extra in P4 wiring; for now the fallback is
      * the safe default in the dev environment.
      */
-    fun assertDeviceVisible() {
+    fun assertDeviceVisible(timeoutMillis: Long = 10_000L) {
         composeRule.waitForIdle()
         val name = expectedDeviceName
         if (name != null) {
-            composeRule.waitUntil(timeoutMillis = 30_000) {
+            composeRule.waitUntil(timeoutMillis = timeoutMillis) {
                 composeRule
                     .onAllNodesWithText(name)
                     .fetchSemanticsNodes()
                     .isNotEmpty()
             }
         } else {
-            composeRule.waitUntil(timeoutMillis = 30_000) {
+            composeRule.waitUntil(timeoutMillis = timeoutMillis) {
                 composeRule
                     .onAllNodesWithTag(ConnectionGateTestTags.DeviceCard)
                     .fetchSemanticsNodes()
@@ -230,7 +230,7 @@ internal class ConnectionGateRobot(
      * nav-item text (not the test tag) for the same
      * `SnapshotStateObserver` reason as [postConnectVisible].
      */
-    fun assertConnected(timeoutMillis: Long = 60_000L) {
+    fun assertConnected(timeoutMillis: Long = 15_000L) {
         composeRule.waitForIdle()
         composeRule.waitUntil(timeoutMillis = timeoutMillis) {
             postConnectVisible()

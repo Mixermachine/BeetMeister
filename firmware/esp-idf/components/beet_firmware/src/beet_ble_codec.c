@@ -2166,6 +2166,51 @@ bool beet_ble_parse_command_json(
                         &request->duration_multiplier)) {
                     return false;
                 }
+            } else if (strcmp(cmd, "generate_synthetic_events") == 0) {
+                request->command = BEET_IFACE_COMMAND_GENERATE_SYNTHETIC_EVENTS;
+                uint16_t w_count = 0;
+                uint16_t s_count = 0;
+                beet_ble_skip_ws(&cursor);
+                if (!beet_ble_consume_char(&cursor, '{')) {
+                    return false;
+                }
+                while (true) {
+                    beet_ble_skip_ws(&cursor);
+                    if (*cursor == '}') {
+                        ++cursor;
+                        break;
+                    }
+                    char subkey[32];
+                    if (!beet_ble_parse_string(&cursor, subkey, sizeof(subkey)) ||
+                        !beet_ble_consume_char(&cursor, ':')) {
+                        return false;
+                    }
+                    if (strcmp(subkey, "watering_count") == 0) {
+                        if (!beet_ble_parse_u16(&cursor, &w_count)) {
+                            return false;
+                        }
+                    } else if (strcmp(subkey, "system_count") == 0) {
+                        if (!beet_ble_parse_u16(&cursor, &s_count)) {
+                            return false;
+                        }
+                    } else {
+                        if (!beet_ble_skip_json_value(&cursor)) {
+                            return false;
+                        }
+                    }
+                    beet_ble_skip_ws(&cursor);
+                    if (*cursor == ',') {
+                        ++cursor;
+                        continue;
+                    }
+                    if (*cursor == '}') {
+                        ++cursor;
+                        break;
+                    }
+                    return false;
+                }
+                request->synthetic_watering_count = w_count;
+                request->synthetic_system_count = s_count;
             } else {
                 return false;
             }
