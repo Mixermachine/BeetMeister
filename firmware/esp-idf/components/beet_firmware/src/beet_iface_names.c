@@ -77,8 +77,6 @@ const char *beet_iface_command_name(beet_iface_command_t command)
         return "get_pair_config";
     case BEET_IFACE_COMMAND_STORE_PAIR_CONFIG:
         return "store_pair_config";
-    case BEET_IFACE_COMMAND_GENERATE_SYNTHETIC_EVENTS:
-        return "generate_synthetic_events";
     default:
         return "unknown";
     }

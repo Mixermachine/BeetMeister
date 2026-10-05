@@ -57,7 +57,6 @@ typedef struct queue_stub *QueueHandle_t;
 #define BLE_GAP_EVENT_PASSKEY_ACTION 7
 #define BLE_GAP_EVENT_REPEAT_PAIRING 8
 #define BLE_GAP_EVENT_MTU 15
-#define BLE_GAP_EVENT_PHY_UPDATE_COMPLETE 18
 #define BLE_GAP_EVENT_PARING_COMPLETE 27
 #define BLE_GAP_REPEAT_PAIRING_RETRY 0
 #define BLE_GAP_REPEAT_PAIRING_IGNORE 1
@@ -209,17 +208,7 @@ struct ble_gap_event {
         } passkey;
         struct {
             uint16_t conn_handle;
-            uint16_t value;
-        } mtu;
-        struct {
-            uint16_t conn_handle;
         } repeat_pairing;
-        struct {
-            int status;
-            uint16_t conn_handle;
-            uint8_t tx_phy;
-            uint8_t rx_phy;
-        } phy_updated;
         struct {
             uint16_t conn_handle;
             int status;
@@ -263,8 +252,6 @@ int ble_gap_adv_start(uint8_t own_addr_type, const void *direct_addr, int32_t du
 int ble_gap_adv_stop(void);
 int ble_gap_update_params(uint16_t conn_handle, const struct ble_gap_upd_params *params);
 int ble_gap_terminate(uint16_t conn_handle, uint8_t reason);
-int ble_gap_set_data_len(uint16_t conn_handle, uint16_t octets, uint16_t time);
-int ble_gap_set_prefered_le_phy(uint16_t conn_handle, uint8_t tx_phys_mask, uint8_t rx_phys_mask, uint16_t phy_opts);
 int ble_gatts_count_cfg(const struct ble_gatt_svc_def *svcs);
 int ble_gatts_add_svcs(const struct ble_gatt_svc_def *svcs);
 int ble_gatts_notify_custom(uint16_t conn_handle, uint16_t attr_handle, struct os_mbuf *om);

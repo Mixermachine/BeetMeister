@@ -17,12 +17,11 @@ The initial firmware image shall be flashed to `ota_0`.
 | `otadata` | data | ota | `0xF000` | `0x2000` | ESP-IDF OTA slot selection metadata |
 | `phy_init` | data | phy | `0x11000` | `0x1000` | Radio PHY init data |
 | `appcfg` | data | nvs | `0x12000` | `0x10000` | Application configuration, calibrations, runtime snapshots |
-| `reserved_0` | data | `0x40` | `0x22000` | `0x4E000` | Reserved flash region |
+| `events` | data | nvs | `0x22000` | `0x4E000` | Dedicated event-ring storage |
 | `ota_0` | app | ota_0 | `0x70000` | `0x600000` | Active or candidate application slot 0 |
 | `ota_1` | app | ota_1 | `0x670000` | `0x600000` | Active or candidate application slot 1 |
-| `events` | data | nvs | `0xC70000` | `0x180000` | Dedicated event-ring storage (5000 records) |
-| `sysevents` | data | nvs | `0xDF0000` | `0x80000` | Dedicated system-event-ring storage (2048 records) |
-| `reserved` | data | `0x40` | `0xE70000` | `0x190000` | Reserved for future expansion |
+| `sysevents` | data | nvs | `0xC70000` | `0x10000` | Dedicated system-event-ring storage |
+| `reserved` | data | `0x40` | `0xC80000` | `0x380000` | Reserved for future expansion |
 
 The `reserved` partition shall not be used in v1.
 
@@ -46,15 +45,15 @@ The `reserved` partition shall not be used in v1.
 
 ### Capacity and format
 
-- The event ring shall store exactly 5000 records.
+- The event ring shall store exactly 1000 records.
 - Each record shall have a fixed-size binary payload with a maximum serialized size of 64 bytes.
-- Records are addressed by `slot_index = seq_no mod 5000`.
+- Records are addressed by `slot_index = seq_no mod 1000`.
 
 ### Reconstruction rules
 
-- The controller shall reconstruct the newest valid event by scanning all 5000 slots and selecting the highest valid `seq_no`.
+- The controller shall reconstruct the newest valid event by scanning all 1000 slots and selecting the highest valid `seq_no`.
 - The next event shall use `seq_no = highest_valid_seq_no + 1`.
-- The next write slot shall therefore be `seq_no mod 5000`.
+- The next write slot shall therefore be `seq_no mod 1000`.
 - No persistent head pointer or tail pointer shall be stored.
 
 ### Validity rules
