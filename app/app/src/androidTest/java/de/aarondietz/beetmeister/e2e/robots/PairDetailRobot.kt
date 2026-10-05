@@ -71,9 +71,13 @@ internal class PairDetailRobot(
         composeRule.onNodeWithTag(PairDetailTestTags.TargetLevelMoist).performClick()
     }
 
-    /** Asserts that the Moist target level chip is selected. */
+    /** Asserts that the Moist target level chip is selected (waits for the save round-trip). */
     fun assertTargetLevelMoistIsSelected() {
-        composeRule.onNodeWithTag(PairDetailTestTags.TargetLevelMoist).assertIsSelected()
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            composeRule.onNodeWithTag(PairDetailTestTags.TargetLevelMoist)
+                .fetchSemanticsNode()
+                .config[androidx.compose.ui.semantics.SemanticsProperties.Selected] == true
+        }
     }
 
     /** Selects the Shared Sensor option. */
