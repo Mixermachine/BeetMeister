@@ -55,7 +55,7 @@ import kotlin.math.max
 
 internal class BeetGattSessionCoordinator(
     private val host: BeetRepositoryCallbacks,
-) : BeetMaintenanceLink {
+) : BeetMaintenanceLink, BeetRuntimeCommandLink {
     private enum class ExpectedControllerAction {
         None,
         Reboot,
@@ -71,8 +71,7 @@ internal class BeetGattSessionCoordinator(
     private var eventSyncJob: Job? = null
     @Volatile
     private var syncPauseRequested = false
-    private val pendingMoistureTests = mutableMapOf<Int, Boolean>()
-    private val pendingPairWiringLoads = mutableSetOf<Int>()
+    private val runtimeCommands = BeetRuntimeCommands(host, this)
     private val commandChunkAssembler = BeetCommandResultChunkAssembler()
     private var negotiatedMtu = DEFAULT_MTU
     private var expectedControllerAction: ExpectedControllerAction = ExpectedControllerAction.None
@@ -147,34 +146,13 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
-    fun sendRawCommand(payload: String): BeetCommandResult {
-        return kotlinx.coroutines.runBlocking {
-            withSyncPausedForCommand { sendCommand(payload) }
-        }
-    }
+    fun sendRawCommand(payload: String): BeetCommandResult = runtimeCommands.sendRawCommand(payload)
 
     fun refreshEvents() {
         startBackgroundEventSync(limit = 10000)
     }
 
-    fun refreshCalibrations() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            host.updateState { state -> state.copy(calibrationsRefreshing = true) }
-            try {
-                withSyncPausedForCommand {
-                    for (pairIndex in 1..8) {
-                        runCatching { sendCommand(BeetJsonCodec.getCalibration(pairIndex)) }
-                            .onFailure { host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex)) }
-                    }
-                }
-            } finally {
-                host.updateState { state -> state.copy(calibrationsRefreshing = false) }
-            }
-        }
-    }
+    fun refreshCalibrations() = runtimeCommands.refreshCalibrations()
 
     fun refreshHistorySummary() {
         startBackgroundEventSync(force = true)
@@ -184,480 +162,72 @@ internal class BeetGattSessionCoordinator(
         startBackgroundEventSync(force = true, limit = limit)
     }
 
-    fun manualStart(pairIndex: Int, durationSeconds: Int?) {
-        host.scope.launch {
-            if (durationSeconds != null && durationSeconds !in 1..MAX_MANUAL_DURATION_SECONDS) {
-                host.setCommandMessage(strings.get(R.string.runtime_manual_duration_invalid))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.manualStart(pairIndex, durationSeconds))
-        }
-    }
+    fun manualStart(pairIndex: Int, durationSeconds: Int?) = runtimeCommands.manualStart(pairIndex, durationSeconds)
 
-    fun manualStop(pairIndex: Int) {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.manualStop(pairIndex)) }
-    }
+    fun manualStop(pairIndex: Int) = runtimeCommands.manualStop(pairIndex)
 
-    fun moistureTestStart(pairIndex: Int) {
-        host.scope.launch {
-            pendingMoistureTests[pairIndex] = false
-            runCatching {
-                withSyncPausedForCommand { sendCommand(BeetJsonCodec.moistureTestStart(pairIndex)) }
-            }
-                .onSuccess { result ->
-                    if (result.status != "accepted") {
-                        pendingMoistureTests.remove(pairIndex)
-                    }
-                    host.setCommandMessage(messageForResult(result))
-                }
-                .onFailure { error ->
-                    pendingMoistureTests.remove(pairIndex)
-                    host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed))
-                }
-        }
-    }
+    fun moistureTestStart(pairIndex: Int) = runtimeCommands.moistureTestStart(pairIndex)
 
-    fun clearPairError(pairIndex: Int) {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.resetBlock(pairIndex)) }
-    }
+    fun clearPairError(pairIndex: Int) = runtimeCommands.clearPairError(pairIndex)
 
     fun resetBlock(pairIndex: Int) = clearPairError(pairIndex)
 
-    fun disablePair(pairIndex: Int) {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.disablePair(pairIndex)) }
-    }
+    fun disablePair(pairIndex: Int) = runtimeCommands.disablePair(pairIndex)
 
-    fun enablePair(pairIndex: Int) {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.enablePair(pairIndex)) }
-    }
+    fun enablePair(pairIndex: Int) = runtimeCommands.enablePair(pairIndex)
 
-    fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) {
-        host.scope.launch {
-            if (dryMillivolts <= wetMillivolts || dryMillivolts == 0 || wetMillivolts == 0) {
-                host.setCommandMessage(strings.get(R.string.runtime_calibration_invalid_order))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.storeCalibration(pairIndex, dryMillivolts, wetMillivolts))
-            refreshCalibrations()
-        }
-    }
+    fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) =
+        runtimeCommands.saveCalibration(pairIndex, dryMillivolts, wetMillivolts)
 
-    fun loadPairWiring(pairIndex: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            val alreadyLoaded = host.state.value.pairWirings.containsKey(pairIndex)
-            val alreadyLoading = synchronized(pendingPairWiringLoads) { !pendingPairWiringLoads.add(pairIndex) }
-            if (alreadyLoaded || alreadyLoading) {
-                return@launch
-            }
-            host.updateState { state ->
-                state.copy(
-                    pairWiringLoading = state.pairWiringLoading + pairIndex,
-                    pairWiringErrors = state.pairWiringErrors - pairIndex,
-                )
-            }
-            try {
-                val result = withSyncPausedForCommand { sendCommand(BeetJsonCodec.getPairWiring(pairIndex)) }
-                if (result.status == "accepted" && result.pairWiring != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairWiringLoading = state.pairWiringLoading - pairIndex,
-                            pairWiringErrors = state.pairWiringErrors - pairIndex,
-                        )
-                    }
-                } else {
-                    host.updateState { state ->
-                        state.copy(
-                            pairWiringLoading = state.pairWiringLoading - pairIndex,
-                            pairWiringErrors = state.pairWiringErrors + (pairIndex to commandMessageForResult(result, strings)),
-                        )
-                    }
-                }
-            } catch (error: Exception) {
-                host.updateState { state ->
-                    state.copy(
-                        pairWiringLoading = state.pairWiringLoading - pairIndex,
-                        pairWiringErrors = state.pairWiringErrors + (pairIndex to (error.message ?: strings.get(R.string.runtime_command_failed))),
-                    )
-                }
-            } finally {
-                synchronized(pendingPairWiringLoads) {
-                    pendingPairWiringLoads.remove(pairIndex)
-                }
-            }
-        }
-    }
+    fun loadPairWiring(pairIndex: Int) = runtimeCommands.loadPairWiring(pairIndex)
 
-    suspend fun fetchPairNamesInternal() {
-        try {
-            val result = withSyncPausedForCommand { sendCommand(BeetJsonCodec.getPairNames()) }
-            result.pairNames?.let { names ->
-                val namesMap = names.names.mapIndexed { index, name ->
-                    (index + 1) to name
-                }.toMap()
-                host.updateState { it.copy(pairNames = namesMap) }
-            }
-        } catch (_: Exception) {
-            // names are optional — if the command fails (e.g. unsupported on old firmware),
-            // the UI falls back to "Pair N"
-        }
-    }
+    suspend fun fetchPairNamesInternal() = runtimeCommands.fetchPairNamesInternal()
 
-    fun loadPairNames() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            fetchPairNamesInternal()
-        }
-    }
+    fun loadPairNames() = runtimeCommands.loadPairNames()
 
-    fun storePairName(pairIndex: Int, name: String) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            if (name.length > BEET_PAIR_NAME_MAX_LEN) {
-                return@launch
-            }
-            // Optimistic update
-            host.updateState { it.copy(pairNames = it.pairNames + (pairIndex to name)) }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.storePairName(pairIndex, name))
-                }
-                if (result.status != "accepted") {
-                    // Re-fetch authoritative state
-                    loadPairNames()
-                }
-            } catch (_: Exception) {
-                loadPairNames()
-            }
-        }
-    }
+    fun storePairName(pairIndex: Int, name: String) = runtimeCommands.storePairName(pairIndex, name)
 
-    suspend fun fetchPairCombinedInternal() {
-        try {
-            withSyncPausedForCommand {
-                val pairCount = host.state.value.displayedPairCount
-                val combinedMap = mutableMapOf<Int, BeetPairCombined>()
-                for (pairIndex in 1..pairCount) {
-                    val result = runCatching {
-                        sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
-                    }.getOrNull()
-                    if (result?.status == "accepted" && result.pairCombined != null) {
-                        combinedMap[pairIndex] = result.pairCombined
-                    }
-                }
-                host.updateState { state ->
-                    state.copy(
-                        pairCombined = state.pairCombined + combinedMap,
-                        isPairCombinedLoaded = true,
-                    )
-                }
-            }
-        } catch (_: Exception) {
-            host.updateState { it.copy(isPairCombinedLoaded = true) }
-        }
-    }
+    suspend fun fetchPairCombinedInternal() = runtimeCommands.fetchPairCombinedInternal()
 
-    fun refreshPairCombined() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            fetchPairCombinedInternal()
-        }
-    }
+    fun refreshPairCombined() = runtimeCommands.refreshPairCombined()
 
-    fun setPairSensorSource(pairIndex: Int, leadPairIndex: Int?) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            if (!host.state.value.isPairCombinedLoaded) {
-                BeetLog.w(TAG, "Cannot set sensor source: pair combined configuration is not loaded yet")
-                return@launch
-            }
-            val currentState = host.state.value
-            val currentLead = currentState.leadFor(pairIndex)
-            if (currentLead == leadPairIndex) {
-                return@launch
-            }
+    fun setPairSensorSource(pairIndex: Int, leadPairIndex: Int?) = runtimeCommands.setPairSensorSource(pairIndex, leadPairIndex)
 
-            // Cannot set a sensor source if pairIndex is currently a lead for other pairs
-            if (leadPairIndex != null && currentState.isLead(pairIndex)) {
-                BeetLog.w(TAG, "Cannot set sensor source for lead pair $pairIndex without clearing followers first")
-                return@launch
-            }
+    fun loadPairCombined(pairIndex: Int) = runtimeCommands.loadPairCombined(pairIndex)
 
-            // Cannot choose a pair that is itself a follower
-            if (leadPairIndex != null && currentState.isFollower(leadPairIndex)) {
-                BeetLog.w(TAG, "Cannot set follower pair $leadPairIndex as lead for pair $pairIndex")
-                return@launch
-            }
+    fun storePairCombined(pairIndex: Int, followersMask: Int) = runtimeCommands.storePairCombined(pairIndex, followersMask)
 
-            // 1. If currently following an existing lead, remove from that lead's followers mask
-            if (currentLead != null) {
-                // Fetch fresh lead combined state from controller to prevent stale in-memory masks
-                val oldLeadFromController = runCatching {
-                    withSyncPausedForCommand {
-                        sendCommand(BeetJsonCodec.getPairCombined(currentLead))
-                    }
-                }.getOrNull()?.takeIf { it.status == "accepted" }?.pairCombined
+    fun loadPairConfig(pairIndex: Int) = runtimeCommands.loadPairConfig(pairIndex)
 
-                val currentOldMask = oldLeadFromController?.followersMask
-                    ?: currentState.pairCombined[currentLead]?.followersMask
-                    ?: 0
-                val updatedOldMask = currentOldMask and (1 shl (pairIndex - 1)).inv()
-                // Optimistic update
-                host.updateState { state ->
-                    state.copy(
-                        pairCombined = state.pairCombined + (currentLead to de.aarondietz.beetmeister.model.controller.BeetPairCombined(currentLead, updatedOldMask)),
-                    )
-                }
-                try {
-                    withSyncPausedForCommand {
-                        sendCommand(BeetJsonCodec.storePairCombined(currentLead, updatedOldMask))
-                    }
-                } catch (_: Exception) {
-                    loadPairCombined(currentLead)
-                }
-            }
+    fun storePairConfig(
+        pairIndex: Int,
+        targetLevel: de.aarondietz.beetmeister.model.controller.TargetMoistureLevel,
+        durationMultiplier: Int,
+    ) = runtimeCommands.storePairConfig(pairIndex, targetLevel, durationMultiplier)
 
-            // 2. If setting a new lead, add to that lead's followers mask
-            if (leadPairIndex != null && beetIsValidPairIndex(leadPairIndex) && leadPairIndex != pairIndex) {
-                // Fetch fresh lead combined state from controller to prevent stale in-memory masks
-                val leadFromController = runCatching {
-                    withSyncPausedForCommand {
-                        sendCommand(BeetJsonCodec.getPairCombined(leadPairIndex))
-                    }
-                }.getOrNull()?.takeIf { it.status == "accepted" }?.pairCombined
+    fun refreshValveConfig() = runtimeCommands.refreshValveConfig()
 
-                val currentNewMask = leadFromController?.followersMask
-                    ?: host.state.value.pairCombined[leadPairIndex]?.followersMask
-                    ?: 0
-                val updatedNewMask = currentNewMask or (1 shl (pairIndex - 1))
-                // Optimistic update
-                host.updateState { state ->
-                    val combinedObj = de.aarondietz.beetmeister.model.controller.BeetPairCombined(leadPairIndex, updatedNewMask)
-                    state.copy(
-                        pairCombined = state.pairCombined + (leadPairIndex to combinedObj),
-                    )
-                }
-                try {
-                    val result = withSyncPausedForCommand {
-                        sendCommand(BeetJsonCodec.storePairCombined(leadPairIndex, updatedNewMask))
-                    }
-                    if (result.status == "accepted" && result.pairCombined != null) {
-                        host.updateState { state ->
-                            state.copy(
-                                pairCombined = state.pairCombined + (leadPairIndex to result.pairCombined),
-                            )
-                        }
-                    } else {
-                        loadPairCombined(leadPairIndex)
-                    }
-                } catch (_: Exception) {
-                    loadPairCombined(leadPairIndex)
-                }
-            }
-        }
-    }
+    fun refreshWateringInterval() = runtimeCommands.refreshWateringInterval()
 
-    fun loadPairCombined(pairIndex: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
-                }
-                if (result.status == "accepted" && result.pairCombined != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // combined config is optional
-            }
-        }
-    }
+    fun saveValveConfig(config: BeetValveConfig) = runtimeCommands.saveValveConfig(config)
 
-    fun storePairCombined(pairIndex: Int, followersMask: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.storePairCombined(pairIndex, followersMask))
-                }
-                if (result.status == "accepted" && result.pairCombined != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // re-fetch on failure
-                loadPairCombined(pairIndex)
-            }
-        }
-    }
+    fun saveWateringInterval(seconds: Int) = runtimeCommands.saveWateringInterval(seconds)
 
-    fun loadPairConfig(pairIndex: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.getPairConfig(pairIndex))
-                }
-                if (result.status == "accepted" && result.pairConfig != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairConfigs = state.pairConfigs + (pairIndex to result.pairConfig),
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // pair config is optional
-            }
-        }
-    }
+    fun refreshMaxActivePumps() = runtimeCommands.refreshMaxActivePumps()
 
-    fun storePairConfig(pairIndex: Int, targetLevel: de.aarondietz.beetmeister.model.controller.TargetMoistureLevel, durationMultiplier: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.storePairConfig(pairIndex, targetLevel, durationMultiplier))
-                }
-                if (result.status == "accepted" && result.pairConfig != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairConfigs = state.pairConfigs + (pairIndex to result.pairConfig),
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                loadPairConfig(pairIndex)
-            }
-        }
-    }
+    fun storeMaxActivePumps(max: Int) = runtimeCommands.storeMaxActivePumps(max)
 
-    fun refreshValveConfig() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            host.updateState { state -> state.copy(valveConfigRefreshing = true) }
-            try {
-                runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getValveConfig()) } }
-            } finally {
-                host.updateState { state -> state.copy(valveConfigRefreshing = false) }
-            }
-        }
-    }
+    fun previewValvePosition(pulseMicros: Int) = runtimeCommands.previewValvePosition(pulseMicros)
 
-    fun refreshWateringInterval() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            host.updateState { state -> state.copy(wateringIntervalRefreshing = true) }
-            try {
-                runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getWateringInterval()) } }
-            } finally {
-                host.updateState { state -> state.copy(wateringIntervalRefreshing = false) }
-            }
-        }
-    }
+    fun openValve() = runtimeCommands.openValve()
 
-    fun saveValveConfig(config: BeetValveConfig) {
-        host.scope.launch {
-            if (
-                config.servoMinPulseMicros !in 500..2500 ||
-                config.servoMaxPulseMicros !in 500..2500 ||
-                config.servoMinPulseMicros >= config.servoMaxPulseMicros ||
-                config.openPulseMicros !in config.servoMinPulseMicros..config.servoMaxPulseMicros ||
-                config.shutPulseMicros !in config.servoMinPulseMicros..config.servoMaxPulseMicros ||
-                config.moveDurationMillis !in 100..5000 ||
-                config.settleDelayMillis !in 0..5000 ||
-                config.openHoldMillis !in 0..10000
-            ) {
-                host.setCommandMessage(strings.get(R.string.runtime_valve_config_invalid))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.storeValveConfig(config))
-        }
-    }
+    fun closeValve() = runtimeCommands.closeValve()
 
-    fun saveWateringInterval(seconds: Int) {
-        host.scope.launch {
-            if (seconds !in 300..86400) {
-                host.setCommandMessage(strings.get(R.string.runtime_watering_interval_invalid))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.storeWateringInterval(seconds))
-        }
-    }
+    fun rebootController() = runtimeCommands.rebootController()
 
-    fun refreshMaxActivePumps() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getMaxActivePumps()) } }
-        }
-    }
+    fun factoryResetController() = runtimeCommands.factoryResetController()
 
-    fun storeMaxActivePumps(max: Int) {
-        host.scope.launch {
-            if (max !in 1..8) {
-                host.setCommandMessage(strings.get(R.string.runtime_max_active_pumps_invalid))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.storeMaxActivePumps(max))
-        }
-    }
-
-    fun previewValvePosition(pulseMicros: Int) {
-        host.scope.launch {
-            runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.previewValvePosition(pulseMicros)) } }
-                .onFailure { error -> host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed)) }
-        }
-    }
-
-    fun openValve() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.openValve()) }
-    }
-
-    fun closeValve() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.closeValve()) }
-    }
-
-    fun rebootController() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.rebootController()) }
-    }
-
-    fun factoryResetController() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.factoryResetController()) }
-    }
-
-    fun runScheduler() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.runScheduler()) }
-    }
+    fun runScheduler() = runtimeCommands.runScheduler()
 
     fun prepareBundledFirmware() = maintenanceUpdater.prepareBundledFirmware()
 
@@ -712,24 +282,19 @@ internal class BeetGattSessionCoordinator(
         disconnectGatt(clearSelection, reason)
     }
 
-    private suspend fun sendUserCommand(payload: String) {
-        runCatching { withSyncPausedForCommand { sendCommand(payload) } }
-            .onSuccess { result ->
-                when {
-                    result.command == "reboot_controller" && result.status == "accepted" ->
-                        setExpectedControllerAction(ExpectedControllerAction.Reboot)
-                    result.command == "factory_reset" && result.status == "accepted" -> {
-                        host.removeLastAddress()
-                        clearCachedControllerHistory()
-                        setExpectedControllerAction(ExpectedControllerAction.FactoryReset)
-                    }
-                }
-                host.setCommandMessage(messageForResult(result))
+    override fun applyUserCommandSideEffects(result: BeetCommandResult) {
+        when {
+            result.command == "reboot_controller" && result.status == "accepted" ->
+                setExpectedControllerAction(ExpectedControllerAction.Reboot)
+            result.command == "factory_reset" && result.status == "accepted" -> {
+                host.removeLastAddress()
+                clearCachedControllerHistory()
+                setExpectedControllerAction(ExpectedControllerAction.FactoryReset)
             }
-            .onFailure { error -> host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed)) }
+        }
     }
 
-    private suspend fun <T> withSyncPausedForCommand(block: suspend () -> T): T {
+    override suspend fun <T> withSyncPausedForCommand(block: suspend () -> T): T {
         syncPauseRequested = true
         host.updateState { state ->
             if (state.eventSync.active) {
@@ -756,7 +321,7 @@ internal class BeetGattSessionCoordinator(
         return sendCommand(payload)
     }
 
-    private suspend fun sendCommand(payload: String): BeetCommandResult {
+    override suspend fun sendCommand(payload: String): BeetCommandResult {
         return commandMutex.withLock {
             val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
             val controlPoint = host.session.controlPointCharacteristic ?: error(strings.get(R.string.runtime_control_point_unavailable))
@@ -1318,7 +883,7 @@ internal class BeetGattSessionCoordinator(
                         pairStates = state.pairStates + (pairState.pairIndex to pairState),
                     )
                 }
-                handleMoistureTestState(pairState)
+                runtimeCommands.onPairStateForMoistureTest(pairState)
                 completeInitialSyncIfReady()
             }
             null -> {
@@ -1439,7 +1004,7 @@ internal class BeetGattSessionCoordinator(
         cancelControllerInfoRetry("disconnect gatt: $reason")
         eventSyncJob?.cancel()
         eventSyncJob = null
-        pendingMoistureTests.clear()
+        runtimeCommands.clearPendingMoistureTests()
         val gatt = host.session.currentGatt
         host.session.currentGatt = null
         resetSyncState()
@@ -1521,29 +1086,6 @@ internal class BeetGattSessionCoordinator(
                 host.requestStartScan(detail = strings.get(R.string.runtime_factory_reset_complete), clearResults = true)
             }
             ExpectedControllerAction.None -> {}
-        }
-    }
-
-    private fun handleMoistureTestState(pairState: BeetPairState) {
-        val hasSeenActiveState = pendingMoistureTests[pairState.pairIndex] ?: return
-        when {
-            pairState.state == "MOISTURE_TEST" -> {
-                pendingMoistureTests[pairState.pairIndex] = true
-            }
-            hasSeenActiveState && pairState.state == "IDLE" -> {
-                pendingMoistureTests.remove(pairState.pairIndex)
-                host.setCommandMessage(strings.get(R.string.runtime_moisture_test_passed, pairState.pairIndex))
-            }
-            hasSeenActiveState && (pairState.blocked || pairState.state == "FAULT") -> {
-                pendingMoistureTests.remove(pairState.pairIndex)
-                host.setCommandMessage(
-                    strings.get(
-                        R.string.runtime_moisture_test_failed,
-                        pairState.pairIndex,
-                        pairBlockReasonLabel(pairState.blockReason),
-                    ),
-                )
-            }
         }
     }
 
@@ -1721,7 +1263,6 @@ internal class BeetGattSessionCoordinator(
     companion object {
         private const val TAG = "BeetGattSession"
         private const val COMMAND_TIMEOUT_MS = 7_000L
-        private const val BEET_PAIR_NAME_MAX_LEN = 15
         private const val CONNECTION_TIMEOUT_MS = 30_000L
         private const val MAINTENANCE_PROGRESS_GAP_RESET_MS = 10_000L
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
@@ -1747,7 +1288,6 @@ internal class BeetGattSessionCoordinator(
         private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
         // Batch size for coalescing bulk-sync event ingestion into repository state.
         private const val EVENT_UI_BATCH_SIZE = 20
-        private const val MAX_MANUAL_DURATION_SECONDS = 1200
         private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L
         private const val EXPECTED_REBOOT_RECONNECT_DELAY_MS = 1_000L
         private const val POST_CONNECT_EVENT_SYNC_DELAY_MS = 3_000L
@@ -1755,13 +1295,4 @@ internal class BeetGattSessionCoordinator(
 
     private class MaintenanceAbortRequestedException : IllegalStateException("Maintenance update aborted")
 
-    private fun pairBlockReasonLabel(code: String): String = when (code) {
-        "NONE" -> strings.get(R.string.block_reason_code_none)
-        "MOISTURE_RESPONSE_TEST_FAILED" -> strings.get(R.string.block_reason_code_moisture_response_test_failed)
-        "SENSOR_READING_INVALID" -> strings.get(R.string.block_reason_code_sensor_reading_invalid)
-        "LOW_BATTERY_ABORT" -> strings.get(R.string.block_reason_code_low_battery_abort)
-        else -> strings.get(R.string.common_unknown_with_code, code)
-    }
-
-    private fun beetIsValidPairIndex(pairIndex: Int): Boolean = pairIndex in 1..8
 }
