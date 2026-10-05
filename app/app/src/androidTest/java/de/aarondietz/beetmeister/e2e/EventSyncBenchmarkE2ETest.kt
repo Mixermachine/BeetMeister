@@ -72,7 +72,11 @@ class EventSyncBenchmarkE2ETest {
         }
 
         // 3. Wait deterministically for the firmware background drain to finish.
-        //    Drain rate is 10 watering + 10 system per 50 ms controller tick.
+        //    Nominal drain is 10 watering + 10 system per 50 ms controller tick,
+        //    but the real limit is the flash write ceiling (~30–60 events/s, see
+        //    docs/specifications/storage-and-partitions.md). If the wait is too
+        //    short the measured sync overlaps injection; totals then reflect the
+        //    mid-drain ring depth. The later full-sync wait tolerates leftovers.
         val drainMs = (maxOf(targetWatering, targetSystem).toLong() / 10L + 5L) * 50L
         android.util.Log.i(TAG, "Waiting ${drainMs} ms for firmware synthetic drain to settle...")
         Thread.sleep(drainMs + 1000L)

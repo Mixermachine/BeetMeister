@@ -70,6 +70,31 @@ The `reserved` partition shall not be used in v1.
 - MQTT event handoff shall publish completed events in `seq_no` order when reconnecting after offline time if previously unreported events remain in the ring.
 - Event ordering shall never depend on timestamp fields.
 
+## Event ring write throughput ceiling
+
+- Event records are fixed-size NVS blob slots. Sustained append throughput is
+  bounded by flash write latency, measured at roughly **30–60 events/s** once
+  the ring is deep (NVS page exhaustion triggers sector erase and garbage
+  collection mid-burst). Shallow rings are somewhat faster. This ceiling
+  applies to *any* writer path, including watering history and system events
+  produced during normal operation.
+- Normal production load never approaches this ceiling (manual/automatic
+  watering plus boot events are on the order of a few records per minute).
+- `generate_synthetic_events` (runtime protocol, benchmark-only) queues
+  counters instead of writing synchronously: the command answers `accepted`
+  immediately and the controller task drains at most 10 watering + 10 system
+  records per 50 ms tick. Pending counters accumulate across commands and are
+  clamped to the respective ring capacities. Synchronous bulk writes were
+  removed because they stalled the NimBLE host task and froze all GATT
+  traffic.
+- Consequence for benchmarks: the nominal drain rate (200 records/s) exceeds
+  the real flash ceiling, so a large injection is still draining while a sync
+  already observes a partially filled ring. Benchmark totals therefore reflect
+  mid-drain ring depth unless the injection wait is sized for the real
+  ceiling. Measured BLE stream throughput (35–48 events/s sustained on
+  Tier 2) is a separate limit and must not be compared against the nominal
+  drain constant.
+
 ## `appcfg` data definitions
 
 ## Application configuration record
