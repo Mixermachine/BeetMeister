@@ -45,6 +45,7 @@ typedef enum {
     BEET_IFACE_COMMAND_STORE_PAIR_COMBINED = 34,
     BEET_IFACE_COMMAND_GET_PAIR_CONFIG = 35,
     BEET_IFACE_COMMAND_STORE_PAIR_CONFIG = 36,
+    BEET_IFACE_COMMAND_GENERATE_SYNTHETIC_EVENTS = 37,
 } beet_iface_command_t;
 
 typedef enum {
@@ -126,6 +127,8 @@ typedef struct {
     uint8_t combined_mask;
     beet_target_moisture_level_t target_level;
     uint8_t duration_multiplier;
+    uint16_t synthetic_watering_count;
+    uint16_t synthetic_system_count;
 } beet_iface_command_request_t;
 
 typedef struct {

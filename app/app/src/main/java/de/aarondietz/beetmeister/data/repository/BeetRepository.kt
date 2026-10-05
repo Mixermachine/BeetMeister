@@ -115,11 +115,24 @@ internal class BeetRepository(
         updateConnection(BeetConnectionPhase.Disconnected, strings.get(R.string.runtime_disconnected_from_controller))
     }
 
+    fun sendRawCommand(payload: String) = gattSessionCoordinator.sendRawCommand(payload)
+
     fun refreshCalibrations() = gattSessionCoordinator.refreshCalibrations()
+
+    fun clearLocalEvents() {
+        _state.update {
+            it.copy(
+                recentEvents = emptyList(),
+                systemEvents = emptyList(),
+            )
+        }
+    }
 
     fun refreshHistorySummary() = gattSessionCoordinator.refreshHistorySummary()
 
     fun loadRecentEvents(limit: Int = 50) = gattSessionCoordinator.loadRecentEvents(limit)
+
+    fun refreshEvents() = gattSessionCoordinator.refreshEvents()
 
     fun manualStart(pairIndex: Int, durationSeconds: Int?) = gattSessionCoordinator.manualStart(pairIndex, durationSeconds)
 
