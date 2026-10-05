@@ -74,6 +74,12 @@ internal class BeetGattSessionCoordinator(
     private val runtimeCommands = BeetRuntimeCommands(host, this)
     private val commandChunkAssembler = BeetCommandResultChunkAssembler()
     private val streamRouter = BeetResponseRouter()
+
+    /* Command name of the in-flight sendCommand; used to drop stale results
+       that arrive after a sendCommand timeout (they must not complete the
+       next command's deferred with the wrong ack). */
+    @Volatile
+    private var pendingCommandName: String? = null
     private val eventSyncEngine = BeetEventSyncEngine(link = this, router = streamRouter)
     private val burstWateringBuffer = ArrayList<BeetWateringEvent>()
     private val burstSystemBuffer = ArrayList<BeetSystemEvent>()
@@ -332,6 +338,7 @@ internal class BeetGattSessionCoordinator(
             val controlPoint = host.session.controlPointCharacteristic ?: error(strings.get(R.string.runtime_control_point_unavailable))
             val deferred = CompletableDeferred<BeetCommandResult>()
             host.session.pendingCommand = deferred
+            pendingCommandName = BeetJsonCodec.commandName(payload)
 
             BeetLog.d(TAG) { "sendCommand payload=$payload" }
             controlPoint.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
@@ -355,6 +362,7 @@ internal class BeetGattSessionCoordinator(
                 throw timeout
             } finally {
                 host.session.pendingCommand = null
+                pendingCommandName = null
             }
         }
     }
@@ -428,7 +436,7 @@ internal class BeetGattSessionCoordinator(
                  * AndroidComposeView.draw (performMeasureAndLayout crash). SQLite caching
                  * stays per-event; only the state emission is batched.
                  */
-                when (runBurstEventSync(limit)) {
+                when (runBurstEventSync(wateringSummary, systemSummary)) {
                     BurstSyncOutcome.Completed, BurstSyncOutcome.Aborted -> Unit
                     BurstSyncOutcome.Legacy -> runLegacyBacklogSync(deviceId, wateringSummary, systemSummary, limit)
                 }
@@ -460,17 +468,39 @@ internal class BeetGattSessionCoordinator(
      * command (pre-v19 firmware), Aborted when cancelled mid-stream (partial
      * progress stays cached; the next sync trigger resumes), otherwise Completed.
      */
-    private suspend fun runBurstEventSync(limit: Int): BurstSyncOutcome {
+    private suspend fun runBurstEventSync(
+        wateringSummary: de.aarondietz.beetmeister.model.event.BeetHistorySummary?,
+        systemSummary: de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary?,
+    ): BurstSyncOutcome {
         resetBurstState()
+        val deviceId = host.state.value.controllerInfo?.deviceId ?: return BurstSyncOutcome.Legacy
+
+        /* Resume each kind at its persisted watermark: every synced event is
+           already cached on the phone, so re-streaming the controller ring
+           from sequence 1 is pure waste. A watermark ahead of the controller
+           means the sequence numbers regressed (factory reset / reflash), in
+           which case we fall back to one full resync. */
+        /* Ring head per kind: old records are overwritten, so streaming below
+           the oldest readable sequence only burns gap-skip round trips. */
+        fun ringOldest(latest: Long, count: Int): Long =
+            if (latest <= 0L || count <= 0) 1L else maxOf(1L, latest - count.toLong() + 1L)
+        val oldestWatering = wateringSummary?.let { ringOldest(it.latestSequenceNumber, it.eventCount) } ?: 1L
+        val oldestSystem = systemSummary?.let { ringOldest(it.latestSequenceNumber, it.eventCount) } ?: 1L
+        var startWatering = maxOf(1L, eventCache.loadSyncWatermark(deviceId, BeetStreamKind.WATERING.wireName), oldestWatering)
+        var startSystem = maxOf(1L, eventCache.loadSyncWatermark(deviceId, BeetStreamKind.SYSTEM.wireName), oldestSystem)
         var latestWatering = 0L
         var latestSystem = 0L
+        fun pendingSince(start: Long, latest: Long): Long =
+            if (latest == 0L) 0L else maxOf(0L, latest - start + 1L)
         fun publishTotal() {
-            host.updateState { it.copy(eventSync = it.eventSync.copy(total = (latestWatering + latestSystem).toInt())) }
+            val pending = pendingSince(startWatering, latestWatering) + pendingSince(startSystem, latestSystem)
+            host.updateState { it.copy(eventSync = it.eventSync.copy(total = pending.toInt())) }
         }
 
         for (kind in arrayOf(BeetStreamKind.WATERING, BeetStreamKind.SYSTEM)) {
-            var cursor = 1L
+            var cursor = if (kind == BeetStreamKind.WATERING) startWatering else startSystem
             var attempts = 0
+            var needsFullResync = false
             while (true) {
                 attempts += 1
                 val run = eventSyncEngine.streamEvents(
@@ -481,6 +511,9 @@ internal class BeetGattSessionCoordinator(
                     isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
                     onAck = { ack ->
                         if (kind == BeetStreamKind.WATERING) latestWatering = ack.latestSeq else latestSystem = ack.latestSeq
+                        if (!needsFullResync && cursor > ack.latestSeq + 1L) {
+                            needsFullResync = true
+                        }
                         publishTotal()
                     },
                 )
@@ -491,7 +524,17 @@ internal class BeetGattSessionCoordinator(
                         return BurstSyncOutcome.Legacy
                     }
                     is BeetStreamRun.Completed -> {
+                        if (needsFullResync) {
+                            needsFullResync = false
+                            cursor = 1L
+                            if (kind == BeetStreamKind.WATERING) startWatering = 1L else startSystem = 1L
+                            publishTotal()
+                            continue
+                        }
                         cursor = run.nextCursor
+                        if (cursor > 1L) {
+                            eventCache.saveSyncWatermark(deviceId, kind.wireName, cursor - 1L)
+                        }
                         val latest = if (kind == BeetStreamKind.WATERING) latestWatering else latestSystem
                         if (cursor > latest || attempts >= MAX_BURST_WINDOWS_PER_KIND) {
                             break
@@ -661,13 +704,14 @@ internal class BeetGattSessionCoordinator(
             .associateBy { it.sequenceNumber }
             .values
             .sortedByDescending { it.sequenceNumber }
+            .let { if (it.size > EVENT_UI_MEMORY_CAP) it.take(EVENT_UI_MEMORY_CAP) else it }
 
     private fun mergeSystemEvents(current: List<BeetSystemEvent>, incoming: List<BeetSystemEvent>): List<BeetSystemEvent> =
         mergeRetainedSystemEvents(
             current = current,
             incoming = incoming,
             cutoffUnixSeconds = (System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS,
-        )
+        ).let { if (it.size > EVENT_UI_MEMORY_CAP) it.take(EVENT_UI_MEMORY_CAP) else it }
 
     private fun ingestWateringEvent(deviceId: String, event: BeetWateringEvent) {
         eventCache.saveWateringEvent(deviceId, event)
@@ -1138,6 +1182,11 @@ internal class BeetGattSessionCoordinator(
             }.toMap()
             host.updateState { it.copy(pairNames = namesMap) }
         }
+        val expected = pendingCommandName
+        if (expected != null && result.command != null && result.command != expected) {
+            BeetLog.w(TAG) { "dropping stale result cmd=${result.command} while awaiting $expected" }
+            return
+        }
         host.session.pendingCommand?.complete(result)
     }
 
@@ -1444,6 +1493,11 @@ internal class BeetGattSessionCoordinator(
         private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
         private const val SYNC_CONSECUTIVE_NOT_FOUND_LIMIT = 3
         private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
+
+        /* In-memory cap for the UI event lists (newest kept). The full history
+           stays on the controller and in the per-device event cache; holding
+           multi-thousand lists in state caused recomposition storms. */
+        private const val EVENT_UI_MEMORY_CAP = 2000
         // Batch size for coalescing bulk-sync event ingestion into repository state.
         private const val EVENT_UI_BATCH_SIZE = 20
         private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L

@@ -57,6 +57,8 @@ internal class BeetEventCache(
         loadKeys(systemIndexKey).forEach { key -> editor.remove(key) }
         editor.remove(wateringIndexKey)
         editor.remove(systemIndexKey)
+        editor.remove(syncWatermarkKey(deviceId, "watering"))
+        editor.remove(syncWatermarkKey(deviceId, "system"))
         editor.apply()
     }
 
@@ -115,6 +117,21 @@ internal class BeetEventCache(
         editor.apply()
         pruneSystemOlderThan(deviceId, cutoffUnixSeconds)
     }
+
+    /**
+     * Highest event/system-event sequence number confirmed synced for
+     * [deviceId] and [kindKey] ("watering"/"system"). burst sync resumes
+     * here instead of re-streaming the whole controller ring each connect.
+     */
+    fun loadSyncWatermark(deviceId: String, kindKey: String): Long =
+        prefs.getLong(syncWatermarkKey(deviceId, kindKey), 0L)
+
+    fun saveSyncWatermark(deviceId: String, kindKey: String, seq: Long) {
+        prefs.edit().putLong(syncWatermarkKey(deviceId, kindKey), seq).apply()
+    }
+
+    private fun syncWatermarkKey(deviceId: String, kindKey: String): String =
+        "$deviceId:$kindKey:sync-watermark"
 
     private fun loadKeys(indexKey: String): Set<String> = prefs.getStringSet(indexKey, emptySet()).orEmpty()
 

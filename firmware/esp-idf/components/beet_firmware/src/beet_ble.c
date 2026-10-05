@@ -3422,7 +3422,7 @@ void beet_ble_publish_system_event(const beet_system_event_record_t *event, uint
  * Notification failures (link buffers exhausted) retry the same sequence on
  * the next tick, so delivery is resumable and order-preserving.
  */
-#define BEET_BLE_STREAM_BATCH_PER_TICK 20U
+#define BEET_BLE_STREAM_BATCH_PER_TICK 8U
 #define BEET_BLE_STREAM_GAP_ABORT 256U
 
 typedef struct {
@@ -3460,6 +3460,16 @@ static void beet_ble_stream_arm(beet_iface_command_response_t *response)
     st->next_seq = response->stream_from_seq;
     end_seq = response->stream_from_seq + response->stream_total;
     st->end_seq = end_seq > 0ULL ? end_seq - 1ULL : 0ULL;
+    if (response->stream_oldest_seq > st->next_seq) {
+        /* Requested range starts below the ring head: those records were
+           overwritten. Skip without probing — per-slot flash reads on the
+           host task would starve the BLE link. last_seq advances too, so the
+           app's resume cursor jumps straight to readable history. */
+        uint64_t skipped = response->stream_oldest_seq - st->next_seq;
+        st->gaps += (uint32_t)(skipped > 0xFFFFFFFFULL ? 0xFFFFFFFFULL : skipped);
+        st->next_seq = response->stream_oldest_seq;
+        st->last_seq = response->stream_oldest_seq - 1ULL;
+    }
     if (response->stream_total == 0ULL) {
         st->end_pending = true;
     }
@@ -3545,6 +3555,12 @@ static void beet_ble_streams_service(void)
         if (!beet_ble_stream_can_notify()) {
             continue;
         }
+        if (s_ble.pending_result_valid) {
+            /* A command result is waiting for the shared ATT queue: hold the
+               pump back so the indication is not starved behind a long run of
+               notifications (single tx queue on one L2CAP channel). */
+            break;
+        }
         if (s_ble.maintenance_session.active) {
             /* OTA takes the link; stop at this yield point, resumable by the app. */
             st->end_pending = true;
@@ -3619,7 +3635,7 @@ static void beet_ble_streams_service(void)
                 continue;
             }
             if (beet_ble_send_notify_json(s_state_stream_handle, json) != ESP_OK) {
-                break; /* link buffers exhausted; resume at this seq next tick */
+                break; /* buffers full; resume at this seq next tick */
             }
             st->last_seq = st->next_seq;
             st->next_seq++;

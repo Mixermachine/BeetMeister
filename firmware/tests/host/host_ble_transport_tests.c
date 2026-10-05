@@ -928,6 +928,12 @@ static void beet_stream_arm(uint8_t kind, uint64_t from_seq, uint32_t total)
     response.stream_latest_seq = from_seq + total - 1ULL;
     response.stream_total = total;
     beet_ble_host_test_set_pending_result(&response);
+    /* Complete the ack exchange before pumping: the result indication goes out
+       on the shared ATT queue first (the pump defers while a result is
+       pending), and the host stub needs an explicit confirm for it. */
+    beet_ble_service();
+    beet_ble_host_test_notify_tx(0);
+    beet_ble_host_test_notify_tx(BLE_HS_EDONE);
 }
 
 static void beet_prepare_stream_session(void)
@@ -988,6 +994,37 @@ static void test_stream_pump_backpressure_resumes_same_seq(void)
     TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"seq\":23");
 }
 
+static void test_stream_arm_skips_overwritten_prefix(void)
+{
+    beet_prepare_stream_session();
+
+    ble_host_test_set_stream_frame_stub(0U, 101U, "{\"type\":\"event\",\"data\":{\"seq\":101}}");
+    /* from=1 but the ring head is 101: the pump must start at 101 on the very
+       first tick without probing the overwritten prefix. */
+    {
+        beet_iface_command_response_t response;
+
+        memset(&response, 0, sizeof(response));
+        response.command = BEET_IFACE_COMMAND_STREAM_EVENTS;
+        response.status = BEET_IFACE_STATUS_ACCEPTED;
+        response.reason = BEET_IFACE_REASON_NONE;
+        response.has_stream_ack = true;
+        response.stream_kind = 0U;
+        response.stream_from_seq = 1U;
+        response.stream_latest_seq = 130U;
+        response.stream_oldest_seq = 101U;
+        response.stream_total = 130U;
+        beet_ble_host_test_set_pending_result(&response);
+        beet_ble_service();
+        beet_ble_host_test_notify_tx(0);
+        beet_ble_host_test_notify_tx(BLE_HS_EDONE);
+    }
+
+    beet_ble_service();
+    TEST_ASSERT_U32_EQ(1U, ble_host_test_notification_count());
+    TEST_ASSERT_STR_CONTAINS(ble_host_test_last_notification(), "\"seq\":101");
+}
+
 static void test_stream_pump_gap_abort(void)
 {
     uint8_t ticks;
@@ -997,7 +1034,7 @@ static void test_stream_pump_gap_abort(void)
     /* No frame stubs: every sequence in the range is a ring gap. */
     beet_stream_arm(1U, 100U, 300U);
 
-    for (ticks = 0U; ticks < 20U; ++ticks) {
+    for (ticks = 0U; ticks < 40U; ++ticks) {
         beet_ble_service();
     }
 
@@ -1059,6 +1096,7 @@ int main(void)
         {"stream_pump_delivers_batch_then_end", test_stream_pump_delivers_batch_then_end},
         {"stream_pump_backpressure_resumes_same_seq", test_stream_pump_backpressure_resumes_same_seq},
         {"stream_pump_gap_abort", test_stream_pump_gap_abort},
+        {"stream_arm_skips_overwritten_prefix", test_stream_arm_skips_overwritten_prefix},
         {"stream_cancelled_by_maintenance", test_stream_cancelled_by_maintenance},
     };
 

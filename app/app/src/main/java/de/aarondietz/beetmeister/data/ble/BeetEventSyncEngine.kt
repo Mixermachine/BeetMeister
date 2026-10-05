@@ -135,6 +135,13 @@ internal class BeetEventSyncEngine(
         val ack = ackResult?.streamAck
         if (ackResult == null || ackResult.status != "accepted" || ack == null || ack.kind != kind.wireName) {
             router.abort(kind)
+            BeetLog.w(TAG) { "stream ${kind.wireName} unsupported: ack=${ackResult?.status ?: "timeout"}" }
+            if (ackResult == null) {
+                /* The command may still have been armed controller-side while its
+                   ack got lost; stop it so a stale pump does not flood the next
+                   session. Best-effort: the channel may still be congested. */
+                runCatching { link.sendCommand(BeetJsonCodec.streamCancel()) }
+            }
             return BeetStreamRun.Unsupported
         }
         session.ack = ack
@@ -187,7 +194,7 @@ internal class BeetEventSyncEngine(
     ): BeetStreamRun {
         runCatching { link.sendCommand(BeetJsonCodec.streamCancel()) }
         router.abort(kind)
-        BeetLog.d(TAG) { "stream ${kind.wireName} cancelled: $reason delivered=${session.delivered.get()}" }
+        BeetLog.w(TAG) { "stream ${kind.wireName} cancelled: $reason delivered=${session.delivered.get()}" }
         return BeetStreamRun.Cancelled(session.delivered.get(), resumeBase + session.delivered.get())
     }
 

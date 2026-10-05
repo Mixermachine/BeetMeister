@@ -502,6 +502,10 @@ object BeetJsonCodec {
         )
 
     /** Runtime v19: arm a controller-side burst stream of stored events. */
+    /** Extracts the "cmd" name from a command payload we generated (stale-result correlation). */
+    fun commandName(payload: String): String? =
+        Regex("\"cmd\":\"([a-z_]+)\"").find(payload)?.groupValues?.get(1)
+
     fun streamEvents(kind: String, fromSeq: Long, maxEvents: Long? = null): String =
         streamEventsRequestEnvelopeAdapter.toJson(
             CommandRequestEnvelopeDto(

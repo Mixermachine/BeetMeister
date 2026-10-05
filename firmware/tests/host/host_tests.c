@@ -791,10 +791,11 @@ static void test_ble_json_formatting(void)
     response.stream_kind = 1U;
     response.stream_from_seq = 900U;
     response.stream_latest_seq = 1200U;
+    response.stream_oldest_seq = 1100U;
     response.stream_total = 301U;
     TEST_ASSERT_TRUE(beet_ble_format_command_result_json(json, sizeof(json), &response) > 0);
     TEST_ASSERT_STR_EQ(
-        "{\"cmd\":\"stream_events\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"stream_id\":4,\"kind\":\"system\",\"from_seq\":900,\"latest_seq\":1200,\"total\":301}}",
+        "{\"cmd\":\"stream_events\",\"status\":\"accepted\",\"reason\":\"none\",\"data\":{\"stream_id\":4,\"kind\":\"system\",\"from_seq\":900,\"latest_seq\":1200,\"oldest_seq\":1100,\"total\":301}}",
         json);
 
     memset(&event_buf, 0, sizeof(event_buf));

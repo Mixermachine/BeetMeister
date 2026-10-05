@@ -188,6 +188,7 @@ typedef struct {
     uint8_t stream_kind;
     uint64_t stream_from_seq;
     uint64_t stream_latest_seq;
+    uint64_t stream_oldest_seq;
     uint32_t stream_total;
 } beet_iface_command_response_t;
 

@@ -537,7 +537,7 @@ int beet_ble_format_command_result_json(
             buf,
             len,
             "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"stream_id\":%lu,\"kind\":\"%s\","
-            "\"from_seq\":%llu,\"latest_seq\":%llu,\"total\":%lu}}",
+            "\"from_seq\":%llu,\"latest_seq\":%llu,\"oldest_seq\":%llu,\"total\":%lu}}",
             beet_iface_command_name(response->command),
             beet_iface_status_name(response->status),
             beet_iface_reason_name(response->reason),
@@ -545,6 +545,7 @@ int beet_ble_format_command_result_json(
             response->stream_kind == 1U ? "system" : "watering",
             (unsigned long long)response->stream_from_seq,
             (unsigned long long)response->stream_latest_seq,
+            (unsigned long long)response->stream_oldest_seq,
             (unsigned long)response->stream_total);
     }
 

@@ -50,7 +50,9 @@ class EventSyncBenchmarkE2ETest {
         fixture.connectOnce()
 
         android.util.Log.i(TAG, "Connected successfully. Waiting for any initial sync to settle...")
-        composeRule.waitUntil(timeoutMillis = 60_000) {
+        // A device without a sync watermark must first stream the full controller
+        // rings (~7000 events at burst rate); allow several minutes on first run.
+        composeRule.waitUntil(timeoutMillis = 300_000) {
             !repository.state.value.eventSync.active
         }
 

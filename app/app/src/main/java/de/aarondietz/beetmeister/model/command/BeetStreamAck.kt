@@ -11,5 +11,6 @@ data class BeetStreamAck(
     @param:Json(name = "kind") val kind: String,
     @param:Json(name = "from_seq") val fromSeq: Long,
     @param:Json(name = "latest_seq") val latestSeq: Long,
+    @param:Json(name = "oldest_seq") val oldestSeq: Long = 0L,
     @param:Json(name = "total") val total: Long,
 )

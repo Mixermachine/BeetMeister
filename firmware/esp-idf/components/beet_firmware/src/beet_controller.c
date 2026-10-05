@@ -2547,6 +2547,12 @@ esp_err_t beet_iface_submit_command(
         response->stream_kind = request->stream_kind;
         response->stream_from_seq = request->seq_no;
         response->stream_latest_seq = latest;
+        {
+            const uint64_t capacity = request->stream_kind == 1U ?
+                (uint64_t)BEET_SYSTEM_EVENT_RING_CAPACITY : (uint64_t)BEET_EVENT_RING_CAPACITY;
+            response->stream_oldest_seq = latest == 0ULL ? 0ULL :
+                (latest + 1ULL > capacity ? latest - capacity + 1ULL : 1ULL);
+        }
         response->stream_total = (uint32_t)total;
         return ESP_OK;
     }
