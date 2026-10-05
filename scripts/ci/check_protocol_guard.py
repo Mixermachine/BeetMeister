@@ -109,12 +109,23 @@ def main() -> int:
     for path, changed_line in diff_entries:
         if path.endswith((".md", ".txt", ".png", ".svg", ".jpg", ".jpeg", ".properties", ".yml", ".yaml", ".xml")):
             continue
-        if "/res/" in path.replace("\\", "/"):
+        normalized_path = path.replace("\\", "/")
+        if "/res/" in normalized_path:
+            continue
+        # The guard's own source quotes wire tokens; scanning it would self-match.
+        if normalized_path == "scripts/ci/check_protocol_guard.py":
+            continue
+        # Test sources cannot change shipped wire behavior; wire changes must hit
+        # production files to take effect and are caught there.
+        if normalized_path.startswith("firmware/tests/") or "/src/test/" in normalized_path or "/src/androidTest/" in normalized_path:
             continue
         normalized = changed_line.strip()
         if not normalized:
             continue
-        if "R.string.maintenance_" in normalized:
+        # UI string resource keys are not wire content: any maintenance-named
+        # localization key (runtime_* and maintenance_* buckets) is exempt, same
+        # as the historic R.string.maintenance_ exemption.
+        if re.search(r"R\.string\.[A-Za-z0-9_]*maintenance[A-Za-z0-9_]*", normalized):
             continue
         if MAINTENANCE_LINE_RE.search(normalized):
             maintenance_hits.append(path)
