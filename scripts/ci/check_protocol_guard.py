@@ -19,9 +19,15 @@ RUNTIME_SURFACE_FILES = {
     "firmware/esp-idf/components/beet_firmware/src/beet_iface_names.c",
 }
 
+# Maintenance WIRE surface tokens only. Bare identifier prefixes like
+# "maintenance_" or "BEET_MAINTENANCE_" are deliberately NOT matched: runtime code
+# legitimately reads internal maintenance session state (e.g. the stream pump
+# checks s_ble.maintenance_session.active) without touching the wire. Anything
+# that actually changes the maintenance protocol surface - protocol version key,
+# characteristic/format handler names, or wire command strings - still fires.
 MAINTENANCE_LINE_RE = re.compile(
-    r"(maintenance_|maintenance_info|maintenance_status|maintenance_data|"
-    r"maintenance_protocol_version|BEET_MAINTENANCE_|"
+    r"(maintenance_protocol_version|maintenance_info|maintenance_status|"
+    r"maintenance_data|BEET_MAINTENANCE_PROTOCOL|"
     r"\"begin_update\"|\"query_status\"|\"abort_update\"|\"finish_update\"|"
     r"asset_id|image_kind)"
 )

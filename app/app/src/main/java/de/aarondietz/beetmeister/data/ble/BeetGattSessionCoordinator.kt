@@ -73,6 +73,11 @@ internal class BeetGattSessionCoordinator(
     private var syncPauseRequested = false
     private val runtimeCommands = BeetRuntimeCommands(host, this)
     private val commandChunkAssembler = BeetCommandResultChunkAssembler()
+    private val streamRouter = BeetResponseRouter()
+    private val eventSyncEngine = BeetEventSyncEngine(link = this, router = streamRouter)
+    private val burstWateringBuffer = ArrayList<BeetWateringEvent>()
+    private val burstSystemBuffer = ArrayList<BeetSystemEvent>()
+    private val burstLock = Any()
     private var negotiatedMtu = DEFAULT_MTU
     private var expectedControllerAction: ExpectedControllerAction = ExpectedControllerAction.None
     private var expectedControllerActionUntilMs: Long = 0L
@@ -423,76 +428,10 @@ internal class BeetGattSessionCoordinator(
                  * AndroidComposeView.draw (performMeasureAndLayout crash). SQLite caching
                  * stays per-event; only the state emission is batched.
                  */
-                val wateringBuffer = ArrayList<BeetWateringEvent>(EVENT_UI_BATCH_SIZE)
-                val systemBuffer = ArrayList<BeetSystemEvent>(EVENT_UI_BATCH_SIZE)
-                fun flushIngestedEvents() {
-                    if (wateringBuffer.isEmpty() && systemBuffer.isEmpty()) return
-                    val watering = wateringBuffer.toList()
-                    val system = systemBuffer.toList()
-                    wateringBuffer.clear()
-                    systemBuffer.clear()
-                    host.updateState { state ->
-                        state.copy(
-                            recentEvents = if (watering.isEmpty()) state.recentEvents else mergeWateringEvents(state.recentEvents, watering),
-                            systemEvents = if (system.isEmpty()) state.systemEvents else mergeSystemEvents(state.systemEvents, system),
-                        )
-                    }
+                when (runBurstEventSync(limit)) {
+                    BurstSyncOutcome.Completed, BurstSyncOutcome.Aborted -> Unit
+                    BurstSyncOutcome.Legacy -> runLegacyBacklogSync(deviceId, wateringSummary, systemSummary, limit)
                 }
-
-                val runner = BeetBacklogSyncRunner(
-                config = BeetBacklogSyncConfig(
-                    retentionSeconds = EVENT_RETENTION_SECONDS,
-                    initialBatchSize = INITIAL_SYNC_BATCH_SIZE,
-                    maxBatchSize = MAX_SYNC_BATCH_SIZE,
-                    batchGrowthStep = SYNC_BATCH_GROWTH_STEP,
-                    burstDelayMs = SYNC_BURST_DELAY_MS,
-                    pausePollDelayMs = SYNC_PAUSE_POLL_MS,
-                    congestionDelayMs = SYNC_CONGESTION_DELAY_MS,
-                    transientFailurePerSequenceLimit = SYNC_TRANSIENT_FAILURE_LIMIT,
-                    maxConsecutiveNotFoundLimit = SYNC_CONSECUTIVE_NOT_FOUND_LIMIT,
-                ),
-                nowUnixSeconds = { System.currentTimeMillis() / 1000L },
-                sleep = { delay(it) },
-            )
-
-            runner.run(
-                input = BeetBacklogSyncInput(
-                    wateringSummary = wateringSummary,
-                    systemSummary = systemSummary,
-                    existingWateringSequences = host.state.value.recentEvents.map { event -> event.sequenceNumber }.toSet(),
-                    existingSystemSequences = host.state.value.systemEvents.map { event -> event.sequenceNumber }.toSet(),
-                    limit = limit,
-                ),
-                isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
-                isPauseRequested = { syncPauseRequested },
-                onProgress = { progress ->
-                    host.updateState {
-                        it.copy(
-                            eventSync = it.eventSync.copy(
-                                active = progress.active,
-                                transferred = progress.transferred,
-                                total = progress.total,
-                                phase = progress.phase,
-                            ),
-                        )
-                    }
-                },
-                onWateringEvent = { event ->
-                    eventCache.saveWateringEvent(deviceId, event)
-                    wateringBuffer += event
-                    if (wateringBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
-                },
-                onSystemEvent = { event ->
-                    eventCache.saveSystemEvent(deviceId, event)
-                    systemBuffer += event
-                    if (systemBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
-                },
-                fetchWateringEvent = { sequence -> fetchWateringEventForSync(sequence) },
-                fetchSystemEvent = { sequence -> fetchSystemEventForSync(sequence) },
-            )
-
-            /* Publish any events still buffered when the sync loop finishes */
-            flushIngestedEvents()
             } finally {
                 /* Restore balanced connection priority when event sync finishes or is cancelled */
                 @Suppress("MissingPermission")
@@ -509,6 +448,157 @@ internal class BeetGattSessionCoordinator(
                 )
             }
         }
+    }
+
+
+    private enum class BurstSyncOutcome { Completed, Legacy, Aborted }
+
+    /**
+     * Tier 2 burst path: one stream_events command per kind; records arrive as
+     * state-stream notifications consumed by handleStatePayload into the burst
+     * buffers. Returns Legacy when the controller does not understand the
+     * command (pre-v19 firmware), Aborted when cancelled mid-stream (partial
+     * progress stays cached; the next sync trigger resumes), otherwise Completed.
+     */
+    private suspend fun runBurstEventSync(limit: Int): BurstSyncOutcome {
+        resetBurstState()
+        var latestWatering = 0L
+        var latestSystem = 0L
+        fun publishTotal() {
+            host.updateState { it.copy(eventSync = it.eventSync.copy(total = (latestWatering + latestSystem).toInt())) }
+        }
+
+        for (kind in arrayOf(BeetStreamKind.WATERING, BeetStreamKind.SYSTEM)) {
+            var cursor = 1L
+            var attempts = 0
+            while (true) {
+                attempts += 1
+                val run = eventSyncEngine.streamEvents(
+                    kind = kind,
+                    fromSeq = cursor,
+                    maxEvents = limit.toLong(),
+                    isCancelled = { syncPauseRequested || maintenanceUpdater.isUploadActive },
+                    isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
+                    onAck = { ack ->
+                        if (kind == BeetStreamKind.WATERING) latestWatering = ack.latestSeq else latestSystem = ack.latestSeq
+                        publishTotal()
+                    },
+                )
+                when (run) {
+                    BeetStreamRun.Unsupported -> {
+                        synchronized(burstLock) { flushBurstBuffersLocked() }
+                        resetBurstState()
+                        return BurstSyncOutcome.Legacy
+                    }
+                    is BeetStreamRun.Completed -> {
+                        cursor = run.nextCursor
+                        break
+                    }
+                    is BeetStreamRun.Cancelled -> {
+                        synchronized(burstLock) { flushBurstBuffersLocked() }
+                        if (attempts >= MAX_BURST_ATTEMPTS_PER_KIND ||
+                            host.state.value.connection.phase != BeetConnectionPhase.Connected ||
+                            maintenanceUpdater.isUploadActive
+                        ) {
+                            resetBurstState()
+                            return BurstSyncOutcome.Aborted
+                        }
+                        awaitSyncResumeIfNeeded()
+                        cursor = run.nextCursor
+                    }
+                    is BeetStreamRun.Disconnected -> {
+                        synchronized(burstLock) { flushBurstBuffersLocked() }
+                        resetBurstState()
+                        return BurstSyncOutcome.Aborted
+                    }
+                }
+            }
+            synchronized(burstLock) { flushBurstBuffersLocked() }
+        }
+        return BurstSyncOutcome.Completed
+    }
+
+    private suspend fun runLegacyBacklogSync(
+        deviceId: String,
+        wateringSummary: de.aarondietz.beetmeister.model.event.BeetHistorySummary?,
+        systemSummary: de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary?,
+        limit: Int,
+    ) {
+        /*
+         * Pre-v19 fallback path: adaptive per-sequence stop-and-wait fetching.
+         * Coalesce event ingestion into the repository state in batches (see the
+         * performMeasureAndLayout crash note on the original extraction).
+         */
+            val wateringBuffer = ArrayList<BeetWateringEvent>(EVENT_UI_BATCH_SIZE)
+            val systemBuffer = ArrayList<BeetSystemEvent>(EVENT_UI_BATCH_SIZE)
+            fun flushIngestedEvents() {
+                if (wateringBuffer.isEmpty() && systemBuffer.isEmpty()) return
+                val watering = wateringBuffer.toList()
+                val system = systemBuffer.toList()
+                wateringBuffer.clear()
+                systemBuffer.clear()
+                host.updateState { state ->
+                    state.copy(
+                        recentEvents = if (watering.isEmpty()) state.recentEvents else mergeWateringEvents(state.recentEvents, watering),
+                        systemEvents = if (system.isEmpty()) state.systemEvents else mergeSystemEvents(state.systemEvents, system),
+                    )
+                }
+            }
+
+            val runner = BeetBacklogSyncRunner(
+            config = BeetBacklogSyncConfig(
+                retentionSeconds = EVENT_RETENTION_SECONDS,
+                initialBatchSize = INITIAL_SYNC_BATCH_SIZE,
+                maxBatchSize = MAX_SYNC_BATCH_SIZE,
+                batchGrowthStep = SYNC_BATCH_GROWTH_STEP,
+                burstDelayMs = SYNC_BURST_DELAY_MS,
+                pausePollDelayMs = SYNC_PAUSE_POLL_MS,
+                congestionDelayMs = SYNC_CONGESTION_DELAY_MS,
+                transientFailurePerSequenceLimit = SYNC_TRANSIENT_FAILURE_LIMIT,
+                maxConsecutiveNotFoundLimit = SYNC_CONSECUTIVE_NOT_FOUND_LIMIT,
+            ),
+            nowUnixSeconds = { System.currentTimeMillis() / 1000L },
+            sleep = { delay(it) },
+        )
+
+        runner.run(
+            input = BeetBacklogSyncInput(
+                wateringSummary = wateringSummary,
+                systemSummary = systemSummary,
+                existingWateringSequences = host.state.value.recentEvents.map { event -> event.sequenceNumber }.toSet(),
+                existingSystemSequences = host.state.value.systemEvents.map { event -> event.sequenceNumber }.toSet(),
+                limit = limit,
+            ),
+            isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
+            isPauseRequested = { syncPauseRequested },
+            onProgress = { progress ->
+                host.updateState {
+                    it.copy(
+                        eventSync = it.eventSync.copy(
+                            active = progress.active,
+                            transferred = progress.transferred,
+                            total = progress.total,
+                            phase = progress.phase,
+                        ),
+                    )
+                }
+            },
+            onWateringEvent = { event ->
+                eventCache.saveWateringEvent(deviceId, event)
+                wateringBuffer += event
+                if (wateringBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
+            },
+            onSystemEvent = { event ->
+                eventCache.saveSystemEvent(deviceId, event)
+                systemBuffer += event
+                if (systemBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
+            },
+            fetchWateringEvent = { sequence -> fetchWateringEventForSync(sequence) },
+            fetchSystemEvent = { sequence -> fetchSystemEventForSync(sequence) },
+        )
+
+        /* Publish any events still buffered when the sync loop finishes */
+        flushIngestedEvents()
     }
 
     private suspend fun fetchWateringEventForSync(sequence: Long): BeetBacklogFetchResult<BeetWateringEvent> {
@@ -891,13 +981,73 @@ internal class BeetGattSessionCoordinator(
             }
             is BeetStateMessage.SystemEventUpdate -> {
                 val deviceId = host.state.value.controllerInfo?.deviceId
-                if (deviceId != null) {
+                val burstConsumed = streamRouter.onEventFrame(BeetStreamKind.SYSTEM)
+                if (burstConsumed) {
+                    ingestBurstSystemEvent(message.data)
+                } else if (deviceId != null) {
                     ingestSystemEvent(deviceId, message.data)
                 } else {
                     host.updateState { it.copy(systemEvents = mergeSystemEvents(it.systemEvents, listOf(message.data))) }
                 }
             }
+
+            is BeetStateMessage.WateringEventUpdate -> {
+                streamRouter.onEventFrame(BeetStreamKind.WATERING)
+                ingestBurstWateringEvent(message.data)
+            }
+
+            is BeetStateMessage.StreamEndUpdate -> {
+                streamRouter.onStreamEnd(message.data)
+            }
         }
+    }
+
+    private fun ingestBurstWateringEvent(event: BeetWateringEvent) {
+        val deviceId = host.state.value.controllerInfo?.deviceId
+        if (deviceId != null) {
+            runCatching { eventCache.saveWateringEvent(deviceId, event) }
+        }
+        synchronized(burstLock) {
+            burstWateringBuffer += event
+            if (burstWateringBuffer.size >= EVENT_UI_BATCH_SIZE) flushBurstBuffersLocked()
+        }
+    }
+
+    private fun ingestBurstSystemEvent(event: BeetSystemEvent) {
+        val deviceId = host.state.value.controllerInfo?.deviceId
+        if (deviceId != null) {
+            runCatching { eventCache.saveSystemEvent(deviceId, event) }
+        }
+        synchronized(burstLock) {
+            burstSystemBuffer += event
+            if (burstSystemBuffer.size >= EVENT_UI_BATCH_SIZE) flushBurstBuffersLocked()
+        }
+    }
+
+    /* Caller must hold [burstLock]. */
+    private fun flushBurstBuffersLocked() {
+        if (burstWateringBuffer.isEmpty() && burstSystemBuffer.isEmpty()) return
+        val watering = burstWateringBuffer.toList()
+        val system = burstSystemBuffer.toList()
+        burstWateringBuffer.clear()
+        burstSystemBuffer.clear()
+        host.updateState { state ->
+            val transferred = (state.eventSync.transferred + watering.size + system.size).coerceAtMost(state.eventSync.total)
+            state.copy(
+                recentEvents = if (watering.isEmpty()) state.recentEvents else mergeWateringEvents(state.recentEvents, watering),
+                systemEvents = if (system.isEmpty()) state.systemEvents else mergeSystemEvents(state.systemEvents, system),
+                eventSync = state.eventSync.copy(transferred = transferred),
+            )
+        }
+    }
+
+    private fun resetBurstState() {
+        synchronized(burstLock) {
+            burstWateringBuffer.clear()
+            burstSystemBuffer.clear()
+        }
+        streamRouter.abort(BeetStreamKind.WATERING)
+        streamRouter.abort(BeetStreamKind.SYSTEM)
     }
 
     private fun handleCommandPayload(payload: ByteArray) {
@@ -1263,6 +1413,7 @@ internal class BeetGattSessionCoordinator(
     companion object {
         private const val TAG = "BeetGattSession"
         private const val COMMAND_TIMEOUT_MS = 7_000L
+        private const val MAX_BURST_ATTEMPTS_PER_KIND = 4
         private const val CONNECTION_TIMEOUT_MS = 30_000L
         private const val MAINTENANCE_PROGRESS_GAP_RESET_MS = 10_000L
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L

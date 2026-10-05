@@ -162,6 +162,56 @@ New system events may also be notified on `state_stream` as `type = "system_even
 }
 ```
 
+### Watering event frame (runtime protocol v19)
+
+Burst-streamed watering records are notified on `state_stream` as `type = "event"`.
+The `data` object uses exactly the same fields as the `get_event` command result.
+
+```json
+{
+  "type": "event",
+  "data": {
+    "seq": 512,
+    "pair": 2,
+    "boot_id": 77,
+    "src": 1,
+    "start": 1700000100,
+    "end": 1700000158,
+    "mb": 40,
+    "ma": 55,
+    "sb": 1200,
+    "sa": 1800,
+    "req": 60,
+    "act": 58,
+    "stop": 0,
+    "block": 0,
+    "bs": 3300,
+    "be": 3280,
+    "su": 100,
+    "eu": 158
+  }
+}
+```
+
+### Stream end frame (runtime protocol v19)
+
+Every `stream_events` burst terminates with exactly one `type = "stream_end"`
+frame (unless the connection drops). `status` is `"complete"` or `"cancelled"`.
+
+```json
+{
+  "type": "stream_end",
+  "data": {
+    "id": 4,
+    "kind": "system",
+    "status": "complete",
+    "delivered": 301,
+    "last_seq": 1200,
+    "gaps": 3
+  }
+}
+```
+
 ## `control_point` commands
 
 The controller may apply separate rate limits for control-point traffic:
@@ -489,6 +539,19 @@ If a full command-result JSON payload exceeds the negotiated ATT indication payl
 - `get_system_history_summary` returns `latest_seq_no` and `event_count` for the persistent system-event ring.
 - `get_system_event` returns one system event by `seq_no`.
 - `get_history_summary` and `get_event` remain the watering-history commands.
+- `stream_events` (runtime protocol v19) takes `data` `{kind, from_seq, max_events}`
+  with `kind` one of `"watering"` or `"system"`, and acknowledges with
+  `{stream_id, kind, from_seq, latest_seq, total}`. The controller then notifies
+  the ring range `from_seq..from_seq+total-1` on `state_stream` (event frames per
+  record, ring gaps skipped and counted), at most 20 records per 50 ms controller
+  tick, followed by one `stream_end` frame.
+- `stream_cancel` (runtime protocol v19) stops all active burst streams silently
+  (no terminal frames). A stream is also cancelled with a `cancelled` `stream_end`
+  frame when an OTA maintenance session starts or a factory reset is accepted.
+- Stream frames never appear on the command result channel and command results
+  never appear as stream frames; partial burst progress is resumable because
+  delivered records are individually valid and the pump position is reported by
+  `last_seq`.
 
 ## Calibration workflow
 

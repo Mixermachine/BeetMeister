@@ -3596,6 +3596,23 @@ static void beet_ble_streams_service(void)
                 st->end_pending = true;
                 break;
             }
+            if (out_len > beet_ble_att_payload_budget()) {
+                /* Oversized frame would be rejected by the ATT layer: skip it
+                   as a gap instead of dead-locking the pump on retries. */
+                ESP_LOGW(
+                    TAG,
+                    "stream frame too long seq=%llu len=%u",
+                    (unsigned long long)st->next_seq,
+                    (unsigned)out_len);
+                st->next_seq++;
+                st->gaps++;
+                st->consec_miss++;
+                if (st->consec_miss >= BEET_BLE_STREAM_GAP_ABORT) {
+                    st->end_pending = true;
+                    break;
+                }
+                continue;
+            }
             if (beet_ble_send_notify_json(s_state_stream_handle, json) != ESP_OK) {
                 break; /* link buffers exhausted; resume at this seq next tick */
             }
@@ -3603,7 +3620,6 @@ static void beet_ble_streams_service(void)
             st->next_seq++;
             st->delivered++;
             st->consec_miss = 0U;
-            budget--;
         }
 
         if (st->next_seq > st->end_seq) {
