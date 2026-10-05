@@ -476,7 +476,7 @@ internal class BeetGattSessionCoordinator(
                 val run = eventSyncEngine.streamEvents(
                     kind = kind,
                     fromSeq = cursor,
-                    maxEvents = limit.toLong(),
+                    maxEvents = BURST_WINDOW_EVENTS,
                     isCancelled = { syncPauseRequested || maintenanceUpdater.isUploadActive },
                     isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
                     onAck = { ack ->
@@ -492,7 +492,12 @@ internal class BeetGattSessionCoordinator(
                     }
                     is BeetStreamRun.Completed -> {
                         cursor = run.nextCursor
-                        break
+                        val latest = if (kind == BeetStreamKind.WATERING) latestWatering else latestSystem
+                        if (cursor > latest || attempts >= MAX_BURST_WINDOWS_PER_KIND) {
+                            break
+                        }
+                        /* The controller pump ended this window with stream_end
+                           complete; arm the next window to continue the backlog. */
                     }
                     is BeetStreamRun.Cancelled -> {
                         synchronized(burstLock) { flushBurstBuffersLocked() }
@@ -537,6 +542,8 @@ internal class BeetGattSessionCoordinator(
                 val system = systemBuffer.toList()
                 wateringBuffer.clear()
                 systemBuffer.clear()
+                runCatching { eventCache.saveWateringEvents(deviceId, watering) }
+                runCatching { eventCache.saveSystemEvents(deviceId, system) }
                 host.updateState { state ->
                     state.copy(
                         recentEvents = if (watering.isEmpty()) state.recentEvents else mergeWateringEvents(state.recentEvents, watering),
@@ -584,12 +591,10 @@ internal class BeetGattSessionCoordinator(
                 }
             },
             onWateringEvent = { event ->
-                eventCache.saveWateringEvent(deviceId, event)
                 wateringBuffer += event
                 if (wateringBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
             },
             onSystemEvent = { event ->
-                eventCache.saveSystemEvent(deviceId, event)
                 systemBuffer += event
                 if (systemBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
             },
@@ -1003,10 +1008,6 @@ internal class BeetGattSessionCoordinator(
     }
 
     private fun ingestBurstWateringEvent(event: BeetWateringEvent) {
-        val deviceId = host.state.value.controllerInfo?.deviceId
-        if (deviceId != null) {
-            runCatching { eventCache.saveWateringEvent(deviceId, event) }
-        }
         synchronized(burstLock) {
             burstWateringBuffer += event
             if (burstWateringBuffer.size >= EVENT_UI_BATCH_SIZE) flushBurstBuffersLocked()
@@ -1014,10 +1015,6 @@ internal class BeetGattSessionCoordinator(
     }
 
     private fun ingestBurstSystemEvent(event: BeetSystemEvent) {
-        val deviceId = host.state.value.controllerInfo?.deviceId
-        if (deviceId != null) {
-            runCatching { eventCache.saveSystemEvent(deviceId, event) }
-        }
         synchronized(burstLock) {
             burstSystemBuffer += event
             if (burstSystemBuffer.size >= EVENT_UI_BATCH_SIZE) flushBurstBuffersLocked()
@@ -1031,6 +1028,11 @@ internal class BeetGattSessionCoordinator(
         val system = burstSystemBuffer.toList()
         burstWateringBuffer.clear()
         burstSystemBuffer.clear()
+        val deviceId = host.state.value.controllerInfo?.deviceId
+        if (deviceId != null) {
+            runCatching { eventCache.saveWateringEvents(deviceId, watering) }
+            runCatching { eventCache.saveSystemEvents(deviceId, system) }
+        }
         host.updateState { state ->
             val transferred = (state.eventSync.transferred + watering.size + system.size).coerceAtMost(state.eventSync.total)
             state.copy(
@@ -1428,6 +1430,11 @@ internal class BeetGattSessionCoordinator(
         // If firmware buffer sizing ever increases, this upgrades automatically.
         private const val HIGH_SPEED_MTU = 517
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
+        /* Burst events per stream_events window. Large windows amortize the ack/end
+           command round trips; the pump stays cancelable and resumable either way. */
+        private const val BURST_WINDOW_EVENTS = 5000L
+        /* Safety cap on windows per kind (5000 * 40 covers both full rings). */
+        private const val MAX_BURST_WINDOWS_PER_KIND = 40
         private const val INITIAL_SYNC_BATCH_SIZE = 1
         private const val MAX_SYNC_BATCH_SIZE = 8
         private const val SYNC_BATCH_GROWTH_STEP = 1

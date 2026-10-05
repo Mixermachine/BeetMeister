@@ -3433,6 +3433,9 @@ typedef struct {
     uint8_t kind;
     uint64_t next_seq;
     uint64_t end_seq;
+    /* Highest seq the pump touched (delivered or gap-skipped). stream_end
+       reports it so the app can resume at last_seq + 1 even when a window
+       delivered nothing because the ring slots were already overwritten. */
     uint64_t last_seq;
     uint32_t delivered;
     uint32_t gaps;
@@ -3584,6 +3587,7 @@ static void beet_ble_streams_service(void)
 
             if (err == ESP_ERR_NOT_FOUND) {
                 st->next_seq++;
+                st->last_seq = st->next_seq - 1ULL;
                 st->gaps++;
                 st->consec_miss++;
                 if (st->consec_miss >= BEET_BLE_STREAM_GAP_ABORT) {
@@ -3605,6 +3609,7 @@ static void beet_ble_streams_service(void)
                     (unsigned long long)st->next_seq,
                     (unsigned)out_len);
                 st->next_seq++;
+                st->last_seq = st->next_seq - 1ULL;
                 st->gaps++;
                 st->consec_miss++;
                 if (st->consec_miss >= BEET_BLE_STREAM_GAP_ABORT) {

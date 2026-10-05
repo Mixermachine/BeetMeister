@@ -61,34 +61,58 @@ internal class BeetEventCache(
     }
 
     fun saveWateringEvent(deviceId: String, event: BeetWateringEvent) {
-        val cutoffUnixSeconds = retentionCutoffUnixSeconds()
-        if (!shouldRetainWateringEvent(event, cutoffUnixSeconds)) {
+        saveWateringEvents(deviceId, listOf(event))
+    }
+
+    /**
+     * Batched variant: one index rewrite and one prune pass per batch.
+     * The cache index is a single StringSet, so per-event saves rebuild the
+     * whole set and are quadratic over a backlog sync.
+     */
+    fun saveWateringEvents(deviceId: String, events: List<BeetWateringEvent>) {
+        if (events.isEmpty()) {
             return
         }
-        val key = wateringEventKey(deviceId, event.sequenceNumber)
+        val cutoffUnixSeconds = retentionCutoffUnixSeconds()
         val indexKey = wateringIndexKey(deviceId)
         val keys = loadKeys(indexKey).toMutableSet()
-        keys += key
-        prefs.edit()
-            .putString(key, BeetJsonCodec.wateringEventToJson(event))
-            .putStringSet(indexKey, keys)
-            .apply()
+        val editor = prefs.edit()
+        events.forEach { event ->
+            if (!shouldRetainWateringEvent(event, cutoffUnixSeconds)) {
+                return@forEach
+            }
+            val key = wateringEventKey(deviceId, event.sequenceNumber)
+            keys += key
+            editor.putString(key, BeetJsonCodec.wateringEventToJson(event))
+        }
+        editor.putStringSet(indexKey, keys)
+        editor.apply()
         pruneWateringOlderThan(deviceId, cutoffUnixSeconds)
     }
 
     fun saveSystemEvent(deviceId: String, event: BeetSystemEvent) {
-        val cutoffUnixSeconds = retentionCutoffUnixSeconds()
-        if (!shouldRetainSystemEvent(event, cutoffUnixSeconds)) {
+        saveSystemEvents(deviceId, listOf(event))
+    }
+
+    /** Batched variant; see saveWateringEvents for the rationale. */
+    fun saveSystemEvents(deviceId: String, events: List<BeetSystemEvent>) {
+        if (events.isEmpty()) {
             return
         }
-        val key = systemEventKey(deviceId, event.sequenceNumber)
+        val cutoffUnixSeconds = retentionCutoffUnixSeconds()
         val indexKey = systemIndexKey(deviceId)
         val keys = loadKeys(indexKey).toMutableSet()
-        keys += key
-        prefs.edit()
-            .putString(key, BeetJsonCodec.systemEventToJson(event))
-            .putStringSet(indexKey, keys)
-            .apply()
+        val editor = prefs.edit()
+        events.forEach { event ->
+            if (!shouldRetainSystemEvent(event, cutoffUnixSeconds)) {
+                return@forEach
+            }
+            val key = systemEventKey(deviceId, event.sequenceNumber)
+            keys += key
+            editor.putString(key, BeetJsonCodec.systemEventToJson(event))
+        }
+        editor.putStringSet(indexKey, keys)
+        editor.apply()
         pruneSystemOlderThan(deviceId, cutoffUnixSeconds)
     }
 

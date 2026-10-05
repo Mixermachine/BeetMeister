@@ -197,6 +197,9 @@ The `data` object uses exactly the same fields as the `get_event` command result
 
 Every `stream_events` burst terminates with exactly one `type = "stream_end"`
 frame (unless the connection drops). `status` is `"complete"` or `"cancelled"`.
+`last_seq` is the highest sequence number the pump touched — delivered or
+skipped as a gap — so the app can resume at `last_seq + 1` even when a window
+over a wrapped ring region delivered nothing.
 
 ```json
 {
