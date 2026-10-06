@@ -1,3 +1,4 @@
+import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.api.tasks.Exec
 import org.gradle.internal.os.OperatingSystem
 import java.util.Properties
@@ -13,6 +14,7 @@ val beetRuntimeProtocolVersion = protocolVersions.getProperty("runtime_protocol_
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -70,6 +72,28 @@ android {
     sourceSets.named("main") {
         assets.srcDir(layout.buildDirectory.dir("generated/bundledFirmware/main/assets").get().asFile)
     }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        // Robolectric does not yet run on the JDK 25 default toolchain; pin the
+        // unit-test JVM to the installed JDK 17 (tests execute there, compile stays).
+        unitTests.all {
+            it.javaLauncher.set(
+                project.extensions.getByType<JavaToolchainService>()
+                    .launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) },
+            )
+            // Robolectric sandbox reaches into JDK internals; required module flags
+            // for JDK 17+ (FileDescriptor/SharedSecrets access).
+            it.jvmArgs(
+                "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",
+                "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED",
+                "--add-opens=java.base/java.net=ALL-UNNAMED",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/sun.nio.fs=ALL-UNNAMED",
+            )
+        }
+    }
 }
 
 val bundledFirmwareAssetsDir = layout.buildDirectory.dir("generated/bundledFirmware/main/assets/firmware")
@@ -115,6 +139,9 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.koin.android)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.ui)
@@ -126,6 +153,8 @@ dependencies {
     implementation(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.navigation3.ui)
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.room.runtime)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.uiautomator)
