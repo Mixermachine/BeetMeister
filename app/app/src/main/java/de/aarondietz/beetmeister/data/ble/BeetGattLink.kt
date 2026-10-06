@@ -90,6 +90,19 @@ internal class BeetGattLink(
         return gatt.writeCharacteristic(controlPoint)
     }
 
+    fun requestHighConnectionPriority() {
+        @Suppress("MissingPermission")
+        val priorityRequested = host.session.currentGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) ?: false
+        BeetLog.d(TAG) { "startBackgroundEventSync: requested CONNECTION_PRIORITY_HIGH success=$priorityRequested" }
+    }
+
+    fun restoreBalancedConnectionPriority() {
+        /* Restore balanced connection priority when event sync finishes or is cancelled */
+        @Suppress("MissingPermission")
+        val priorityRestored = host.session.currentGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED) ?: false
+        BeetLog.d(TAG) { "startBackgroundEventSync: restored CONNECTION_PRIORITY_BALANCED success=$priorityRestored" }
+    }
+
     fun cancelConnectionTimeout() {
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = null
