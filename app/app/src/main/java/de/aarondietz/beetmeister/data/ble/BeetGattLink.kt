@@ -2,6 +2,7 @@ package de.aarondietz.beetmeister.data.ble
 
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import de.aarondietz.beetmeister.R
@@ -12,6 +13,7 @@ import de.aarondietz.beetmeister.model.stream.BeetEventSyncState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.nio.charset.StandardCharsets
 
 /**
  * Session-state hooks the GATT link needs from the coordinator during the
@@ -61,7 +63,7 @@ internal class BeetGattLink(
     private val host: BeetRepositoryCallbacks,
     private val delegate: BeetGattLinkDelegate,
     private val maintenanceUpdater: BeetMaintenanceUpdater,
-) {
+) : BeetGattWriter {
     private val strings get() = host.strings
     private var connectionTimeoutJob: Job? = null
     private var controllerInfoRetryJob: Job? = null
@@ -73,6 +75,20 @@ internal class BeetGattLink(
 
     /** Currently negotiated ATT MTU (drives maintenance payload budgets). */
     val mtu: Int get() = negotiatedMtu
+
+    override fun ensureWritable() {
+        host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
+        host.session.controlPointCharacteristic ?: error(strings.get(R.string.runtime_control_point_unavailable))
+    }
+
+    @Suppress("MissingPermission")
+    override fun writeCommand(payload: String): Boolean {
+        val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
+        val controlPoint = host.session.controlPointCharacteristic ?: error(strings.get(R.string.runtime_control_point_unavailable))
+        controlPoint.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+        controlPoint.value = payload.toByteArray(StandardCharsets.UTF_8)
+        return gatt.writeCharacteristic(controlPoint)
+    }
 
     fun cancelConnectionTimeout() {
         connectionTimeoutJob?.cancel()
