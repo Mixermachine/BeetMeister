@@ -64,22 +64,13 @@ internal class BeetGattSessionCoordinator(
     }
 
     private val strings get() = host.strings
-    private val commandMutex = Mutex()
     private val eventStore: BeetEventStore by lazy { BeetEventStores.get(host.appContext) }
     private val maintenanceUpdater = BeetMaintenanceUpdater(host, this)
     private val gattLink = BeetGattLink(host, this, maintenanceUpdater)
+    private val commandPump = BeetCommandPump(host, gattLink)
     private var eventSyncJob: Job? = null
-    @Volatile
-    private var syncPauseRequested = false
     private val runtimeCommands = BeetRuntimeCommands(host, this)
-    private val commandChunkAssembler = BeetCommandResultChunkAssembler()
     private val streamRouter = BeetResponseRouter()
-
-    /* Command name of the in-flight sendCommand; used to drop stale results
-       that arrive after a sendCommand timeout (they must not complete the
-       next command's deferred with the wrong ack). */
-    @Volatile
-    private var pendingCommandName: String? = null
     private val eventSyncEngine = BeetEventSyncEngine(link = this, router = streamRouter)
     private val burstWateringBuffer = ArrayList<BeetWateringEvent>()
     private val burstSystemBuffer = ArrayList<BeetSystemEvent>()
@@ -273,7 +264,7 @@ internal class BeetGattSessionCoordinator(
 
     override fun resetSyncState() {
         BeetLog.d(TAG, "resetSyncState()")
-        commandChunkAssembler.reset()
+        commandPump.resetChunkAssembler()
         gattLink.cancelControllerInfoRetry("reset sync state")
         host.resetSyncState()
     }
@@ -299,67 +290,18 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
-    override suspend fun <T> withSyncPausedForCommand(block: suspend () -> T): T {
-        syncPauseRequested = true
-        host.updateState { state ->
-            if (state.eventSync.active) {
-                state.copy(eventSync = state.eventSync.copy(phase = BeetEventSyncPhase.PausedForCommand))
-            } else {
-                state
-            }
-        }
-        return try {
-            block()
-        } finally {
-            syncPauseRequested = false
-        }
-    }
+    override suspend fun <T> withSyncPausedForCommand(block: suspend () -> T): T =
+        commandPump.withSyncPausedForCommand(block)
 
     private suspend fun awaitSyncResumeIfNeeded() {
-        while (syncPauseRequested && host.state.value.connection.phase == BeetConnectionPhase.Connected) {
-            delay(SYNC_PAUSE_POLL_MS)
-        }
+        commandPump.awaitSyncResumeIfNeeded()
     }
 
-    private suspend fun sendSyncCommand(payload: String): BeetCommandResult {
-        awaitSyncResumeIfNeeded()
-        return sendCommand(payload)
-    }
+    private suspend fun sendSyncCommand(payload: String): BeetCommandResult =
+        commandPump.sendSyncCommand(payload)
 
-    override suspend fun sendCommand(payload: String): BeetCommandResult {
-        return commandMutex.withLock {
-            val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
-            val controlPoint = host.session.controlPointCharacteristic ?: error(strings.get(R.string.runtime_control_point_unavailable))
-            val deferred = CompletableDeferred<BeetCommandResult>()
-            host.session.pendingCommand = deferred
-            pendingCommandName = BeetJsonCodec.commandName(payload)
-
-            BeetLog.d(TAG) { "sendCommand payload=$payload" }
-            controlPoint.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            controlPoint.value = payload.toByteArray(StandardCharsets.UTF_8)
-            @Suppress("MissingPermission")
-            val writeStarted = gatt.writeCharacteristic(controlPoint)
-            if (!writeStarted) {
-                host.session.pendingCommand = null
-                error(strings.get(R.string.runtime_ble_send_failed))
-            }
-
-            try {
-                withTimeout(COMMAND_TIMEOUT_MS) {
-                    val result = deferred.await()
-                    BeetLog.d(TAG) { "sendCommand result command=${result.command} status=${result.status} reason=${result.reason}" }
-                    result
-                }
-            } catch (timeout: TimeoutCancellationException) {
-                BeetLog.w(TAG) { "sendCommand timed out waiting for result payload=$payload" }
-                commandChunkAssembler.reset()
-                throw timeout
-            } finally {
-                host.session.pendingCommand = null
-                pendingCommandName = null
-            }
-        }
-    }
+    override suspend fun sendCommand(payload: String): BeetCommandResult =
+        commandPump.sendCommand(payload)
 
     private fun startBackgroundEventSync(force: Boolean = false, limit: Int = MAX_BACKGROUND_EVENT_DOWNLOAD) {
         if (maintenanceUpdater.isUploadActive) {
@@ -501,7 +443,7 @@ internal class BeetGattSessionCoordinator(
                     kind = kind,
                     fromSeq = cursor,
                     maxEvents = BURST_WINDOW_EVENTS,
-                    isCancelled = { syncPauseRequested || maintenanceUpdater.isUploadActive },
+                    isCancelled = { commandPump.syncPauseRequested || maintenanceUpdater.isUploadActive },
                     isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
                     onAck = { ack ->
                         if (kind == BeetStreamKind.WATERING) latestWatering = ack.latestSeq else latestSystem = ack.latestSeq
@@ -596,7 +538,7 @@ internal class BeetGattSessionCoordinator(
                 maxBatchSize = MAX_SYNC_BATCH_SIZE,
                 batchGrowthStep = SYNC_BATCH_GROWTH_STEP,
                 burstDelayMs = SYNC_BURST_DELAY_MS,
-                pausePollDelayMs = SYNC_PAUSE_POLL_MS,
+                pausePollDelayMs = BeetCommandPump.SYNC_PAUSE_POLL_MS,
                 congestionDelayMs = SYNC_CONGESTION_DELAY_MS,
                 transientFailurePerSequenceLimit = SYNC_TRANSIENT_FAILURE_LIMIT,
                 maxConsecutiveNotFoundLimit = SYNC_CONSECUTIVE_NOT_FOUND_LIMIT,
@@ -614,7 +556,7 @@ internal class BeetGattSessionCoordinator(
                 limit = limit,
             ),
             isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
-            isPauseRequested = { syncPauseRequested },
+            isPauseRequested = { commandPump.syncPauseRequested },
             onProgress = { progress ->
                 host.updateState {
                     it.copy(
@@ -935,42 +877,7 @@ internal class BeetGattSessionCoordinator(
     }
 
     override fun handleCommandPayload(payload: ByteArray) {
-        val payloadString = payload.toString(StandardCharsets.UTF_8)
-        val chunkFrame = try {
-            BeetJsonCodec.parseCommandChunk(payloadString)
-        } catch (error: Exception) {
-            BeetLog.e(TAG, "Command chunk parse failed payload=$payloadString", error)
-            commandChunkAssembler.reset()
-            return
-        }
-        val decodedPayload = if (chunkFrame != null) {
-            try {
-                BeetLog.d(TAG) { "Received command chunk id=${chunkFrame.id} index=${chunkFrame.index}/${chunkFrame.count}" }
-                commandChunkAssembler.consume(chunkFrame, System.currentTimeMillis())?.also {
-                    BeetLog.d(TAG) { "Completed chunk reassembly id=${chunkFrame.id} totalLen=${it.length}" }
-                }
-            } catch (error: Exception) {
-                BeetLog.e(
-                    TAG,
-                    "Command chunk reassembly failed id=${chunkFrame.id} index=${chunkFrame.index} count=${chunkFrame.count}",
-                    error,
-                )
-                commandChunkAssembler.reset()
-                return
-            } ?: return
-        } else {
-            if (commandChunkAssembler.hasActiveChunks) {
-                BeetLog.w(TAG, "Command chunk reassembly reset due to non-chunk payload while chunked response is active")
-                commandChunkAssembler.reset()
-            }
-            payloadString
-        }
-        val result = try {
-            BeetJsonCodec.parseCommandResult(decodedPayload)
-        } catch (error: Exception) {
-            BeetLog.e(TAG, "Command payload parse failed", error)
-            return
-        }
+        val result = commandPump.decodeCommandPayload(payload) ?: return
         result.calibration?.let { calibration ->
             host.updateState { state -> state.copy(calibrations = state.calibrations + (calibration.pairIndex to calibration)) }
         }
@@ -1020,12 +927,7 @@ internal class BeetGattSessionCoordinator(
             }.toMap()
             host.updateState { it.copy(pairNames = namesMap) }
         }
-        val expected = pendingCommandName
-        if (expected != null && result.command != null && result.command != expected) {
-            BeetLog.w(TAG) { "dropping stale result cmd=${result.command} while awaiting $expected" }
-            return
-        }
-        host.session.pendingCommand?.complete(result)
+        commandPump.completePendingResult(result)
     }
 
     override fun disconnectGatt(clearSelection: Boolean, reason: String) {
@@ -1073,7 +975,6 @@ internal class BeetGattSessionCoordinator(
 
     companion object {
         private const val TAG = "BeetGattSession"
-        private const val COMMAND_TIMEOUT_MS = 7_000L
         private const val MAX_BURST_ATTEMPTS_PER_KIND = 4
         private const val MAINTENANCE_PROGRESS_GAP_RESET_MS = 10_000L
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
@@ -1086,7 +987,6 @@ internal class BeetGattSessionCoordinator(
         private const val MAX_SYNC_BATCH_SIZE = 8
         private const val SYNC_BATCH_GROWTH_STEP = 1
         private const val SYNC_BURST_DELAY_MS = 0L
-        private const val SYNC_PAUSE_POLL_MS = 50L
         private const val SYNC_CONGESTION_DELAY_MS = 150L
         private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
         private const val SYNC_CONSECUTIVE_NOT_FOUND_LIMIT = 3
