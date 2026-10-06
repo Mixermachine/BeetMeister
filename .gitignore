@@ -39,3 +39,5 @@ app/.kotlin/
 # Pi agent scratch directories (not for commit)
 .pi/
 .pi-subagents/
+artifacts/*.png
+artifacts/serial_*

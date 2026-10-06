@@ -31,4 +31,5 @@ data class BeetCommandResult(
     val pairNames: BeetPairNames? = null,
     val pairCombined: BeetPairCombined? = null,
     val pairConfig: BeetPairConfig? = null,
+    val streamAck: BeetStreamAck? = null,
 )

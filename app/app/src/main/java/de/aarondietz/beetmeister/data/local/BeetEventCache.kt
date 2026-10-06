@@ -57,40 +57,81 @@ internal class BeetEventCache(
         loadKeys(systemIndexKey).forEach { key -> editor.remove(key) }
         editor.remove(wateringIndexKey)
         editor.remove(systemIndexKey)
+        editor.remove(syncWatermarkKey(deviceId, "watering"))
+        editor.remove(syncWatermarkKey(deviceId, "system"))
         editor.apply()
     }
 
     fun saveWateringEvent(deviceId: String, event: BeetWateringEvent) {
-        val cutoffUnixSeconds = retentionCutoffUnixSeconds()
-        if (!shouldRetainWateringEvent(event, cutoffUnixSeconds)) {
+        saveWateringEvents(deviceId, listOf(event))
+    }
+
+    /**
+     * Batched variant: one index rewrite and one prune pass per batch.
+     * The cache index is a single StringSet, so per-event saves rebuild the
+     * whole set and are quadratic over a backlog sync.
+     */
+    fun saveWateringEvents(deviceId: String, events: List<BeetWateringEvent>) {
+        if (events.isEmpty()) {
             return
         }
-        val key = wateringEventKey(deviceId, event.sequenceNumber)
+        val cutoffUnixSeconds = retentionCutoffUnixSeconds()
         val indexKey = wateringIndexKey(deviceId)
         val keys = loadKeys(indexKey).toMutableSet()
-        keys += key
-        prefs.edit()
-            .putString(key, BeetJsonCodec.wateringEventToJson(event))
-            .putStringSet(indexKey, keys)
-            .apply()
+        val editor = prefs.edit()
+        events.forEach { event ->
+            if (!shouldRetainWateringEvent(event, cutoffUnixSeconds)) {
+                return@forEach
+            }
+            val key = wateringEventKey(deviceId, event.sequenceNumber)
+            keys += key
+            editor.putString(key, BeetJsonCodec.wateringEventToJson(event))
+        }
+        editor.putStringSet(indexKey, keys)
+        editor.apply()
         pruneWateringOlderThan(deviceId, cutoffUnixSeconds)
     }
 
     fun saveSystemEvent(deviceId: String, event: BeetSystemEvent) {
-        val cutoffUnixSeconds = retentionCutoffUnixSeconds()
-        if (!shouldRetainSystemEvent(event, cutoffUnixSeconds)) {
+        saveSystemEvents(deviceId, listOf(event))
+    }
+
+    /** Batched variant; see saveWateringEvents for the rationale. */
+    fun saveSystemEvents(deviceId: String, events: List<BeetSystemEvent>) {
+        if (events.isEmpty()) {
             return
         }
-        val key = systemEventKey(deviceId, event.sequenceNumber)
+        val cutoffUnixSeconds = retentionCutoffUnixSeconds()
         val indexKey = systemIndexKey(deviceId)
         val keys = loadKeys(indexKey).toMutableSet()
-        keys += key
-        prefs.edit()
-            .putString(key, BeetJsonCodec.systemEventToJson(event))
-            .putStringSet(indexKey, keys)
-            .apply()
+        val editor = prefs.edit()
+        events.forEach { event ->
+            if (!shouldRetainSystemEvent(event, cutoffUnixSeconds)) {
+                return@forEach
+            }
+            val key = systemEventKey(deviceId, event.sequenceNumber)
+            keys += key
+            editor.putString(key, BeetJsonCodec.systemEventToJson(event))
+        }
+        editor.putStringSet(indexKey, keys)
+        editor.apply()
         pruneSystemOlderThan(deviceId, cutoffUnixSeconds)
     }
+
+    /**
+     * Highest event/system-event sequence number confirmed synced for
+     * [deviceId] and [kindKey] ("watering"/"system"). burst sync resumes
+     * here instead of re-streaming the whole controller ring each connect.
+     */
+    fun loadSyncWatermark(deviceId: String, kindKey: String): Long =
+        prefs.getLong(syncWatermarkKey(deviceId, kindKey), 0L)
+
+    fun saveSyncWatermark(deviceId: String, kindKey: String, seq: Long) {
+        prefs.edit().putLong(syncWatermarkKey(deviceId, kindKey), seq).apply()
+    }
+
+    private fun syncWatermarkKey(deviceId: String, kindKey: String): String =
+        "$deviceId:$kindKey:sync-watermark"
 
     private fun loadKeys(indexKey: String): Set<String> = prefs.getStringSet(indexKey, emptySet()).orEmpty()
 

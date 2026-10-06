@@ -270,6 +270,11 @@ static void beet_ble_emit_maintenance_event(
     uint16_t reason,
     uint32_t detail);
 static bool beet_ble_is_runtime_mutating_command(beet_iface_command_t command);
+static void beet_ble_stream_arm(beet_iface_command_response_t *response);
+static void beet_ble_stream_cancel_all(bool emit_end);
+static void beet_ble_streams_reset(void);
+static void beet_ble_streams_service(void);
+static void beet_ble_apply_result_stream_effects(beet_iface_command_response_t *response);
 static bool beet_ble_is_update_eligible(
     const beet_maintenance_begin_update_request_t *request,
     beet_maintenance_failure_reason_t *failure_reason);
@@ -1387,6 +1392,8 @@ static bool beet_ble_is_runtime_mutating_command(beet_iface_command_t command)
     case BEET_IFACE_COMMAND_GET_WATERING_INTERVAL:
     case BEET_IFACE_COMMAND_GET_PAIR_WIRING:
     case BEET_IFACE_COMMAND_GET_PAIR_NAMES:
+    case BEET_IFACE_COMMAND_STREAM_EVENTS:
+    case BEET_IFACE_COMMAND_STREAM_CANCEL:
         return false;
 
     default:
@@ -2501,6 +2508,7 @@ static const char *beet_ble_gap_event_name(uint8_t type)
     case BLE_GAP_EVENT_NOTIFY_TX:       return "NOTIFY_TX";
     case BLE_GAP_EVENT_SUBSCRIBE:       return "SUBSCRIBE";
     case BLE_GAP_EVENT_MTU:             return "MTU";
+    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE: return "PHY_UPDATE_COMPLETE";
     case BLE_GAP_EVENT_REPEAT_PAIRING:  return "REPEAT_PAIRING";
     case BLE_GAP_EVENT_PARING_COMPLETE:return "PARING_COMPLETE";
     default:                            return "?";
@@ -2574,6 +2582,9 @@ static void beet_ble_log_gap_event_verbose(const char *event_name, struct ble_ga
     case BLE_GAP_EVENT_MTU:
         conn_handle = event->mtu.conn_handle;
         break;
+    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+        conn_handle = event->phy_updated.conn_handle;
+        break;
     case BLE_GAP_EVENT_PARING_COMPLETE:
         conn_handle = event->pairing_complete.conn_handle;
         break;
@@ -2607,6 +2618,11 @@ static void beet_ble_log_gap_event_verbose(const char *event_name, struct ble_ga
         break;
     case BLE_GAP_EVENT_MTU:
         ESP_LOGI(TAG, "gap_event %s handle=%u mtu=%u", event_name, event->mtu.conn_handle, event->mtu.value);
+        break;
+    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+        ESP_LOGI(TAG, "gap_event %s handle=%u status=%d tx_phy=%u rx_phy=%u",
+            event_name, event->phy_updated.conn_handle, event->phy_updated.status,
+            (unsigned)event->phy_updated.tx_phy, (unsigned)event->phy_updated.rx_phy);
         break;
     case BLE_GAP_EVENT_PARING_COMPLETE:
         ESP_LOGI(TAG, "gap_event %s handle=%u status=%d bonded=%d",
@@ -2675,6 +2691,7 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
         s_ble.bonded = false;
         s_ble.conn_handle = BLE_HS_CONN_HANDLE_NONE;
         s_ble.state_stream_subscribed = false;
+        beet_ble_streams_reset();
         s_ble.command_result_subscribed = false;
         s_ble.maintenance_status_subscribed = false;
         beet_ble_clear_result_send_state();
@@ -2837,6 +2854,17 @@ static int beet_ble_gap_event(struct ble_gap_event *event, void *arg)
 #if BEET_BLE_DIAGNOSTIC_VERBOSE
         ESP_LOGI(TAG, "mtu negotiated handle=%u mtu=%u", event->mtu.conn_handle, event->mtu.value);
 #endif
+        /*
+         * After MTU exchange is complete, negotiate Link Layer Data Length Extension (DLE)
+         * to allow up to 251-byte packets on the physical radio layer without L2CAP fragmentation.
+         */
+        (void)ble_gap_set_data_len(event->mtu.conn_handle, 251, 2120);
+        return 0;
+
+    case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+        ESP_LOGI(TAG, "phy update complete handle=%u status=%d tx_phy=%u rx_phy=%u",
+            event->phy_updated.conn_handle, event->phy_updated.status,
+            (unsigned)event->phy_updated.tx_phy, (unsigned)event->phy_updated.rx_phy);
         return 0;
 
     case BLE_GAP_EVENT_PARING_COMPLETE:
@@ -2983,6 +3011,8 @@ static void beet_ble_drain_commands(void)
             response.status = BEET_IFACE_STATUS_REJECTED;
             response.reason = BEET_IFACE_REASON_UNSUPPORTED_COMMAND;
         }
+
+        beet_ble_apply_result_stream_effects(&response);
 
         s_ble.pending_result = response;
         s_ble.pending_result_valid = true;
@@ -3229,10 +3259,14 @@ esp_err_t beet_ble_init(const char *device_name)
     ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
 
     /*
-     * MTU is FROZEN at 247. DO NOT INCREASE.
-     * The device frame JSON fits within the 244-byte ATT payload budget
-     * only at this MTU. Larger MTU on new firmware breaks backward
-     * compatibility with older Android apps that request 247.
+     * Preferred MTU stays at 247. Rationale:
+     * 1. NimBLE on ESP32-S3 uses 255-byte ACL buffers (CONFIG_BT_NIMBLE_ACL_BUF_SIZE=255)
+     *    without reliable mbuf chaining. An ATT MTU above ~251 overflows the buffer pool
+     *    and silently stalls indications (verified: phone-side 517 negotiation caused
+     *    command result timeouts).
+     * 2. Even when a newer client requests MTU 517, the ATT exchange clamps to
+     *    min(client, server) = 247, so this value is a hard server-side guard.
+     * Link-layer speed comes from DLE (251-byte LL packets) and 2M PHY instead.
      */
     ble_att_set_preferred_mtu(247);
 
@@ -3378,6 +3412,243 @@ void beet_ble_publish_system_event(const beet_system_event_record_t *event, uint
     (void)beet_ble_send_notify_json(s_state_stream_handle, json);
 }
 
+/*
+ * Runtime event streaming (Tier 2, stream_events).
+ *
+ * One pump per event kind (watering, system). The controller task drives
+ * beet_ble_service(), so the pump is already on the controller yield point:
+ * it emits at most BEET_BLE_STREAM_BATCH_PER_TICK events per tick and checks
+ * session validity (connection, subscription, maintenance) before each emit.
+ * Notification failures (link buffers exhausted) retry the same sequence on
+ * the next tick, so delivery is resumable and order-preserving.
+ */
+#define BEET_BLE_STREAM_BATCH_PER_TICK 8U
+#define BEET_BLE_STREAM_GAP_ABORT 256U
+
+typedef struct {
+    bool active;
+    bool end_pending;
+    bool cancelled_end;
+    uint32_t id;
+    uint8_t kind;
+    uint64_t next_seq;
+    uint64_t end_seq;
+    /* Highest seq the pump touched (delivered or gap-skipped). stream_end
+       reports it so the app can resume at last_seq + 1 even when a window
+       delivered nothing because the ring slots were already overwritten. */
+    uint64_t last_seq;
+    uint32_t delivered;
+    uint32_t gaps;
+    uint32_t consec_miss;
+} beet_ble_stream_state_t;
+
+static beet_ble_stream_state_t s_streams[2];
+static uint32_t s_stream_next_id = 1U;
+
+static void beet_ble_stream_arm(beet_iface_command_response_t *response)
+{
+    beet_ble_stream_state_t *st;
+    uint8_t kind = response->stream_kind == 1U ? 1U : 0U;
+    uint64_t end_seq;
+
+    st = &s_streams[kind];
+    st->active = true;
+    st->end_pending = false;
+    st->cancelled_end = false;
+    st->id = s_stream_next_id++;
+    st->kind = kind;
+    st->next_seq = response->stream_from_seq;
+    end_seq = response->stream_from_seq + response->stream_total;
+    st->end_seq = end_seq > 0ULL ? end_seq - 1ULL : 0ULL;
+    if (response->stream_oldest_seq > st->next_seq) {
+        /* Requested range starts below the ring head: those records were
+           overwritten. Skip without probing — per-slot flash reads on the
+           host task would starve the BLE link. last_seq advances too, so the
+           app's resume cursor jumps straight to readable history. */
+        uint64_t skipped = response->stream_oldest_seq - st->next_seq;
+        st->gaps += (uint32_t)(skipped > 0xFFFFFFFFULL ? 0xFFFFFFFFULL : skipped);
+        st->next_seq = response->stream_oldest_seq;
+        st->last_seq = response->stream_oldest_seq - 1ULL;
+    }
+    if (response->stream_total == 0ULL) {
+        st->end_pending = true;
+    }
+    st->last_seq = response->stream_from_seq > 0ULL ? response->stream_from_seq - 1ULL : 0ULL;
+    st->delivered = 0U;
+    st->gaps = 0U;
+    st->consec_miss = 0U;
+    response->stream_id = st->id;
+
+    ESP_LOGI(
+        TAG,
+        "stream armed id=%lu kind=%s from=%llu end=%llu total=%lu",
+        (unsigned long)st->id,
+        kind == 1U ? "system" : "watering",
+        (unsigned long long)st->next_seq,
+        (unsigned long long)st->end_seq,
+        (unsigned long)response->stream_total);
+}
+
+static void beet_ble_stream_cancel_one(beet_ble_stream_state_t *st, bool emit_end)
+{
+    if (!st->active) {
+        return;
+    }
+    if (emit_end) {
+        st->end_pending = true;
+        st->cancelled_end = true;
+    } else {
+        st->active = false;
+    }
+}
+
+static void beet_ble_stream_cancel_all(bool emit_end)
+{
+    beet_ble_stream_cancel_one(&s_streams[0], emit_end);
+    beet_ble_stream_cancel_one(&s_streams[1], emit_end);
+}
+
+static void beet_ble_streams_reset(void)
+{
+    memset(&s_streams, 0, sizeof(s_streams));
+}
+
+static void beet_ble_apply_result_stream_effects(beet_iface_command_response_t *response)
+{
+    if (response->command == BEET_IFACE_COMMAND_STREAM_EVENTS &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_stream_ack) {
+        beet_ble_stream_arm(response);
+    } else if (response->command == BEET_IFACE_COMMAND_STREAM_CANCEL &&
+               response->status == BEET_IFACE_STATUS_ACCEPTED) {
+        beet_ble_stream_cancel_all(false);
+    } else if (response->command == BEET_IFACE_COMMAND_FACTORY_RESET &&
+               response->status == BEET_IFACE_STATUS_ACCEPTED) {
+        beet_ble_stream_cancel_all(true);
+    }
+}
+
+static bool beet_ble_stream_can_notify(void)
+{
+    if (!s_ble.enabled || !s_ble.connected || !s_ble.state_stream_subscribed) {
+        return false;
+    }
+#if !BEET_BLE_FORCE_ENABLE_DIAGNOSTICS
+    if (!s_ble.bonded) {
+        return false;
+    }
+#endif
+    return true;
+}
+
+static void beet_ble_streams_service(void)
+{
+    uint8_t i;
+
+    for (i = 0U; i < 2U; ++i) {
+        beet_ble_stream_state_t *st = &s_streams[i];
+        uint8_t budget;
+
+        if (!st->active) {
+            continue;
+        }
+        if (!beet_ble_stream_can_notify()) {
+            continue;
+        }
+        if (s_ble.pending_result_valid) {
+            /* A command result is waiting for the shared ATT queue: hold the
+               pump back so the indication is not starved behind a long run of
+               notifications (single tx queue on one L2CAP channel). */
+            break;
+        }
+        if (s_ble.maintenance_session.active) {
+            /* OTA takes the link; stop at this yield point, resumable by the app. */
+            st->end_pending = true;
+            st->cancelled_end = true;
+        }
+
+        if (st->end_pending) {
+            char json[BEET_BLE_JSON_MAX_LEN];
+            int written = beet_ble_format_stream_end_frame_json(
+                json,
+                sizeof(json),
+                st->id,
+                st->kind,
+                st->cancelled_end ? "cancelled" : "complete",
+                st->delivered,
+                st->last_seq,
+                st->gaps);
+            if (written < 0 || (size_t)written >= sizeof(json)) {
+                st->active = false;
+                continue;
+            }
+            if (beet_ble_send_notify_json(s_state_stream_handle, json) != ESP_OK) {
+                continue; /* retry on next tick */
+            }
+            st->active = false;
+            continue;
+        }
+
+        budget = BEET_BLE_STREAM_BATCH_PER_TICK;
+        while (budget-- > 0U && st->next_seq <= st->end_seq) {
+            char json[BEET_BLE_JSON_MAX_LEN];
+            size_t out_len = 0U;
+            esp_err_t err;
+
+            if (st->kind == 1U) {
+                err = beet_iface_format_system_event_frame_json(st->next_seq, json, sizeof(json), &out_len);
+            } else {
+                err = beet_iface_format_event_frame_json(st->next_seq, json, sizeof(json), &out_len);
+            }
+
+            if (err == ESP_ERR_NOT_FOUND) {
+                st->next_seq++;
+                st->last_seq = st->next_seq - 1ULL;
+                st->gaps++;
+                st->consec_miss++;
+                if (st->consec_miss >= BEET_BLE_STREAM_GAP_ABORT) {
+                    st->end_pending = true;
+                    break;
+                }
+                continue;
+            }
+            if (err != ESP_OK) {
+                st->end_pending = true;
+                break;
+            }
+            if (out_len > beet_ble_att_payload_budget()) {
+                /* Oversized frame would be rejected by the ATT layer: skip it
+                   as a gap instead of dead-locking the pump on retries. */
+                ESP_LOGW(
+                    TAG,
+                    "stream frame too long seq=%llu len=%u",
+                    (unsigned long long)st->next_seq,
+                    (unsigned)out_len);
+                st->next_seq++;
+                st->last_seq = st->next_seq - 1ULL;
+                st->gaps++;
+                st->consec_miss++;
+                if (st->consec_miss >= BEET_BLE_STREAM_GAP_ABORT) {
+                    st->end_pending = true;
+                    break;
+                }
+                continue;
+            }
+            if (beet_ble_send_notify_json(s_state_stream_handle, json) != ESP_OK) {
+                break; /* buffers full; resume at this seq next tick */
+            }
+            st->last_seq = st->next_seq;
+            st->next_seq++;
+            st->delivered++;
+            st->consec_miss = 0U;
+        }
+
+        if (st->next_seq > st->end_seq) {
+            st->end_pending = true;
+        }
+    }
+}
+
 void beet_ble_service(void)
 {
     int64_t now_us;
@@ -3388,6 +3659,7 @@ void beet_ble_service(void)
 
     beet_ble_service_pairing_display();
     beet_ble_drain_commands();
+    beet_ble_streams_service();
     if (s_ble.pending_result_valid &&
         s_ble.pending_result.status == BEET_IFACE_STATUS_ACCEPTED &&
         beet_ble_is_runtime_mutating_command(s_ble.pending_result.command)) {
@@ -3430,6 +3702,7 @@ void beet_ble_host_test_reset(void)
     }
 
     memset(&s_ble, 0, sizeof(s_ble));
+    beet_ble_streams_reset();
     s_ble.initialized = true;
     s_ble.enabled = true;
     s_ble.connected = true;
@@ -3472,6 +3745,7 @@ void beet_ble_host_test_set_pending_result(const beet_iface_command_response_t *
     }
 
     s_ble.pending_result = *response;
+    beet_ble_apply_result_stream_effects(&s_ble.pending_result);
     s_ble.pending_result_valid = true;
 }
 

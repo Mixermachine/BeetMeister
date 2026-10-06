@@ -6,12 +6,10 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothGattService
 import android.net.Uri
-import android.os.PowerManager
 import android.os.SystemClock
 import de.aarondietz.beetmeister.logging.BeetLog
 import de.aarondietz.beetmeister.BuildConfig
 import de.aarondietz.beetmeister.R
-import de.aarondietz.beetmeister.data.firmware.BeetFirmwareCatalog
 import de.aarondietz.beetmeister.data.firmware.BeetFirmwareImagePackage
 import de.aarondietz.beetmeister.data.local.BeetEventCache
 import de.aarondietz.beetmeister.data.local.mergeRetainedSystemEvents
@@ -57,9 +55,7 @@ import kotlin.math.max
 
 internal class BeetGattSessionCoordinator(
     private val host: BeetRepositoryCallbacks,
-) {
-    private class MaintenanceControlWriteException(message: String) : IllegalStateException(message)
-
+) : BeetMaintenanceLink, BeetRuntimeCommandLink {
     private enum class ExpectedControllerAction {
         None,
         Reboot,
@@ -68,40 +64,37 @@ internal class BeetGattSessionCoordinator(
 
     private val strings get() = host.strings
     private val commandMutex = Mutex()
-    private val maintenanceMutex = Mutex()
     private val eventCache = BeetEventCache(host.appContext.getSharedPreferences("beetmeister_event_cache", android.content.Context.MODE_PRIVATE))
+    private val maintenanceUpdater = BeetMaintenanceUpdater(host, this)
     private var connectionTimeoutJob: Job? = null
     private var controllerInfoRetryJob: Job? = null
     private var eventSyncJob: Job? = null
-    private var maintenanceReconnectJob: Job? = null
-    private var maintenanceUploadJob: Job? = null
     @Volatile
     private var syncPauseRequested = false
-    private val pendingMoistureTests = mutableMapOf<Int, Boolean>()
-    private val pendingPairWiringLoads = mutableSetOf<Int>()
+    private val runtimeCommands = BeetRuntimeCommands(host, this)
     private val commandChunkAssembler = BeetCommandResultChunkAssembler()
-    private var selectedMaintenancePackage: BeetFirmwareImagePackage? = null
-    private var pendingMaintenanceStatus: CompletableDeferred<BeetMaintenanceStatus>? = null
-    private var pendingCharacteristicWrite: CompletableDeferred<Unit>? = null
-    private var pendingMaintenanceInfoRead: CompletableDeferred<BeetMaintenanceInfo>? = null
-    private var initialMaintenanceStatusJob: Job? = null
-    private var maintenanceExpectedRebootDisconnect = false
-    private var maintenanceReconnectAttempts = 0
+    private val streamRouter = BeetResponseRouter()
+
+    /* Command name of the in-flight sendCommand; used to drop stale results
+       that arrive after a sendCommand timeout (they must not complete the
+       next command's deferred with the wrong ack). */
     @Volatile
-    private var maintenanceAbortRequested = false
-    private var maintenanceTransferStartedAtMs: Long? = null
-    private var maintenanceLastProgressAtMs: Long? = null
-    private var maintenanceLastProgressBytes: Int = 0
-    private var maintenanceSmoothedBytesPerSecond: Double? = null
+    private var pendingCommandName: String? = null
+    private val eventSyncEngine = BeetEventSyncEngine(link = this, router = streamRouter)
+    private val burstWateringBuffer = ArrayList<BeetWateringEvent>()
+    private val burstSystemBuffer = ArrayList<BeetSystemEvent>()
+    private val burstLock = Any()
+    /* Burst UI coalescing: state emissions are rate-limited during streams so
+       the Events screen does not recompose multi-thousand-item lists several
+       times per second (this recomposition storm fed a rare Compose SlotTable
+       dispose crash). Persistence keeps its own batch cadence; stream_end and
+       abort paths flush unconditionally, so no event can be stranded. */
+    private var lastBurstUiFlushElapsedMs = 0L
     private var negotiatedMtu = DEFAULT_MTU
     private var expectedControllerAction: ExpectedControllerAction = ExpectedControllerAction.None
     private var expectedControllerActionUntilMs: Long = 0L
     @Volatile
     private var lastGattResetAt: Long = 0L
-    private val maintenanceWakeLock: PowerManager.WakeLock by lazy {
-        val powerManager = host.appContext.getSystemService(PowerManager::class.java)
-        powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BeetMeister:MaintenanceUpdate")
-    }
 
     fun close() {
         BeetLog.d(TAG, "close()")
@@ -111,15 +104,35 @@ internal class BeetGattSessionCoordinator(
         eventSyncJob = null
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = null
-        maintenanceReconnectJob?.cancel()
-        maintenanceReconnectJob = null
-        maintenanceUploadJob?.cancel()
-        maintenanceUploadJob = null
-        releaseMaintenanceWakeLock()
+        maintenanceUpdater.shutdown()
     }
 
     fun clearCommandMessage() {
         host.clearCommandMessage()
+    }
+
+    // --- BeetMaintenanceLink (bridges the extracted maintenance engine back to this session) ---
+
+    override val mtu: Int get() = negotiatedMtu
+    override val gattResetAtMs: Long get() = lastGattResetAt
+
+    override fun cancelConnectionTimeout() {
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = null
+    }
+
+    override fun suspendRuntimeSync(reason: String) {
+        BeetLog.d(TAG) { "suspendRuntimeSync(reason=$reason)" }
+        eventSyncJob?.cancel()
+        eventSyncJob = null
+        host.updateState { state ->
+            state.copy(
+                eventsLoading = false,
+                eventSync = BeetEventSyncState(),
+                valveConfigRefreshing = false,
+                wateringIntervalRefreshing = false,
+            )
+        }
     }
 
     private fun setExpectedControllerAction(action: ExpectedControllerAction) {
@@ -150,102 +163,13 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
-    private fun resetMaintenanceProgressTracking() {
-        maintenanceTransferStartedAtMs = null
-        maintenanceLastProgressAtMs = null
-        maintenanceLastProgressBytes = 0
-        maintenanceSmoothedBytesPerSecond = null
+    fun sendRawCommand(payload: String): BeetCommandResult = runtimeCommands.sendRawCommand(payload)
+
+    fun refreshEvents() {
+        startBackgroundEventSync(limit = 10000)
     }
 
-    private fun ensureMaintenanceProgressTracking(initialBytes: Int) {
-        val now = SystemClock.elapsedRealtime()
-        if (maintenanceTransferStartedAtMs == null) {
-            maintenanceTransferStartedAtMs = now
-        }
-        if (maintenanceLastProgressAtMs == null) {
-            maintenanceLastProgressAtMs = now
-            maintenanceLastProgressBytes = initialBytes
-        }
-    }
-
-    private fun maintenanceElapsedSeconds(nowMs: Long = SystemClock.elapsedRealtime()): Int =
-        maintenanceTransferStartedAtMs?.let { ((nowMs - it).coerceAtLeast(0L) / 1000L).toInt() } ?: 0
-
-    private fun maintenanceEstimatedRemainingSeconds(
-        bytesTransferred: Int,
-        totalBytes: Int,
-    ): Int? {
-        val rate = maintenanceSmoothedBytesPerSecond ?: return null
-        if (rate <= 1.0) {
-            return null
-        }
-        val remainingBytes = (totalBytes - bytesTransferred).coerceAtLeast(0)
-        if (remainingBytes <= 0) {
-            return 0
-        }
-        return kotlin.math.ceil(remainingBytes / rate).toInt()
-    }
-
-    private fun noteMaintenanceProgress(bytesTransferred: Int, totalBytes: Int) {
-        val now = SystemClock.elapsedRealtime()
-        ensureMaintenanceProgressTracking(bytesTransferred)
-        val lastAt = maintenanceLastProgressAtMs ?: now
-        val lastBytes = maintenanceLastProgressBytes
-        val elapsedMs = now - lastAt
-        val deltaBytes = bytesTransferred - lastBytes
-        if (bytesTransferred < lastBytes) {
-            maintenanceLastProgressAtMs = now
-            maintenanceLastProgressBytes = bytesTransferred
-        } else if (elapsedMs >= 1000L && deltaBytes > 0) {
-            if (elapsedMs > MAINTENANCE_PROGRESS_GAP_RESET_MS) {
-                // Long gap (reconnect / BLE hiccup) — reset the baseline
-                // instead of computing a contaminated instantaneous rate.
-                maintenanceLastProgressAtMs = now
-                maintenanceLastProgressBytes = bytesTransferred
-            } else {
-                val instantaneousRate = deltaBytes.toDouble() / (elapsedMs.toDouble() / 1000.0)
-                maintenanceSmoothedBytesPerSecond = maintenanceSmoothedBytesPerSecond?.let { existing ->
-                    (existing * 0.7) + (instantaneousRate * 0.3)
-                } ?: instantaneousRate
-                maintenanceLastProgressAtMs = now
-                maintenanceLastProgressBytes = bytesTransferred
-            }
-        }
-        val elapsedSeconds = maintenanceElapsedSeconds(now)
-        val estimatedRemainingSeconds =
-            if (elapsedSeconds >= 3 && bytesTransferred >= MIN_MAINTENANCE_PAYLOAD_BYTES * 4) {
-                maintenanceEstimatedRemainingSeconds(bytesTransferred, totalBytes)
-            } else {
-                null
-            }
-        host.updateState { state ->
-            state.copy(
-                maintenanceUpdate = state.maintenanceUpdate.copy(
-                    elapsedSeconds = elapsedSeconds,
-                    estimatedRemainingSeconds = estimatedRemainingSeconds,
-                ),
-            )
-        }
-    }
-
-    fun refreshCalibrations() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            host.updateState { state -> state.copy(calibrationsRefreshing = true) }
-            try {
-                withSyncPausedForCommand {
-                    for (pairIndex in 1..8) {
-                        runCatching { sendCommand(BeetJsonCodec.getCalibration(pairIndex)) }
-                            .onFailure { host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex)) }
-                    }
-                }
-            } finally {
-                host.updateState { state -> state.copy(calibrationsRefreshing = false) }
-            }
-        }
-    }
+    fun refreshCalibrations() = runtimeCommands.refreshCalibrations()
 
     fun refreshHistorySummary() {
         startBackgroundEventSync(force = true)
@@ -255,658 +179,80 @@ internal class BeetGattSessionCoordinator(
         startBackgroundEventSync(force = true, limit = limit)
     }
 
-    fun manualStart(pairIndex: Int, durationSeconds: Int?) {
-        host.scope.launch {
-            if (durationSeconds != null && durationSeconds !in 1..MAX_MANUAL_DURATION_SECONDS) {
-                host.setCommandMessage(strings.get(R.string.runtime_manual_duration_invalid))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.manualStart(pairIndex, durationSeconds))
-        }
-    }
+    fun manualStart(pairIndex: Int, durationSeconds: Int?) = runtimeCommands.manualStart(pairIndex, durationSeconds)
 
-    fun manualStop(pairIndex: Int) {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.manualStop(pairIndex)) }
-    }
+    fun manualStop(pairIndex: Int) = runtimeCommands.manualStop(pairIndex)
 
-    fun moistureTestStart(pairIndex: Int) {
-        host.scope.launch {
-            pendingMoistureTests[pairIndex] = false
-            runCatching {
-                withSyncPausedForCommand { sendCommand(BeetJsonCodec.moistureTestStart(pairIndex)) }
-            }
-                .onSuccess { result ->
-                    if (result.status != "accepted") {
-                        pendingMoistureTests.remove(pairIndex)
-                    }
-                    host.setCommandMessage(messageForResult(result))
-                }
-                .onFailure { error ->
-                    pendingMoistureTests.remove(pairIndex)
-                    host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed))
-                }
-        }
-    }
+    fun moistureTestStart(pairIndex: Int) = runtimeCommands.moistureTestStart(pairIndex)
 
-    fun clearPairError(pairIndex: Int) {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.resetBlock(pairIndex)) }
-    }
+    fun clearPairError(pairIndex: Int) = runtimeCommands.clearPairError(pairIndex)
 
     fun resetBlock(pairIndex: Int) = clearPairError(pairIndex)
 
-    fun disablePair(pairIndex: Int) {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.disablePair(pairIndex)) }
-    }
+    fun disablePair(pairIndex: Int) = runtimeCommands.disablePair(pairIndex)
 
-    fun enablePair(pairIndex: Int) {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.enablePair(pairIndex)) }
-    }
+    fun enablePair(pairIndex: Int) = runtimeCommands.enablePair(pairIndex)
 
-    fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) {
-        host.scope.launch {
-            if (dryMillivolts <= wetMillivolts || dryMillivolts == 0 || wetMillivolts == 0) {
-                host.setCommandMessage(strings.get(R.string.runtime_calibration_invalid_order))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.storeCalibration(pairIndex, dryMillivolts, wetMillivolts))
-            refreshCalibrations()
-        }
-    }
+    fun saveCalibration(pairIndex: Int, dryMillivolts: Int, wetMillivolts: Int) =
+        runtimeCommands.saveCalibration(pairIndex, dryMillivolts, wetMillivolts)
 
-    fun loadPairWiring(pairIndex: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            val alreadyLoaded = host.state.value.pairWirings.containsKey(pairIndex)
-            val alreadyLoading = synchronized(pendingPairWiringLoads) { !pendingPairWiringLoads.add(pairIndex) }
-            if (alreadyLoaded || alreadyLoading) {
-                return@launch
-            }
-            host.updateState { state ->
-                state.copy(
-                    pairWiringLoading = state.pairWiringLoading + pairIndex,
-                    pairWiringErrors = state.pairWiringErrors - pairIndex,
-                )
-            }
-            try {
-                val result = withSyncPausedForCommand { sendCommand(BeetJsonCodec.getPairWiring(pairIndex)) }
-                if (result.status == "accepted" && result.pairWiring != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairWiringLoading = state.pairWiringLoading - pairIndex,
-                            pairWiringErrors = state.pairWiringErrors - pairIndex,
-                        )
-                    }
-                } else {
-                    host.updateState { state ->
-                        state.copy(
-                            pairWiringLoading = state.pairWiringLoading - pairIndex,
-                            pairWiringErrors = state.pairWiringErrors + (pairIndex to commandMessageForResult(result, strings)),
-                        )
-                    }
-                }
-            } catch (error: Exception) {
-                host.updateState { state ->
-                    state.copy(
-                        pairWiringLoading = state.pairWiringLoading - pairIndex,
-                        pairWiringErrors = state.pairWiringErrors + (pairIndex to (error.message ?: strings.get(R.string.runtime_command_failed))),
-                    )
-                }
-            } finally {
-                synchronized(pendingPairWiringLoads) {
-                    pendingPairWiringLoads.remove(pairIndex)
-                }
-            }
-        }
-    }
+    fun loadPairWiring(pairIndex: Int) = runtimeCommands.loadPairWiring(pairIndex)
 
-    suspend fun fetchPairNamesInternal() {
-        try {
-            val result = withSyncPausedForCommand { sendCommand(BeetJsonCodec.getPairNames()) }
-            result.pairNames?.let { names ->
-                val namesMap = names.names.mapIndexed { index, name ->
-                    (index + 1) to name
-                }.toMap()
-                host.updateState { it.copy(pairNames = namesMap) }
-            }
-        } catch (_: Exception) {
-            // names are optional — if the command fails (e.g. unsupported on old firmware),
-            // the UI falls back to "Pair N"
-        }
-    }
+    suspend fun fetchPairNamesInternal() = runtimeCommands.fetchPairNamesInternal()
 
-    fun loadPairNames() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            fetchPairNamesInternal()
-        }
-    }
+    fun loadPairNames() = runtimeCommands.loadPairNames()
 
-    fun storePairName(pairIndex: Int, name: String) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            if (name.length > BEET_PAIR_NAME_MAX_LEN) {
-                return@launch
-            }
-            // Optimistic update
-            host.updateState { it.copy(pairNames = it.pairNames + (pairIndex to name)) }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.storePairName(pairIndex, name))
-                }
-                if (result.status != "accepted") {
-                    // Re-fetch authoritative state
-                    loadPairNames()
-                }
-            } catch (_: Exception) {
-                loadPairNames()
-            }
-        }
-    }
+    fun storePairName(pairIndex: Int, name: String) = runtimeCommands.storePairName(pairIndex, name)
 
-    suspend fun fetchPairCombinedInternal() {
-        try {
-            withSyncPausedForCommand {
-                val pairCount = host.state.value.displayedPairCount
-                val combinedMap = mutableMapOf<Int, BeetPairCombined>()
-                for (pairIndex in 1..pairCount) {
-                    val result = runCatching {
-                        sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
-                    }.getOrNull()
-                    if (result?.status == "accepted" && result.pairCombined != null) {
-                        combinedMap[pairIndex] = result.pairCombined
-                    }
-                }
-                host.updateState { state ->
-                    state.copy(
-                        pairCombined = state.pairCombined + combinedMap,
-                        isPairCombinedLoaded = true,
-                    )
-                }
-            }
-        } catch (_: Exception) {
-            host.updateState { it.copy(isPairCombinedLoaded = true) }
-        }
-    }
+    suspend fun fetchPairCombinedInternal() = runtimeCommands.fetchPairCombinedInternal()
 
-    fun refreshPairCombined() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            fetchPairCombinedInternal()
-        }
-    }
+    fun refreshPairCombined() = runtimeCommands.refreshPairCombined()
 
-    fun setPairSensorSource(pairIndex: Int, leadPairIndex: Int?) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            if (!host.state.value.isPairCombinedLoaded) {
-                BeetLog.w(TAG, "Cannot set sensor source: pair combined configuration is not loaded yet")
-                return@launch
-            }
-            val currentState = host.state.value
-            val currentLead = currentState.leadFor(pairIndex)
-            if (currentLead == leadPairIndex) {
-                return@launch
-            }
+    fun setPairSensorSource(pairIndex: Int, leadPairIndex: Int?) = runtimeCommands.setPairSensorSource(pairIndex, leadPairIndex)
 
-            // Cannot set a sensor source if pairIndex is currently a lead for other pairs
-            if (leadPairIndex != null && currentState.isLead(pairIndex)) {
-                BeetLog.w(TAG, "Cannot set sensor source for lead pair $pairIndex without clearing followers first")
-                return@launch
-            }
+    fun loadPairCombined(pairIndex: Int) = runtimeCommands.loadPairCombined(pairIndex)
 
-            // Cannot choose a pair that is itself a follower
-            if (leadPairIndex != null && currentState.isFollower(leadPairIndex)) {
-                BeetLog.w(TAG, "Cannot set follower pair $leadPairIndex as lead for pair $pairIndex")
-                return@launch
-            }
+    fun storePairCombined(pairIndex: Int, followersMask: Int) = runtimeCommands.storePairCombined(pairIndex, followersMask)
 
-            // 1. If currently following an existing lead, remove from that lead's followers mask
-            if (currentLead != null) {
-                // Fetch fresh lead combined state from controller to prevent stale in-memory masks
-                val oldLeadFromController = runCatching {
-                    withSyncPausedForCommand {
-                        sendCommand(BeetJsonCodec.getPairCombined(currentLead))
-                    }
-                }.getOrNull()?.takeIf { it.status == "accepted" }?.pairCombined
+    fun loadPairConfig(pairIndex: Int) = runtimeCommands.loadPairConfig(pairIndex)
 
-                val currentOldMask = oldLeadFromController?.followersMask
-                    ?: currentState.pairCombined[currentLead]?.followersMask
-                    ?: 0
-                val updatedOldMask = currentOldMask and (1 shl (pairIndex - 1)).inv()
-                // Optimistic update
-                host.updateState { state ->
-                    state.copy(
-                        pairCombined = state.pairCombined + (currentLead to de.aarondietz.beetmeister.model.controller.BeetPairCombined(currentLead, updatedOldMask)),
-                    )
-                }
-                try {
-                    withSyncPausedForCommand {
-                        sendCommand(BeetJsonCodec.storePairCombined(currentLead, updatedOldMask))
-                    }
-                } catch (_: Exception) {
-                    loadPairCombined(currentLead)
-                }
-            }
+    fun storePairConfig(
+        pairIndex: Int,
+        targetLevel: de.aarondietz.beetmeister.model.controller.TargetMoistureLevel,
+        durationMultiplier: Int,
+    ) = runtimeCommands.storePairConfig(pairIndex, targetLevel, durationMultiplier)
 
-            // 2. If setting a new lead, add to that lead's followers mask
-            if (leadPairIndex != null && beetIsValidPairIndex(leadPairIndex) && leadPairIndex != pairIndex) {
-                // Fetch fresh lead combined state from controller to prevent stale in-memory masks
-                val leadFromController = runCatching {
-                    withSyncPausedForCommand {
-                        sendCommand(BeetJsonCodec.getPairCombined(leadPairIndex))
-                    }
-                }.getOrNull()?.takeIf { it.status == "accepted" }?.pairCombined
+    fun refreshValveConfig() = runtimeCommands.refreshValveConfig()
 
-                val currentNewMask = leadFromController?.followersMask
-                    ?: host.state.value.pairCombined[leadPairIndex]?.followersMask
-                    ?: 0
-                val updatedNewMask = currentNewMask or (1 shl (pairIndex - 1))
-                // Optimistic update
-                host.updateState { state ->
-                    val combinedObj = de.aarondietz.beetmeister.model.controller.BeetPairCombined(leadPairIndex, updatedNewMask)
-                    state.copy(
-                        pairCombined = state.pairCombined + (leadPairIndex to combinedObj),
-                    )
-                }
-                try {
-                    val result = withSyncPausedForCommand {
-                        sendCommand(BeetJsonCodec.storePairCombined(leadPairIndex, updatedNewMask))
-                    }
-                    if (result.status == "accepted" && result.pairCombined != null) {
-                        host.updateState { state ->
-                            state.copy(
-                                pairCombined = state.pairCombined + (leadPairIndex to result.pairCombined),
-                            )
-                        }
-                    } else {
-                        loadPairCombined(leadPairIndex)
-                    }
-                } catch (_: Exception) {
-                    loadPairCombined(leadPairIndex)
-                }
-            }
-        }
-    }
+    fun refreshWateringInterval() = runtimeCommands.refreshWateringInterval()
 
-    fun loadPairCombined(pairIndex: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
-                }
-                if (result.status == "accepted" && result.pairCombined != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // combined config is optional
-            }
-        }
-    }
+    fun saveValveConfig(config: BeetValveConfig) = runtimeCommands.saveValveConfig(config)
 
-    fun storePairCombined(pairIndex: Int, followersMask: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.storePairCombined(pairIndex, followersMask))
-                }
-                if (result.status == "accepted" && result.pairCombined != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // re-fetch on failure
-                loadPairCombined(pairIndex)
-            }
-        }
-    }
+    fun saveWateringInterval(seconds: Int) = runtimeCommands.saveWateringInterval(seconds)
 
-    fun loadPairConfig(pairIndex: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.getPairConfig(pairIndex))
-                }
-                if (result.status == "accepted" && result.pairConfig != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairConfigs = state.pairConfigs + (pairIndex to result.pairConfig),
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // pair config is optional
-            }
-        }
-    }
+    fun refreshMaxActivePumps() = runtimeCommands.refreshMaxActivePumps()
 
-    fun storePairConfig(pairIndex: Int, targetLevel: de.aarondietz.beetmeister.model.controller.TargetMoistureLevel, durationMultiplier: Int) {
-        host.scope.launch {
-            if (!beetIsValidPairIndex(pairIndex)) {
-                return@launch
-            }
-            try {
-                val result = withSyncPausedForCommand {
-                    sendCommand(BeetJsonCodec.storePairConfig(pairIndex, targetLevel, durationMultiplier))
-                }
-                if (result.status == "accepted" && result.pairConfig != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairConfigs = state.pairConfigs + (pairIndex to result.pairConfig),
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                loadPairConfig(pairIndex)
-            }
-        }
-    }
+    fun storeMaxActivePumps(max: Int) = runtimeCommands.storeMaxActivePumps(max)
 
-    fun refreshValveConfig() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            host.updateState { state -> state.copy(valveConfigRefreshing = true) }
-            try {
-                runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getValveConfig()) } }
-            } finally {
-                host.updateState { state -> state.copy(valveConfigRefreshing = false) }
-            }
-        }
-    }
+    fun previewValvePosition(pulseMicros: Int) = runtimeCommands.previewValvePosition(pulseMicros)
 
-    fun refreshWateringInterval() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            host.updateState { state -> state.copy(wateringIntervalRefreshing = true) }
-            try {
-                runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getWateringInterval()) } }
-            } finally {
-                host.updateState { state -> state.copy(wateringIntervalRefreshing = false) }
-            }
-        }
-    }
+    fun openValve() = runtimeCommands.openValve()
 
-    fun saveValveConfig(config: BeetValveConfig) {
-        host.scope.launch {
-            if (
-                config.servoMinPulseMicros !in 500..2500 ||
-                config.servoMaxPulseMicros !in 500..2500 ||
-                config.servoMinPulseMicros >= config.servoMaxPulseMicros ||
-                config.openPulseMicros !in config.servoMinPulseMicros..config.servoMaxPulseMicros ||
-                config.shutPulseMicros !in config.servoMinPulseMicros..config.servoMaxPulseMicros ||
-                config.moveDurationMillis !in 100..5000 ||
-                config.settleDelayMillis !in 0..5000 ||
-                config.openHoldMillis !in 0..10000
-            ) {
-                host.setCommandMessage(strings.get(R.string.runtime_valve_config_invalid))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.storeValveConfig(config))
-        }
-    }
+    fun closeValve() = runtimeCommands.closeValve()
 
-    fun saveWateringInterval(seconds: Int) {
-        host.scope.launch {
-            if (seconds !in 300..86400) {
-                host.setCommandMessage(strings.get(R.string.runtime_watering_interval_invalid))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.storeWateringInterval(seconds))
-        }
-    }
+    fun rebootController() = runtimeCommands.rebootController()
 
-    fun refreshMaxActivePumps() {
-        host.scope.launch {
-            if (host.state.value.connection.phase != BeetConnectionPhase.Connected) {
-                return@launch
-            }
-            runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.getMaxActivePumps()) } }
-        }
-    }
+    fun factoryResetController() = runtimeCommands.factoryResetController()
 
-    fun storeMaxActivePumps(max: Int) {
-        host.scope.launch {
-            if (max !in 1..8) {
-                host.setCommandMessage(strings.get(R.string.runtime_max_active_pumps_invalid))
-                return@launch
-            }
-            sendUserCommand(BeetJsonCodec.storeMaxActivePumps(max))
-        }
-    }
+    fun runScheduler() = runtimeCommands.runScheduler()
 
-    fun previewValvePosition(pulseMicros: Int) {
-        host.scope.launch {
-            runCatching { withSyncPausedForCommand { sendCommand(BeetJsonCodec.previewValvePosition(pulseMicros)) } }
-                .onFailure { error -> host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed)) }
-        }
-    }
+    fun prepareBundledFirmware() = maintenanceUpdater.prepareBundledFirmware()
 
-    fun openValve() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.openValve()) }
-    }
+    fun prepareCustomFirmware(uri: android.net.Uri) = maintenanceUpdater.prepareCustomFirmware(uri)
 
-    fun closeValve() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.closeValve()) }
-    }
+    fun startMaintenanceUpdate() = maintenanceUpdater.startMaintenanceUpdate()
 
-    fun rebootController() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.rebootController()) }
-    }
-
-    fun factoryResetController() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.factoryResetController()) }
-    }
-
-    fun runScheduler() {
-        host.scope.launch { sendUserCommand(BeetJsonCodec.runScheduler()) }
-    }
-
-    fun prepareBundledFirmware() {
-        host.scope.launch {
-            runCatching {
-                val (pkg, summary) = BeetFirmwareCatalog.loadBundledFirmware(
-                    context = host.appContext,
-                    maintenanceInfo = host.state.value.maintenanceInfo,
-                    supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
-                )
-                selectedMaintenancePackage = pkg
-                resetMaintenanceProgressTracking()
-                host.updateState { state ->
-                    state.copy(
-                        maintenanceUpdate = state.maintenanceUpdate.copy(
-                            bundledFirmware = summary,
-                            selectedFirmware = summary,
-                            phase = BeetMaintenanceUpdatePhase.Ready,
-                            bytesTransferred = 0,
-                            totalBytes = summary.imageSize,
-                            elapsedSeconds = 0,
-                            estimatedRemainingSeconds = null,
-                            retryCount = 0,
-                            statusDetail = strings.get(R.string.maintenance_ready_to_install, summary.metadata.buildLabel),
-                            errorDetail = null,
-                        ),
-                    )
-                }
-            }.onFailure { error ->
-                host.updateState { state ->
-                    state.copy(
-                        maintenanceUpdate = state.maintenanceUpdate.copy(
-                            phase = BeetMaintenanceUpdatePhase.Failed,
-                            statusDetail = null,
-                            errorDetail = error.message ?: strings.get(R.string.maintenance_failed_to_load_bundled),
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
-    fun prepareCustomFirmware(uri: Uri) {
-        host.scope.launch {
-            runCatching {
-                val (pkg, summary) = BeetFirmwareCatalog.loadCustomFirmware(
-                    contentResolver = host.appContext.contentResolver,
-                    uri = uri,
-                    maintenanceInfo = host.state.value.maintenanceInfo,
-                    supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
-                )
-                selectedMaintenancePackage = pkg
-                resetMaintenanceProgressTracking()
-                host.updateState { state ->
-                    state.copy(
-                        maintenanceUpdate = state.maintenanceUpdate.copy(
-                            selectedFirmware = summary,
-                            phase = BeetMaintenanceUpdatePhase.Ready,
-                            bytesTransferred = 0,
-                            totalBytes = summary.imageSize,
-                            elapsedSeconds = 0,
-                            estimatedRemainingSeconds = null,
-                            retryCount = 0,
-                            statusDetail = strings.get(R.string.maintenance_custom_selected, summary.sourceLabel),
-                            errorDetail = null,
-                        ),
-                    )
-                }
-            }.onFailure { error ->
-                host.updateState { state ->
-                    state.copy(
-                        maintenanceUpdate = state.maintenanceUpdate.copy(
-                            phase = BeetMaintenanceUpdatePhase.Failed,
-                            statusDetail = null,
-                            errorDetail = error.message ?: strings.get(R.string.maintenance_failed_to_load_custom),
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
-    fun startMaintenanceUpdate() {
-        val currentPhase = host.state.value.maintenanceUpdate.phase
-        if (maintenanceUploadJob?.isActive == true || currentPhase.isActiveMaintenancePhase()) {
-            BeetLog.i(TAG) {
-                "startMaintenanceUpdate ignored because maintenance update is already active " +
-                    "phase=$currentPhase jobActive=${maintenanceUploadJob?.isActive == true}"
-            }
-            return
-        }
-        val selectedPackage = selectedMaintenancePackage
-        if (selectedPackage == null) {
-            BeetLog.w(TAG) {
-                "startMaintenanceUpdate ignored because selectedMaintenancePackage is null " +
-                    "phase=${host.state.value.maintenanceUpdate.phase} " +
-                    "selectedSummary=${host.state.value.maintenanceUpdate.selectedFirmware?.sourceLabel}"
-            }
-            return
-        }
-        val selectedSummary = host.state.value.maintenanceUpdate.selectedFirmware
-        if (selectedSummary == null) {
-            BeetLog.w(TAG) {
-                "startMaintenanceUpdate ignored because selectedFirmware summary is null " +
-                    "phase=${host.state.value.maintenanceUpdate.phase}"
-            }
-            return
-        }
-        if (isSelectedFirmwareInstalled(selectedSummary)) {
-            BeetLog.i(TAG) {
-                "startMaintenanceUpdate ignored because selected firmware is already installed " +
-                    "firmware=${selectedSummary.metadata.firmwareVersion} " +
-                    "build=${selectedSummary.metadata.buildLabel} kind=${selectedSummary.metadata.imageKind}"
-            }
-            selectedMaintenancePackage = null
-            host.updateState { state ->
-                state.copy(
-                    maintenanceUpdate = state.maintenanceUpdate.copy(
-                        phase = BeetMaintenanceUpdatePhase.Completed,
-                        bytesTransferred = selectedSummary.imageSize,
-                        totalBytes = selectedSummary.imageSize,
-                        elapsedSeconds = 0,
-                        estimatedRemainingSeconds = null,
-                        retryCount = 0,
-                        statusDetail = strings.get(R.string.maintenance_selected_already_installed),
-                        errorDetail = null,
-                        selectedFirmware = null,
-                    ),
-                )
-            }
-            return
-        }
-        BeetLog.d(TAG) {
-            "startMaintenanceUpdate package=${selectedSummary.sourceLabel} " +
-                "firmware=${selectedSummary.metadata.firmwareVersion} " +
-                "imageKind=${selectedSummary.metadata.imageKind} size=${selectedSummary.imageSize}"
-        }
-        resetMaintenanceProgressTracking()
-        suspendRuntimeSyncForMaintenance("start maintenance update")
-        host.updateState { state ->
-            state.copy(
-                maintenanceUpdate = state.maintenanceUpdate.copy(
-                    phase = BeetMaintenanceUpdatePhase.Starting,
-                    bytesTransferred = 0,
-                    totalBytes = selectedSummary.imageSize,
-                    elapsedSeconds = 0,
-                    estimatedRemainingSeconds = null,
-                    retryCount = 0,
-                    statusDetail = strings.get(R.string.maintenance_starting_update),
-                    errorDetail = null,
-                ),
-            )
-        }
-        val scopeJob = host.scope.coroutineContext.job
-        BeetLog.d(TAG, "startMaintenanceUpdate scopeActive=${scopeJob.isActive} scopeCancelled=${scopeJob.isCancelled}")
-        val launchedJob = host.scope.launch {
-            runMaintenanceUpdate(selectedPackage, selectedSummary)
-        }
-        maintenanceUploadJob = launchedJob
-        BeetLog.d(TAG) {
-            "startMaintenanceUpdate launched jobActive=${maintenanceUploadJob?.isActive} " +
-                "jobCancelled=${maintenanceUploadJob?.isCancelled}"
-        }
-        launchedJob.invokeOnCompletion { error ->
-            if (maintenanceUploadJob === launchedJob) {
-                maintenanceUploadJob = null
-            }
-            BeetLog.d(TAG) { "maintenanceUploadJob completed cancelled=${launchedJob.isCancelled} error=$error" }
-        }
-    }
-
-    fun abortMaintenanceUpdate() {
-        if (maintenanceUploadJob?.isActive == true) {
-            BeetLog.d(TAG, "abortMaintenanceUpdate requested while upload job is active")
-            maintenanceAbortRequested = true
-            return
-        }
-        resetMaintenanceUpdateAfterAbort()
-    }
+    fun abortMaintenanceUpdate() = maintenanceUpdater.abortMaintenanceUpdate()
 
     fun openGatt(device: BluetoothDevice) {
         BeetLog.d(TAG) { "openGatt(address=${device.address}, bondState=${device.bondState})" }
@@ -928,7 +274,7 @@ internal class BeetGattSessionCoordinator(
             if (phase == BeetConnectionPhase.Connected) {
                 return@launch
             }
-            if (maintenanceUploadJob?.isActive == true && isMaintenanceConnectionHealthy()) {
+            if (maintenanceUpdater.isUploadActive && maintenanceUpdater.isConnectionHealthy()) {
                 BeetLog.d(TAG) { "Connection timeout ignored because maintenance resume is healthy phase=$phase" }
                 return@launch
             }
@@ -953,24 +299,19 @@ internal class BeetGattSessionCoordinator(
         disconnectGatt(clearSelection, reason)
     }
 
-    private suspend fun sendUserCommand(payload: String) {
-        runCatching { withSyncPausedForCommand { sendCommand(payload) } }
-            .onSuccess { result ->
-                when {
-                    result.command == "reboot_controller" && result.status == "accepted" ->
-                        setExpectedControllerAction(ExpectedControllerAction.Reboot)
-                    result.command == "factory_reset" && result.status == "accepted" -> {
-                        host.removeLastAddress()
-                        clearCachedControllerHistory()
-                        setExpectedControllerAction(ExpectedControllerAction.FactoryReset)
-                    }
-                }
-                host.setCommandMessage(messageForResult(result))
+    override fun applyUserCommandSideEffects(result: BeetCommandResult) {
+        when {
+            result.command == "reboot_controller" && result.status == "accepted" ->
+                setExpectedControllerAction(ExpectedControllerAction.Reboot)
+            result.command == "factory_reset" && result.status == "accepted" -> {
+                host.removeLastAddress()
+                clearCachedControllerHistory()
+                setExpectedControllerAction(ExpectedControllerAction.FactoryReset)
             }
-            .onFailure { error -> host.setCommandMessage(error.message ?: strings.get(R.string.runtime_command_failed)) }
+        }
     }
 
-    private suspend fun <T> withSyncPausedForCommand(block: suspend () -> T): T {
+    override suspend fun <T> withSyncPausedForCommand(block: suspend () -> T): T {
         syncPauseRequested = true
         host.updateState { state ->
             if (state.eventSync.active) {
@@ -997,12 +338,13 @@ internal class BeetGattSessionCoordinator(
         return sendCommand(payload)
     }
 
-    private suspend fun sendCommand(payload: String): BeetCommandResult {
+    override suspend fun sendCommand(payload: String): BeetCommandResult {
         return commandMutex.withLock {
             val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
             val controlPoint = host.session.controlPointCharacteristic ?: error(strings.get(R.string.runtime_control_point_unavailable))
             val deferred = CompletableDeferred<BeetCommandResult>()
             host.session.pendingCommand = deferred
+            pendingCommandName = BeetJsonCodec.commandName(payload)
 
             BeetLog.d(TAG) { "sendCommand payload=$payload" }
             controlPoint.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
@@ -1026,12 +368,13 @@ internal class BeetGattSessionCoordinator(
                 throw timeout
             } finally {
                 host.session.pendingCommand = null
+                pendingCommandName = null
             }
         }
     }
 
     private fun startBackgroundEventSync(force: Boolean = false, limit: Int = MAX_BACKGROUND_EVENT_DOWNLOAD) {
-        if (maintenanceUploadJob?.isActive == true) {
+        if (maintenanceUpdater.isUploadActive) {
             BeetLog.d(TAG, "Skipping background event sync because maintenance update is active")
             return
         }
@@ -1086,50 +429,29 @@ internal class BeetGattSessionCoordinator(
                 )
             }
 
-            val runner = BeetBacklogSyncRunner(
-                config = BeetBacklogSyncConfig(
-                    retentionSeconds = EVENT_RETENTION_SECONDS,
-                    initialBatchSize = INITIAL_SYNC_BATCH_SIZE,
-                    maxBatchSize = MAX_SYNC_BATCH_SIZE,
-                    batchGrowthStep = SYNC_BATCH_GROWTH_STEP,
-                    burstDelayMs = SYNC_BURST_DELAY_MS,
-                    pausePollDelayMs = SYNC_PAUSE_POLL_MS,
-                    congestionDelayMs = SYNC_CONGESTION_DELAY_MS,
-                    transientFailurePerSequenceLimit = SYNC_TRANSIENT_FAILURE_LIMIT,
-                    maxConsecutiveNotFoundLimit = SYNC_CONSECUTIVE_NOT_FOUND_LIMIT,
-                ),
-                nowUnixSeconds = { System.currentTimeMillis() / 1000L },
-                sleep = { delay(it) },
-            )
+            /* Request high connection priority to reduce connection interval during bulk event sync */
+            @Suppress("MissingPermission")
+            val priorityRequested = host.session.currentGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) ?: false
+            BeetLog.d(TAG) { "startBackgroundEventSync: requested CONNECTION_PRIORITY_HIGH success=$priorityRequested" }
 
-            runner.run(
-                input = BeetBacklogSyncInput(
-                    wateringSummary = wateringSummary,
-                    systemSummary = systemSummary,
-                    existingWateringSequences = host.state.value.recentEvents.map { event -> event.sequenceNumber }.toSet(),
-                    existingSystemSequences = host.state.value.systemEvents.map { event -> event.sequenceNumber }.toSet(),
-                    limit = limit,
-                ),
-                isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
-                isPauseRequested = { syncPauseRequested },
-                onProgress = { progress ->
-                    host.updateState {
-                        it.copy(
-                            eventSync = it.eventSync.copy(
-                                active = progress.active,
-                                transferred = progress.transferred,
-                                total = progress.total,
-                                phase = progress.phase,
-                            ),
-                        )
-                    }
-                },
-                onWateringEvent = { event -> ingestWateringEvent(deviceId, event) },
-                onSystemEvent = { event -> ingestSystemEvent(deviceId, event) },
-                fetchWateringEvent = { sequence -> fetchWateringEventForSync(sequence) },
-                fetchSystemEvent = { sequence -> fetchSystemEventForSync(sequence) },
-            )
-
+            try {
+                /*
+                 * Coalesce event ingestion into the repository state in batches.
+                 * Per-event state updates during a bulk backlog sync (thousands of events)
+                 * cause a recomposition storm on the UI thread which can race with
+                 * AndroidComposeView.draw (performMeasureAndLayout crash). SQLite caching
+                 * stays per-event; only the state emission is batched.
+                 */
+                when (runBurstEventSync(wateringSummary, systemSummary)) {
+                    BurstSyncOutcome.Completed, BurstSyncOutcome.Aborted -> Unit
+                    BurstSyncOutcome.Legacy -> runLegacyBacklogSync(deviceId, wateringSummary, systemSummary, limit)
+                }
+            } finally {
+                /* Restore balanced connection priority when event sync finishes or is cancelled */
+                @Suppress("MissingPermission")
+                host.session.currentGatt?.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_BALANCED)
+                BeetLog.d(TAG) { "startBackgroundEventSync: restored CONNECTION_PRIORITY_BALANCED" }
+            }
             host.updateState { state ->
                 state.copy(
                     calibrationsRefreshing = false,
@@ -1140,6 +462,197 @@ internal class BeetGattSessionCoordinator(
                 )
             }
         }
+    }
+
+
+    private enum class BurstSyncOutcome { Completed, Legacy, Aborted }
+
+    /**
+     * Tier 2 burst path: one stream_events command per kind; records arrive as
+     * state-stream notifications consumed by handleStatePayload into the burst
+     * buffers. Returns Legacy when the controller does not understand the
+     * command (pre-v19 firmware), Aborted when cancelled mid-stream (partial
+     * progress stays cached; the next sync trigger resumes), otherwise Completed.
+     */
+    private suspend fun runBurstEventSync(
+        wateringSummary: de.aarondietz.beetmeister.model.event.BeetHistorySummary?,
+        systemSummary: de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary?,
+    ): BurstSyncOutcome {
+        resetBurstState()
+        val deviceId = host.state.value.controllerInfo?.deviceId ?: return BurstSyncOutcome.Legacy
+
+        /* Resume each kind at its persisted watermark: every synced event is
+           already cached on the phone, so re-streaming the controller ring
+           from sequence 1 is pure waste. A watermark ahead of the controller
+           means the sequence numbers regressed (factory reset / reflash), in
+           which case we fall back to one full resync. */
+        /* Ring head per kind: old records are overwritten, so streaming below
+           the oldest readable sequence only burns gap-skip round trips. */
+        fun ringOldest(latest: Long, count: Int): Long =
+            if (latest <= 0L || count <= 0) 1L else maxOf(1L, latest - count.toLong() + 1L)
+        val oldestWatering = wateringSummary?.let { ringOldest(it.latestSequenceNumber, it.eventCount) } ?: 1L
+        val oldestSystem = systemSummary?.let { ringOldest(it.latestSequenceNumber, it.eventCount) } ?: 1L
+        var startWatering = maxOf(1L, eventCache.loadSyncWatermark(deviceId, BeetStreamKind.WATERING.wireName), oldestWatering)
+        var startSystem = maxOf(1L, eventCache.loadSyncWatermark(deviceId, BeetStreamKind.SYSTEM.wireName), oldestSystem)
+        var latestWatering = 0L
+        var latestSystem = 0L
+        fun pendingSince(start: Long, latest: Long): Long =
+            if (latest == 0L) 0L else maxOf(0L, latest - start + 1L)
+        fun publishTotal() {
+            val pending = pendingSince(startWatering, latestWatering) + pendingSince(startSystem, latestSystem)
+            host.updateState { it.copy(eventSync = it.eventSync.copy(total = pending.toInt())) }
+        }
+
+        for (kind in arrayOf(BeetStreamKind.WATERING, BeetStreamKind.SYSTEM)) {
+            var cursor = if (kind == BeetStreamKind.WATERING) startWatering else startSystem
+            var attempts = 0
+            var needsFullResync = false
+            while (true) {
+                attempts += 1
+                val run = eventSyncEngine.streamEvents(
+                    kind = kind,
+                    fromSeq = cursor,
+                    maxEvents = BURST_WINDOW_EVENTS,
+                    isCancelled = { syncPauseRequested || maintenanceUpdater.isUploadActive },
+                    isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
+                    onAck = { ack ->
+                        if (kind == BeetStreamKind.WATERING) latestWatering = ack.latestSeq else latestSystem = ack.latestSeq
+                        if (!needsFullResync && cursor > ack.latestSeq + 1L) {
+                            needsFullResync = true
+                        }
+                        publishTotal()
+                    },
+                )
+                when (run) {
+                    BeetStreamRun.Unsupported -> {
+                        synchronized(burstLock) { flushBurstBuffersLocked() }
+                        resetBurstState()
+                        return BurstSyncOutcome.Legacy
+                    }
+                    is BeetStreamRun.Completed -> {
+                        if (needsFullResync) {
+                            needsFullResync = false
+                            cursor = 1L
+                            if (kind == BeetStreamKind.WATERING) startWatering = 1L else startSystem = 1L
+                            publishTotal()
+                            continue
+                        }
+                        cursor = run.nextCursor
+                        if (cursor > 1L) {
+                            eventCache.saveSyncWatermark(deviceId, kind.wireName, cursor - 1L)
+                        }
+                        val latest = if (kind == BeetStreamKind.WATERING) latestWatering else latestSystem
+                        if (cursor > latest || attempts >= MAX_BURST_WINDOWS_PER_KIND) {
+                            break
+                        }
+                        /* The controller pump ended this window with stream_end
+                           complete; arm the next window to continue the backlog. */
+                    }
+                    is BeetStreamRun.Cancelled -> {
+                        synchronized(burstLock) { flushBurstBuffersLocked() }
+                        if (attempts >= MAX_BURST_ATTEMPTS_PER_KIND ||
+                            host.state.value.connection.phase != BeetConnectionPhase.Connected ||
+                            maintenanceUpdater.isUploadActive
+                        ) {
+                            resetBurstState()
+                            return BurstSyncOutcome.Aborted
+                        }
+                        awaitSyncResumeIfNeeded()
+                        cursor = run.nextCursor
+                    }
+                    is BeetStreamRun.Disconnected -> {
+                        synchronized(burstLock) { flushBurstBuffersLocked() }
+                        resetBurstState()
+                        return BurstSyncOutcome.Aborted
+                    }
+                }
+            }
+            synchronized(burstLock) { flushBurstBuffersLocked() }
+        }
+        return BurstSyncOutcome.Completed
+    }
+
+    private suspend fun runLegacyBacklogSync(
+        deviceId: String,
+        wateringSummary: de.aarondietz.beetmeister.model.event.BeetHistorySummary?,
+        systemSummary: de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary?,
+        limit: Int,
+    ) {
+        /*
+         * Pre-v19 fallback path: adaptive per-sequence stop-and-wait fetching.
+         * Coalesce event ingestion into the repository state in batches (see the
+         * performMeasureAndLayout crash note on the original extraction).
+         */
+            val wateringBuffer = ArrayList<BeetWateringEvent>(EVENT_UI_BATCH_SIZE)
+            val systemBuffer = ArrayList<BeetSystemEvent>(EVENT_UI_BATCH_SIZE)
+            fun flushIngestedEvents() {
+                if (wateringBuffer.isEmpty() && systemBuffer.isEmpty()) return
+                val watering = wateringBuffer.toList()
+                val system = systemBuffer.toList()
+                wateringBuffer.clear()
+                systemBuffer.clear()
+                runCatching { eventCache.saveWateringEvents(deviceId, watering) }
+                runCatching { eventCache.saveSystemEvents(deviceId, system) }
+                host.updateState { state ->
+                    state.copy(
+                        recentEvents = if (watering.isEmpty()) state.recentEvents else mergeWateringEvents(state.recentEvents, watering),
+                        systemEvents = if (system.isEmpty()) state.systemEvents else mergeSystemEvents(state.systemEvents, system),
+                    )
+                }
+            }
+
+            val runner = BeetBacklogSyncRunner(
+            config = BeetBacklogSyncConfig(
+                retentionSeconds = EVENT_RETENTION_SECONDS,
+                initialBatchSize = INITIAL_SYNC_BATCH_SIZE,
+                maxBatchSize = MAX_SYNC_BATCH_SIZE,
+                batchGrowthStep = SYNC_BATCH_GROWTH_STEP,
+                burstDelayMs = SYNC_BURST_DELAY_MS,
+                pausePollDelayMs = SYNC_PAUSE_POLL_MS,
+                congestionDelayMs = SYNC_CONGESTION_DELAY_MS,
+                transientFailurePerSequenceLimit = SYNC_TRANSIENT_FAILURE_LIMIT,
+                maxConsecutiveNotFoundLimit = SYNC_CONSECUTIVE_NOT_FOUND_LIMIT,
+            ),
+            nowUnixSeconds = { System.currentTimeMillis() / 1000L },
+            sleep = { delay(it) },
+        )
+
+        runner.run(
+            input = BeetBacklogSyncInput(
+                wateringSummary = wateringSummary,
+                systemSummary = systemSummary,
+                existingWateringSequences = host.state.value.recentEvents.map { event -> event.sequenceNumber }.toSet(),
+                existingSystemSequences = host.state.value.systemEvents.map { event -> event.sequenceNumber }.toSet(),
+                limit = limit,
+            ),
+            isConnected = { host.state.value.connection.phase == BeetConnectionPhase.Connected },
+            isPauseRequested = { syncPauseRequested },
+            onProgress = { progress ->
+                host.updateState {
+                    it.copy(
+                        eventSync = it.eventSync.copy(
+                            active = progress.active,
+                            transferred = progress.transferred,
+                            total = progress.total,
+                            phase = progress.phase,
+                        ),
+                    )
+                }
+            },
+            onWateringEvent = { event ->
+                wateringBuffer += event
+                if (wateringBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
+            },
+            onSystemEvent = { event ->
+                systemBuffer += event
+                if (systemBuffer.size >= EVENT_UI_BATCH_SIZE) flushIngestedEvents()
+            },
+            fetchWateringEvent = { sequence -> fetchWateringEventForSync(sequence) },
+            fetchSystemEvent = { sequence -> fetchSystemEventForSync(sequence) },
+        )
+
+        /* Publish any events still buffered when the sync loop finishes */
+        flushIngestedEvents()
     }
 
     private suspend fun fetchWateringEventForSync(sequence: Long): BeetBacklogFetchResult<BeetWateringEvent> {
@@ -1197,13 +710,14 @@ internal class BeetGattSessionCoordinator(
             .associateBy { it.sequenceNumber }
             .values
             .sortedByDescending { it.sequenceNumber }
+            .let { if (it.size > EVENT_UI_MEMORY_CAP) it.take(EVENT_UI_MEMORY_CAP) else it }
 
     private fun mergeSystemEvents(current: List<BeetSystemEvent>, incoming: List<BeetSystemEvent>): List<BeetSystemEvent> =
         mergeRetainedSystemEvents(
             current = current,
             incoming = incoming,
             cutoffUnixSeconds = (System.currentTimeMillis() / 1000L) - EVENT_RETENTION_SECONDS,
-        )
+        ).let { if (it.size > EVENT_UI_MEMORY_CAP) it.take(EVENT_UI_MEMORY_CAP) else it }
 
     private fun ingestWateringEvent(deviceId: String, event: BeetWateringEvent) {
         eventCache.saveWateringEvent(deviceId, event)
@@ -1300,7 +814,7 @@ internal class BeetGattSessionCoordinator(
         return gatt.writeDescriptor(descriptor)
     }
 
-    private fun readControllerInfo(gatt: BluetoothGatt): Boolean {
+    override fun readControllerInfo(gatt: BluetoothGatt): Boolean {
         val characteristic = host.session.controllerInfoCharacteristic ?: return false
         if (host.state.value.controllerInfo != null) {
             cancelControllerInfoRetry("controller info already loaded")
@@ -1379,7 +893,7 @@ internal class BeetGattSessionCoordinator(
         BeetLog.d(TAG, "Initial sync started for session address=${host.currentAddress}")
 
         host.scope.launch {
-            if (maintenanceUploadJob?.isActive == true) {
+            if (maintenanceUpdater.isUploadActive) {
                 BeetLog.d(TAG, "Skipping post-sync refreshes because maintenance update is active")
                 host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
                 return@launch
@@ -1395,6 +909,39 @@ internal class BeetGattSessionCoordinator(
 
             BeetLog.d(TAG, "Initial sync completed for session address=${host.currentAddress}")
             host.updateConnection(BeetConnectionPhase.Connected, strings.get(R.string.runtime_connected_to_controller))
+
+            /*
+             * Safely optimize link layer parameters now that connection, discovery, and initial sync are complete:
+             * 1. Request 2M PHY if supported by client hardware.
+             * 2. Request MTU up to 517 (NimBLE and Android clamp to negotiated max, safe fallback).
+             * Never do this during maintenance or initial handshake.
+             */
+            val currentGatt = host.session.currentGatt
+            if (currentGatt != null && !maintenanceUpdater.isUploadActive) {
+                @Suppress("MissingPermission")
+                try {
+                    val phyRequested = currentGatt.setPreferredPhy(
+                        BluetoothDevice.PHY_LE_2M_MASK,
+                        BluetoothDevice.PHY_LE_2M_MASK,
+                        BluetoothDevice.PHY_OPTION_NO_PREFERRED,
+                    )
+                    BeetLog.i(TAG) { "Requested 2M PHY post-connect: success=$phyRequested" }
+                } catch (e: Exception) {
+                    BeetLog.w(TAG, "setPreferredPhy failed or unsupported", e)
+                }
+
+                @Suppress("MissingPermission")
+                try {
+                    if (negotiatedMtu < HIGH_SPEED_MTU) {
+                        val mtuRequested = currentGatt.requestMtu(HIGH_SPEED_MTU)
+                        BeetLog.i(TAG) { "Requested MTU $HIGH_SPEED_MTU post-connect: success=$mtuRequested" }
+                    } else {
+                        BeetLog.i(TAG) { "Skipping post-connect MTU upgrade; already negotiated $negotiatedMtu" }
+                    }
+                } catch (e: Exception) {
+                    BeetLog.w(TAG, "requestMtu post-connect failed", e)
+                }
+            }
 
             refreshValveConfig()
             refreshWateringInterval()
@@ -1441,742 +988,11 @@ internal class BeetGattSessionCoordinator(
         completeInitialSyncIfReady()
     }
 
-    private fun handleMaintenanceInfo(gatt: BluetoothGatt, payload: ByteArray) {
-        val info = try {
-            BeetJsonCodec.parseMaintenanceInfo(payload.toString(StandardCharsets.UTF_8))
-        } catch (error: Exception) {
-            pendingMaintenanceInfoRead?.completeExceptionally(error)
-            pendingMaintenanceInfoRead = null
-            BeetLog.e(TAG, "Maintenance info payload parse failed", error)
-            disconnectGatt(clearSelection = false, reason = "invalid maintenance info payload")
-            host.clearSession()
-            host.updateConnection(BeetConnectionPhase.Error, strings.get(R.string.runtime_maintenance_info_invalid))
-            return
-        }
-        BeetLog.d(TAG) {
-            "handleMaintenanceInfo(product=${info.productId}, hardware=${info.hardwareRev}, runtimeProtocol=${info.runtimeProtocolVersion}, maintenanceProtocol=${info.maintenanceProtocolVersion}, imageKind=${info.imageKind})"
-        }
-        host.updateState { it.copy(maintenanceInfo = info) }
-        pendingMaintenanceInfoRead?.complete(info)
-        pendingMaintenanceInfoRead = null
-        when (
-            determineMaintenanceRoute(
-                info = info,
-                runtimeServiceAvailable = hasCompleteRuntimeService(),
-            supportedRuntimeProtocolVersion = BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
-            )
-        ) {
-            BeetMaintenanceRoute.Runtime -> resolveRuntimeOrActiveMaintenanceRoute(gatt, info)
-            BeetMaintenanceRoute.ForcedUpdate -> {
-                maybePrepareBundledFirmware()
-                host.updateConnection(BeetConnectionPhase.MaintenanceRequired, maintenanceRequiredMessage(info))
-            }
-        }
-    }
-
-    private fun resolveRuntimeOrActiveMaintenanceRoute(
-        gatt: BluetoothGatt,
-        info: BeetMaintenanceInfo,
-    ) {
-        val maintenanceControl = host.session.maintenanceControlCharacteristic
-        val maintenanceStatus = host.session.maintenanceStatusCharacteristic
-        if (maintenanceUploadJob?.isActive == true) {
-            BeetLog.d(TAG) {
-                "resolveRuntimeOrActiveMaintenanceRoute deferring to active maintenance job " +
-                    "phase=${host.state.value.maintenanceUpdate.phase} detail=${host.state.value.maintenanceUpdate.statusDetail}"
-            }
-            host.updateConnection(
-                BeetConnectionPhase.MaintenanceRequired,
-                host.state.value.maintenanceUpdate.statusDetail ?: activeMaintenanceDetail(),
-            )
-            return
-        }
-        if (maintenanceControl == null || maintenanceStatus == null) {
-            if (!readControllerInfo(gatt)) {
-                disconnectGatt(clearSelection = false, reason = "runtime service missing after maintenance route runtime")
-                host.clearSession()
-                host.requestStartScan(detail = strings.get(R.string.runtime_gatt_service_incomplete))
-            }
-            return
-        }
-        initialMaintenanceStatusJob?.cancel()
-        initialMaintenanceStatusJob = host.scope.launch {
-            try {
-                val status = sendMaintenanceControl(BeetJsonCodec.maintenanceQueryStatus())
-                BeetLog.d(TAG) {
-                    "resolveRuntimeOrActiveMaintenanceRoute initial maintenance state=${status.state} " +
-                        "sessionId=${status.sessionId} nextOffset=${status.nextOffset}"
-                }
-                if (host.session.currentGatt !== gatt) {
-                    return@launch
-                }
-                if (status.state in setOf("awaiting_data", "transferring", "rebooting")) {
-                    connectionTimeoutJob?.cancel()
-                    connectionTimeoutJob = null
-                    maybePrepareBundledFirmware()
-                    host.updateState { state ->
-                        state.copy(
-                            maintenanceUpdate = state.maintenanceUpdate.copy(
-                                phase = when (status.state) {
-                                    "rebooting" -> BeetMaintenanceUpdatePhase.Rebooting
-                                    "transferring" -> BeetMaintenanceUpdatePhase.Uploading
-                                    else -> BeetMaintenanceUpdatePhase.Reconnecting
-                                },
-                                bytesTransferred = status.bytesReceived.coerceAtLeast(status.nextOffset),
-                                totalBytes = if (status.totalBytes > 0) status.totalBytes else state.maintenanceUpdate.totalBytes,
-                                retryCount = 0,
-                                statusDetail = when (status.state) {
-                                    "rebooting" -> strings.get(R.string.maintenance_rebooting_after_update)
-                                    "transferring" -> "Uploading firmware: ${status.nextOffset} / ${status.totalBytes} bytes."
-                                    else -> strings.get(R.string.maintenance_reconnecting_attempt, 1, MAX_MAINTENANCE_RECONNECT_ATTEMPTS)
-                                },
-                                errorDetail = null,
-                            ),
-                        )
-                    }
-                    host.updateConnection(BeetConnectionPhase.MaintenanceRequired, activeMaintenanceMessage(status))
-                    return@launch
-                }
-                if (!readControllerInfo(gatt)) {
-                    disconnectGatt(clearSelection = false, reason = "runtime service missing after maintenance status query")
-                    host.clearSession()
-                    host.requestStartScan(detail = strings.get(R.string.runtime_gatt_service_incomplete))
-                }
-            } catch (error: Exception) {
-                BeetLog.w(TAG, "resolveRuntimeOrActiveMaintenanceRoute falling back to runtime sync", error)
-                if (host.session.currentGatt === gatt && !readControllerInfo(gatt)) {
-                    disconnectGatt(clearSelection = false, reason = "runtime service missing after maintenance status fallback")
-                    host.clearSession()
-                    host.requestStartScan(detail = strings.get(R.string.runtime_gatt_service_incomplete))
-                }
-            } finally {
-                if (initialMaintenanceStatusJob?.isCancelled != false) {
-                    initialMaintenanceStatusJob = null
-                }
-            }
-        }
-    }
-
-    private fun activeMaintenanceMessage(status: BeetMaintenanceStatus): String = when (status.state) {
-        "rebooting" -> strings.get(R.string.maintenance_rebooting_after_update)
-        "transferring" -> "Uploading firmware: ${status.nextOffset} / ${status.totalBytes} bytes."
-        else -> strings.get(R.string.runtime_maintenance_runtime_unavailable)
-    }
-
-    private fun activeMaintenanceDetail(): String = when (host.state.value.maintenanceUpdate.phase) {
-        BeetMaintenanceUpdatePhase.Starting -> strings.get(R.string.maintenance_starting_update)
-        BeetMaintenanceUpdatePhase.Rebooting -> strings.get(R.string.maintenance_rebooting_after_update)
-        BeetMaintenanceUpdatePhase.Uploading -> {
-            val update = host.state.value.maintenanceUpdate
-            strings.get(R.string.maintenance_uploading_progress, update.bytesTransferred, update.totalBytes)
-        }
-        BeetMaintenanceUpdatePhase.Reconnecting -> strings.get(
-            R.string.maintenance_reconnecting_attempt,
-            maxOf(host.state.value.maintenanceUpdate.retryCount, 1),
-            MAX_MAINTENANCE_RECONNECT_ATTEMPTS,
-        )
-        else -> strings.get(R.string.runtime_maintenance_runtime_unavailable)
-    }
-
-    private fun maybePrepareBundledFirmware() {
-        if (host.state.value.maintenanceUpdate.bundledFirmware == null) {
-            prepareBundledFirmware()
-        }
-    }
-
-    private fun hasCompleteRuntimeService(): Boolean =
+    override fun hasCompleteRuntimeService(): Boolean =
         host.session.controllerInfoCharacteristic != null &&
             host.session.stateStreamCharacteristic != null &&
             host.session.controlPointCharacteristic != null &&
             host.session.commandResultCharacteristic != null
-
-    private fun maintenanceRequiredMessage(info: BeetMaintenanceInfo): String =
-        if (hasCompleteRuntimeService()) {
-            strings.get(
-                R.string.runtime_maintenance_update_required,
-                info.runtimeProtocolVersion,
-                BuildConfig.BEET_RUNTIME_PROTOCOL_VERSION,
-            )
-        } else {
-            strings.get(R.string.runtime_maintenance_runtime_unavailable)
-        }
-
-    private suspend fun sendMaintenanceControl(payload: String): BeetMaintenanceStatus {
-        return maintenanceMutex.withLock {
-            val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
-            val controlPoint = host.session.maintenanceControlCharacteristic
-                ?: error(strings.get(R.string.maintenance_control_unavailable))
-            BeetLog.d(TAG) { "sendMaintenanceControl(payload=$payload)" }
-            val statusDeferred = CompletableDeferred<BeetMaintenanceStatus>()
-            val writeDeferred = CompletableDeferred<Unit>()
-            pendingMaintenanceStatus = statusDeferred
-            pendingCharacteristicWrite = writeDeferred
-            controlPoint.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            controlPoint.value = payload.toByteArray(StandardCharsets.UTF_8)
-            @Suppress("MissingPermission")
-            val writeStarted = gatt.writeCharacteristic(controlPoint)
-            if (!writeStarted) {
-                pendingMaintenanceStatus = null
-                pendingCharacteristicWrite = null
-                error(strings.get(R.string.runtime_ble_send_failed))
-            }
-            try {
-                withTimeout(MAINTENANCE_CONTROL_TIMEOUT_MS) {
-                    writeDeferred.await()
-                    statusDeferred.await().also { status ->
-                        BeetLog.d(TAG) {
-                            "sendMaintenanceControl result state=${status.state} " +
-                                "sessionId=${status.sessionId} nextOffset=${status.nextOffset} " +
-                                "failure=${status.failureReason}"
-                        }
-                    }
-                }
-            } finally {
-                pendingMaintenanceStatus = null
-                pendingCharacteristicWrite = null
-            }
-        }
-    }
-
-    private suspend fun writeMaintenanceChunk(chunk: ByteArray) {
-        val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
-        val characteristic = host.session.maintenanceDataCharacteristic
-            ?: error(strings.get(R.string.maintenance_data_unavailable))
-        val deferred = CompletableDeferred<Unit>()
-        pendingCharacteristicWrite = deferred
-        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-        characteristic.value = chunk
-        @Suppress("MissingPermission")
-        val started = gatt.writeCharacteristic(characteristic)
-        if (!started) {
-            pendingCharacteristicWrite = null
-            error(strings.get(R.string.runtime_ble_send_failed))
-        }
-        try {
-            withTimeout(MAINTENANCE_CHUNK_TIMEOUT_MS) { deferred.await() }
-        } finally {
-            pendingCharacteristicWrite = null
-        }
-    }
-
-    private suspend fun runMaintenanceUpdate(
-        selectedPackage: BeetFirmwareImagePackage,
-        selectedFirmware: BeetFirmwarePackageSummary,
-    ) {
-        BeetLog.d(TAG) {
-            "runMaintenanceUpdate start firmware=${selectedFirmware.metadata.firmwareVersion} " +
-                "size=${selectedPackage.imageSize}"
-        }
-        acquireMaintenanceWakeLock()
-        maintenanceReconnectAttempts = 0
-        maintenanceExpectedRebootDisconnect = false
-        maintenanceAbortRequested = false
-        try {
-            while (true) {
-                try {
-                    throwIfMaintenanceAbortRequested()
-                    BeetLog.d(TAG, "runMaintenanceUpdate waiting for maintenance connection")
-                    waitForMaintenanceConnection()
-                    BeetLog.d(TAG, "runMaintenanceUpdate maintenance connection ready")
-                    val fullImageAlreadyTransferred =
-                        host.state.value.maintenanceUpdate.bytesTransferred >= selectedPackage.imageSize
-                    val status = startOrResumeMaintenanceSession(
-                        selectedPackage = selectedPackage,
-                        selectedFirmware = selectedFirmware,
-                        fullImageAlreadyTransferred = fullImageAlreadyTransferred,
-                    )
-                    BeetLog.d(TAG) {
-                        "runMaintenanceUpdate terminal status state=${status.state} " +
-                            "sessionId=${status.sessionId} nextOffset=${status.nextOffset} " +
-                            "failure=${status.failureReason}"
-                    }
-                    when (status.state) {
-                        "rebooting" -> {
-                            maintenanceExpectedRebootDisconnect = true
-                            val reconnectDevice =
-                                host.session.currentGatt?.device ?: error(strings.get(R.string.runtime_no_connected_controller))
-                            host.updateState { state ->
-                                state.copy(
-                                    maintenanceUpdate = state.maintenanceUpdate.copy(
-                                        phase = BeetMaintenanceUpdatePhase.Rebooting,
-                                        bytesTransferred = selectedPackage.imageSize,
-                                        totalBytes = selectedPackage.imageSize,
-                                        elapsedSeconds = maintenanceElapsedSeconds(),
-                                        estimatedRemainingSeconds = 0,
-                                        statusDetail = strings.get(R.string.maintenance_rebooting_after_update),
-                                        errorDetail = null,
-                                    ),
-                                )
-                            }
-                            waitForMaintenanceDisconnect()
-                            reconnectAfterReboot(reconnectDevice)
-                        }
-
-                        "completed" -> {
-                            maintenanceExpectedRebootDisconnect = false
-                            selectedMaintenancePackage = null
-                            host.updateState { state ->
-                                state.copy(
-                                    maintenanceUpdate = state.maintenanceUpdate.copy(
-                                        phase = BeetMaintenanceUpdatePhase.Completed,
-                                        bytesTransferred = selectedPackage.imageSize,
-                                        totalBytes = selectedPackage.imageSize,
-                                        elapsedSeconds = maintenanceElapsedSeconds(),
-                                        estimatedRemainingSeconds = 0,
-                                        statusDetail = strings.get(R.string.maintenance_update_completed),
-                                        errorDetail = null,
-                                        selectedFirmware = null,
-                                    ),
-                                )
-                            }
-                            resumeRuntimeSyncAfterCompletedMaintenance()
-                            return
-                        }
-
-                        "failed" -> error(status.failureReason ?: strings.get(R.string.maintenance_update_failed))
-                        else -> error(strings.get(R.string.maintenance_unexpected_status, status.state))
-                    }
-                } catch (abort: MaintenanceAbortRequestedException) {
-                    performMaintenanceAbort()
-                    return
-                } catch (error: Exception) {
-                    BeetLog.w(TAG, "runMaintenanceUpdate caught error reconnectAttempts=$maintenanceReconnectAttempts", error)
-                    if (
-                        error is MaintenanceControlWriteException ||
-                        maintenanceReconnectAttempts >= MAX_MAINTENANCE_RECONNECT_ATTEMPTS ||
-                        maintenanceExpectedRebootDisconnect
-                    ) {
-                        throw error
-                    }
-                    maintenanceReconnectAttempts += 1
-                    host.updateState { state ->
-                        state.copy(
-                            maintenanceUpdate = state.maintenanceUpdate.copy(
-                                phase = BeetMaintenanceUpdatePhase.Reconnecting,
-                                retryCount = maintenanceReconnectAttempts,
-                                elapsedSeconds = maintenanceElapsedSeconds(),
-                                estimatedRemainingSeconds = maintenanceEstimatedRemainingSeconds(
-                                    state.maintenanceUpdate.bytesTransferred,
-                                    state.maintenanceUpdate.totalBytes,
-                                ),
-                                statusDetail = strings.get(
-                                    R.string.maintenance_reconnecting_attempt,
-                                    maintenanceReconnectAttempts,
-                                    MAX_MAINTENANCE_RECONNECT_ATTEMPTS,
-                                ),
-                                errorDetail = null,
-                            ),
-                        )
-                    }
-                    scheduleMaintenanceReconnect()
-                    delay(MAINTENANCE_RECONNECT_DELAY_MS)
-                }
-            }
-        } catch (abort: MaintenanceAbortRequestedException) {
-            performMaintenanceAbort()
-        } catch (error: Exception) {
-            BeetLog.e(TAG, "runMaintenanceUpdate failed", error)
-            host.updateState { state ->
-                state.copy(
-                    maintenanceUpdate = state.maintenanceUpdate.copy(
-                        phase = BeetMaintenanceUpdatePhase.Failed,
-                        elapsedSeconds = maintenanceElapsedSeconds(),
-                        estimatedRemainingSeconds = null,
-                        statusDetail = null,
-                        errorDetail = error.message ?: strings.get(R.string.maintenance_update_failed),
-                    ),
-                )
-            }
-        } finally {
-            if (!maintenanceExpectedRebootDisconnect) {
-                resetMaintenanceProgressTracking()
-                releaseMaintenanceWakeLock()
-            }
-        }
-    }
-
-    private fun suspendRuntimeSyncForMaintenance(reason: String) {
-        BeetLog.d(TAG) { "suspendRuntimeSyncForMaintenance(reason=$reason)" }
-        eventSyncJob?.cancel()
-        eventSyncJob = null
-        host.updateState { state ->
-            state.copy(
-                eventsLoading = false,
-                eventSync = BeetEventSyncState(),
-                valveConfigRefreshing = false,
-                wateringIntervalRefreshing = false,
-            )
-        }
-    }
-
-    private suspend fun startOrResumeMaintenanceSession(
-        selectedPackage: BeetFirmwareImagePackage,
-        selectedFirmware: BeetFirmwarePackageSummary,
-        fullImageAlreadyTransferred: Boolean,
-    ): BeetMaintenanceStatus {
-        BeetLog.d(TAG, "startOrResumeMaintenanceSession query_status")
-        val initialStatus = sendMaintenanceControl(BeetJsonCodec.maintenanceQueryStatus())
-        BeetLog.d(TAG) {
-            "startOrResumeMaintenanceSession initial state=${initialStatus.state} " +
-                "sessionId=${initialStatus.sessionId} nextOffset=${initialStatus.nextOffset}"
-        }
-        if (fullImageAlreadyTransferred && initialStatus.state == "idle") {
-            val refreshedMaintenanceInfo = readFreshMaintenanceInfo()
-            if (isSelectedFirmwareInstalled(selectedFirmware, refreshedMaintenanceInfo)) {
-                BeetLog.i(
-                    TAG,
-                    "startOrResumeMaintenanceSession treating idle as completed because target firmware is already running",
-                )
-                return BeetMaintenanceStatus(
-                    state = "completed",
-                    nextOffset = selectedPackage.imageSize,
-                    bytesReceived = selectedPackage.imageSize,
-                    totalBytes = selectedPackage.imageSize,
-                )
-            }
-            BeetLog.w(TAG) {
-                "startOrResumeMaintenanceSession idle after full transfer but target firmware is not installed " +
-                    "current=${refreshedMaintenanceInfo.firmwareVersion}/${refreshedMaintenanceInfo.buildLabel}/${refreshedMaintenanceInfo.imageKind} " +
-                    "target=${selectedFirmware.metadata.firmwareVersion}/${selectedFirmware.metadata.buildLabel}/${selectedFirmware.metadata.imageKind}"
-            }
-        }
-        val uploadStatus = when (initialStatus.state) {
-            "awaiting_data", "transferring" -> initialStatus
-            "rebooting", "completed" -> return initialStatus
-            "idle", "failed" -> {
-                val payloadBudget = maintenanceControlPayloadBudget()
-                val beginUpdatePayload = BeetJsonCodec.maintenanceBeginUpdate(
-                    firmware = selectedFirmware,
-                    maxPayloadBytes = payloadBudget,
-                )
-                BeetLog.d(TAG) {
-                    "startOrResumeMaintenanceSession begin_update compact=${beginUpdatePayload.compact} " +
-                        "size=${beginUpdatePayload.sizeBytes} budget=$payloadBudget"
-                }
-                sendMaintenanceControl(beginUpdatePayload.json)
-            }
-            else -> error(strings.get(R.string.maintenance_unexpected_status, initialStatus.state))
-        }
-        BeetLog.d(TAG) {
-            "startOrResumeMaintenanceSession upload state=${uploadStatus.state} " +
-                "sessionId=${uploadStatus.sessionId} nextOffset=${uploadStatus.nextOffset} " +
-                "failure=${uploadStatus.failureReason}"
-        }
-        if (uploadStatus.state == "failed") {
-            error(uploadStatus.failureReason ?: strings.get(R.string.maintenance_update_failed))
-        }
-        uploadMaintenanceData(selectedPackage, uploadStatus)
-        return sendMaintenanceControl(BeetJsonCodec.maintenanceFinishUpdate())
-    }
-
-    private fun isSelectedFirmwareInstalled(
-        selectedFirmware: BeetFirmwarePackageSummary,
-        maintenanceInfo: BeetMaintenanceInfo? = host.state.value.maintenanceInfo,
-    ): Boolean = BeetFirmwareCatalog.matchesInstalledFirmware(selectedFirmware, maintenanceInfo)
-
-    private fun maintenanceControlPayloadBudget(): Int = (negotiatedMtu - 3).coerceAtLeast(20)
-
-    private suspend fun readFreshMaintenanceInfo(): BeetMaintenanceInfo {
-        val gatt = host.session.currentGatt ?: error(strings.get(R.string.runtime_no_connected_controller))
-        val characteristic = host.session.maintenanceInfoCharacteristic
-            ?: error(strings.get(R.string.runtime_maintenance_info_invalid))
-        val deferred = CompletableDeferred<BeetMaintenanceInfo>()
-        pendingMaintenanceInfoRead = deferred
-        @Suppress("MissingPermission")
-        val started = gatt.readCharacteristic(characteristic)
-        if (!started) {
-            pendingMaintenanceInfoRead = null
-            error(strings.get(R.string.runtime_ble_send_failed))
-        }
-        return try {
-            withTimeout(COMMAND_TIMEOUT_MS) { deferred.await() }
-        } finally {
-            if (pendingMaintenanceInfoRead === deferred) {
-                pendingMaintenanceInfoRead = null
-            }
-        }
-    }
-
-    private suspend fun uploadMaintenanceData(
-        selectedPackage: BeetFirmwareImagePackage,
-        status: BeetMaintenanceStatus,
-    ) {
-        val sessionId = status.sessionId ?: error(strings.get(R.string.maintenance_missing_session))
-        var offset = status.nextOffset
-        BeetLog.d(TAG) {
-            "uploadMaintenanceData(sessionId=$sessionId startOffset=$offset total=${selectedPackage.imageSize})"
-        }
-        host.updateState { state ->
-            state.copy(
-                maintenanceUpdate = state.maintenanceUpdate.copy(
-                    phase = BeetMaintenanceUpdatePhase.Uploading,
-                    bytesTransferred = offset,
-                    totalBytes = selectedPackage.imageSize,
-                    elapsedSeconds = maintenanceElapsedSeconds(),
-                    estimatedRemainingSeconds = null,
-                    statusDetail = strings.get(R.string.maintenance_uploading_progress, offset, selectedPackage.imageSize),
-                    errorDetail = null,
-                ),
-            )
-        }
-        noteMaintenanceProgress(offset, selectedPackage.imageSize)
-        while (offset < selectedPackage.imageBytes.size) {
-            throwIfMaintenanceAbortRequested()
-            val payloadLimit = (negotiatedMtu - 11).coerceIn(MIN_MAINTENANCE_PAYLOAD_BYTES, MAX_MAINTENANCE_PAYLOAD_BYTES)
-            val end = minOf(offset + payloadLimit, selectedPackage.imageBytes.size)
-            val payload = selectedPackage.imageBytes.copyOfRange(offset, end)
-            val chunk = ByteArray(8 + payload.size)
-            writeLeU32(chunk, 0, sessionId)
-            writeLeU32(chunk, 4, offset)
-            payload.copyInto(chunk, destinationOffset = 8)
-            writeMaintenanceChunk(chunk)
-            throwIfMaintenanceAbortRequested()
-            offset = end
-            if (offset == end && (offset == selectedPackage.imageSize || offset % 16384 == 0)) {
-                BeetLog.d(TAG) { "uploadMaintenanceData progressed offset=$offset total=${selectedPackage.imageSize}" }
-            }
-            host.updateState { state ->
-                state.copy(
-                    maintenanceUpdate = state.maintenanceUpdate.copy(
-                        phase = BeetMaintenanceUpdatePhase.Uploading,
-                        bytesTransferred = offset,
-                        totalBytes = selectedPackage.imageSize,
-                        statusDetail = strings.get(R.string.maintenance_uploading_progress, offset, selectedPackage.imageSize),
-                        errorDetail = null,
-                    ),
-                )
-            }
-            noteMaintenanceProgress(offset, selectedPackage.imageSize)
-        }
-    }
-
-    private suspend fun performMaintenanceAbort() {
-        BeetLog.d(TAG, "performMaintenanceAbort()")
-        runCatching {
-            if (host.session.currentGatt != null && host.session.maintenanceControlCharacteristic != null) {
-                sendMaintenanceControl(BeetJsonCodec.maintenanceAbortUpdate())
-            }
-        }.onFailure { error ->
-            BeetLog.w(TAG, "performMaintenanceAbort failed to send abort_update, disconnecting GATT", error)
-            disconnectGatt(clearSelection = false, reason = "maintenance abort fallback disconnect")
-            host.clearSession()
-        }
-        resetMaintenanceUpdateAfterAbort()
-    }
-
-    private fun resetMaintenanceUpdateAfterAbort() {
-        maintenanceAbortRequested = false
-        maintenanceExpectedRebootDisconnect = false
-        maintenanceReconnectAttempts = 0
-        maintenanceUploadJob = null
-        releaseMaintenanceWakeLock()
-        host.updateState { state ->
-            state.copy(
-                maintenanceUpdate = state.maintenanceUpdate.copy(
-                    phase = BeetMaintenanceUpdatePhase.Idle,
-                    bytesTransferred = 0,
-                    totalBytes = 0,
-                    elapsedSeconds = 0,
-                    estimatedRemainingSeconds = null,
-                    retryCount = 0,
-                    statusDetail = strings.get(R.string.maintenance_update_aborted),
-                    errorDetail = null,
-                ),
-            )
-        }
-        resetMaintenanceProgressTracking()
-    }
-
-    private fun throwIfMaintenanceAbortRequested() {
-        if (maintenanceAbortRequested) {
-            throw MaintenanceAbortRequestedException()
-        }
-    }
-
-    private fun resumeRuntimeSyncAfterCompletedMaintenance() {
-        val gatt = host.session.currentGatt
-        if (gatt == null) {
-            BeetLog.d(TAG, "resumeRuntimeSyncAfterCompletedMaintenance skipped because GATT is null")
-            return
-        }
-        if (host.session.controllerInfoCharacteristic == null) {
-            BeetLog.d(TAG, "resumeRuntimeSyncAfterCompletedMaintenance skipped because controller info characteristic is unavailable")
-            return
-        }
-        BeetLog.d(TAG, "resumeRuntimeSyncAfterCompletedMaintenance reading controller info")
-        if (!readControllerInfo(gatt)) {
-            disconnectGatt(clearSelection = false, reason = "post-maintenance runtime sync could not read controller info")
-            host.clearSession()
-            host.requestStartScan(detail = strings.get(R.string.runtime_gatt_service_incomplete))
-        }
-    }
-
-    private fun resolveMaintenanceReconnectDevice(
-        device: BluetoothDevice? = host.session.currentGatt?.device,
-    ): BluetoothDevice? {
-        device?.let { return it }
-        val address = host.currentAddress ?: return null
-        val adapter = host.bluetoothAdapter ?: return null
-        return runCatching { adapter.getRemoteDevice(address) }
-            .onFailure { error ->
-                BeetLog.w(TAG, "resolveMaintenanceReconnectDevice failed for address=$address", error)
-            }
-            .getOrNull()
-    }
-
-    private fun scheduleMaintenanceReconnect(device: BluetoothDevice? = host.session.currentGatt?.device) {
-        val reconnectDevice = resolveMaintenanceReconnectDevice(device)
-        if (reconnectDevice == null) {
-            BeetLog.w(TAG, "scheduleMaintenanceReconnect skipped: no reconnect target")
-            return
-        }
-        maintenanceReconnectJob?.cancel()
-        maintenanceReconnectJob = host.scope.launch {
-            val isRebooting = host.state.value.maintenanceUpdate.phase == BeetMaintenanceUpdatePhase.Rebooting
-            val maxAttempts = if (isRebooting) MAX_REBOOT_RECONNECT_ATTEMPTS else 1
-            var attempt = 0
-            var delayMs = MAINTENANCE_RECONNECT_DELAY_MS
-            while (attempt < maxAttempts) {
-                delay(delayMs)
-                if (!isActive) return@launch
-                val phase = host.state.value.maintenanceUpdate.phase
-                if (phase != BeetMaintenanceUpdatePhase.Reconnecting &&
-                    phase != BeetMaintenanceUpdatePhase.Rebooting
-                ) {
-                    return@launch
-                }
-                attempt++
-                if (isRebooting && attempt > 1) {
-                    host.updateState { state ->
-                        state.copy(
-                            maintenanceUpdate = state.maintenanceUpdate.copy(
-                                retryCount = attempt,
-                                statusDetail = strings.get(
-                                    R.string.maintenance_rebooting_reconnect,
-                                    attempt,
-                                    maxAttempts,
-                                ),
-                            ),
-                        )
-                    }
-                }
-                BeetLog.d(TAG, "scheduleMaintenanceReconnect opening address=${reconnectDevice.address} attempt=$attempt")
-                host.requestOpenGatt(reconnectDevice)
-                delayMs = (delayMs * 2).coerceAtMost(16_000L)
-            }
-            if (attempt >= maxAttempts && isRebooting) {
-                BeetLog.e(TAG, "scheduleMaintenanceReconnect exhausted $maxAttempts attempts")
-                host.updateState { state ->
-                    state.copy(
-                        maintenanceUpdate = state.maintenanceUpdate.copy(
-                            phase = BeetMaintenanceUpdatePhase.Failed,
-                            errorDetail = strings.get(R.string.maintenance_reconnect_timeout),
-                        ),
-                    )
-                }
-            }
-        }
-    }
-
-    private suspend fun waitForMaintenanceDisconnect() {
-        val deadline = System.currentTimeMillis() + MAINTENANCE_RECONNECT_TIMEOUT_MS
-        while (System.currentTimeMillis() < deadline) {
-            if (host.session.currentGatt == null) {
-                return
-            }
-            delay(100L)
-        }
-        error(strings.get(R.string.maintenance_reconnect_timeout))
-    }
-
-    private suspend fun reconnectAfterReboot(device: BluetoothDevice) {
-        var attempt = 0
-        var delayMs = 1000L
-        while (attempt < MAX_REBOOT_RECONNECT_ATTEMPTS) {
-            throwIfMaintenanceAbortRequested()
-            delay(delayMs)
-            attempt++
-            host.updateState { state ->
-                state.copy(
-                    maintenanceUpdate = state.maintenanceUpdate.copy(
-                        retryCount = attempt,
-                        statusDetail = strings.get(
-                            R.string.maintenance_rebooting_reconnect,
-                            attempt,
-                            MAX_REBOOT_RECONNECT_ATTEMPTS,
-                        ),
-                    ),
-                )
-            }
-            host.requestOpenGatt(device)
-            val settleDeadline = System.currentTimeMillis() + 8_000L
-            while (System.currentTimeMillis() < settleDeadline) {
-                throwIfMaintenanceAbortRequested()
-                val phase = host.state.value.connection.phase
-                if (phase == BeetConnectionPhase.MaintenanceRequired || phase == BeetConnectionPhase.Connected) {
-                    BeetLog.d(TAG, "reconnectAfterReboot success attempt=$attempt delay=${delayMs}ms phase=$phase")
-                    return
-                }
-                if (phase != BeetConnectionPhase.Connecting &&
-                    phase != BeetConnectionPhase.Bonding &&
-                    phase != BeetConnectionPhase.DiscoveringServices) {
-                    break
-                }
-                delay(400L)
-            }
-            BeetLog.d(TAG, "reconnectAfterReboot attempt $attempt failed, backoff ${delayMs}ms")
-            delayMs = (delayMs * 2).coerceAtMost(16_000L)
-        }
-        error(strings.get(R.string.maintenance_reconnect_timeout))
-    }
-
-    private suspend fun waitForMaintenanceConnection() {
-        val deadline = System.currentTimeMillis() + MAINTENANCE_RECONNECT_TIMEOUT_MS
-        while (System.currentTimeMillis() < deadline) {
-            val phase = host.state.value.connection.phase
-            val stableFor = System.currentTimeMillis() - lastGattResetAt
-            if ((phase == BeetConnectionPhase.MaintenanceRequired || phase == BeetConnectionPhase.Connected) &&
-                host.session.currentGatt != null &&
-                host.session.maintenanceControlCharacteristic != null &&
-                host.session.maintenanceDataCharacteristic != null &&
-                stableFor >= MAINTENANCE_GATT_STABILITY_MS
-            ) {
-                connectionTimeoutJob?.cancel()
-                connectionTimeoutJob = null
-                BeetLog.d(TAG, "waitForMaintenanceConnection satisfied phase=$phase mtu=$negotiatedMtu stableFor=${stableFor}ms")
-                return
-            }
-            delay(200L)
-        }
-        error(strings.get(R.string.maintenance_reconnect_timeout))
-    }
-
-    private fun isMaintenanceConnectionHealthy(): Boolean {
-        val phase = host.state.value.connection.phase
-        return (phase == BeetConnectionPhase.MaintenanceRequired || phase == BeetConnectionPhase.Connected) &&
-            host.session.currentGatt != null &&
-            host.session.maintenanceControlCharacteristic != null &&
-            host.session.maintenanceDataCharacteristic != null
-    }
-
-    private fun acquireMaintenanceWakeLock() {
-        if (!maintenanceWakeLock.isHeld) {
-            maintenanceWakeLock.acquire(MAINTENANCE_WAKELOCK_TIMEOUT_MS)
-        }
-    }
-
-    private fun releaseMaintenanceWakeLock() {
-        if (maintenanceWakeLock.isHeld) {
-            maintenanceWakeLock.release()
-        }
-    }
-
-    private fun writeLeU32(buffer: ByteArray, offset: Int, value: Int) {
-        buffer[offset] = (value and 0xFF).toByte()
-        buffer[offset + 1] = ((value ushr 8) and 0xFF).toByte()
-        buffer[offset + 2] = ((value ushr 16) and 0xFF).toByte()
-        buffer[offset + 3] = ((value ushr 24) and 0xFF).toByte()
-    }
 
     private fun handleStatePayload(payload: ByteArray) {
         val json = payload.toString(StandardCharsets.UTF_8)
@@ -2212,7 +1028,7 @@ internal class BeetGattSessionCoordinator(
                         pairStates = state.pairStates + (pairState.pairIndex to pairState),
                     )
                 }
-                handleMoistureTestState(pairState)
+                runtimeCommands.onPairStateForMoistureTest(pairState)
                 completeInitialSyncIfReady()
             }
             null -> {
@@ -2220,13 +1036,74 @@ internal class BeetGattSessionCoordinator(
             }
             is BeetStateMessage.SystemEventUpdate -> {
                 val deviceId = host.state.value.controllerInfo?.deviceId
-                if (deviceId != null) {
+                val burstConsumed = streamRouter.onEventFrame(BeetStreamKind.SYSTEM)
+                if (burstConsumed) {
+                    ingestBurstSystemEvent(message.data)
+                } else if (deviceId != null) {
                     ingestSystemEvent(deviceId, message.data)
                 } else {
                     host.updateState { it.copy(systemEvents = mergeSystemEvents(it.systemEvents, listOf(message.data))) }
                 }
             }
+
+            is BeetStateMessage.WateringEventUpdate -> {
+                streamRouter.onEventFrame(BeetStreamKind.WATERING)
+                ingestBurstWateringEvent(message.data)
+            }
+
+            is BeetStateMessage.StreamEndUpdate -> {
+                streamRouter.onStreamEnd(message.data)
+            }
         }
+    }
+
+    private fun ingestBurstWateringEvent(event: BeetWateringEvent) {
+        synchronized(burstLock) {
+            burstWateringBuffer += event
+            if (burstWateringBuffer.size >= EVENT_UI_BATCH_SIZE && burstUiFlushAllowedLocked()) flushBurstBuffersLocked()
+        }
+    }
+
+    private fun ingestBurstSystemEvent(event: BeetSystemEvent) {
+        synchronized(burstLock) {
+            burstSystemBuffer += event
+            if (burstSystemBuffer.size >= EVENT_UI_BATCH_SIZE && burstUiFlushAllowedLocked()) flushBurstBuffersLocked()
+        }
+    }
+
+    /* Caller must hold [burstLock]. */
+    private fun burstUiFlushAllowedLocked(): Boolean =
+        SystemClock.elapsedRealtime() - lastBurstUiFlushElapsedMs >= BURST_UI_FLUSH_MIN_INTERVAL_MS
+    private fun flushBurstBuffersLocked() {
+        if (burstWateringBuffer.isEmpty() && burstSystemBuffer.isEmpty()) return
+        val watering = burstWateringBuffer.toList()
+        val system = burstSystemBuffer.toList()
+        burstWateringBuffer.clear()
+        burstSystemBuffer.clear()
+        lastBurstUiFlushElapsedMs = SystemClock.elapsedRealtime()
+        val deviceId = host.state.value.controllerInfo?.deviceId
+        if (deviceId != null) {
+            runCatching { eventCache.saveWateringEvents(deviceId, watering) }
+            runCatching { eventCache.saveSystemEvents(deviceId, system) }
+        }
+        host.updateState { state ->
+            val transferred = (state.eventSync.transferred + watering.size + system.size).coerceAtMost(state.eventSync.total)
+            state.copy(
+                recentEvents = if (watering.isEmpty()) state.recentEvents else mergeWateringEvents(state.recentEvents, watering),
+                systemEvents = if (system.isEmpty()) state.systemEvents else mergeSystemEvents(state.systemEvents, system),
+                eventSync = state.eventSync.copy(transferred = transferred),
+            )
+        }
+    }
+
+    private fun resetBurstState() {
+        synchronized(burstLock) {
+            burstWateringBuffer.clear()
+            burstSystemBuffer.clear()
+            lastBurstUiFlushElapsedMs = 0L
+        }
+        streamRouter.abort(BeetStreamKind.WATERING)
+        streamRouter.abort(BeetStreamKind.SYSTEM)
     }
 
     private fun handleCommandPayload(payload: ByteArray) {
@@ -2315,64 +1192,12 @@ internal class BeetGattSessionCoordinator(
             }.toMap()
             host.updateState { it.copy(pairNames = namesMap) }
         }
-        host.session.pendingCommand?.complete(result)
-    }
-
-    private fun handleMaintenanceStatusPayload(payload: ByteArray) {
-        val status = try {
-            BeetJsonCodec.parseMaintenanceStatus(payload.toString(StandardCharsets.UTF_8))
-        } catch (error: Exception) {
-            BeetLog.e(TAG, "Maintenance status payload parse failed", error)
+        val expected = pendingCommandName
+        if (expected != null && result.command != null && result.command != expected) {
+            BeetLog.w(TAG) { "dropping stale result cmd=${result.command} while awaiting $expected" }
             return
         }
-        pendingMaintenanceStatus?.complete(status)
-        val resolvedTotalBytes =
-            if (status.totalBytes > 0) status.totalBytes else host.state.value.maintenanceUpdate.totalBytes
-        noteMaintenanceProgress(status.bytesReceived, resolvedTotalBytes)
-        host.updateState { state ->
-            val preserveTransferredBytes =
-                status.state == "idle" &&
-                    maintenanceUploadJob?.isActive == true &&
-                    state.maintenanceUpdate.totalBytes > 0 &&
-                    state.maintenanceUpdate.bytesTransferred >= state.maintenanceUpdate.totalBytes
-            state.copy(
-                maintenanceUpdate = state.maintenanceUpdate.copy(
-                    bytesTransferred = if (preserveTransferredBytes) {
-                        state.maintenanceUpdate.bytesTransferred
-                    } else {
-                        status.bytesReceived
-                    },
-                    totalBytes = resolvedTotalBytes,
-                    elapsedSeconds = maintenanceElapsedSeconds(),
-                    estimatedRemainingSeconds = when (status.state) {
-                        "awaiting_data", "transferring", "reconnecting" ->
-                            maintenanceEstimatedRemainingSeconds(status.bytesReceived, resolvedTotalBytes)
-                        "rebooting", "completed" -> 0
-                        "failed" -> null
-                        else -> state.maintenanceUpdate.estimatedRemainingSeconds
-                    },
-                    phase = when (status.state) {
-                        "awaiting_data", "transferring" -> BeetMaintenanceUpdatePhase.Uploading
-                        "rebooting" -> BeetMaintenanceUpdatePhase.Rebooting
-                        "completed" -> BeetMaintenanceUpdatePhase.Completed
-                        "failed" -> BeetMaintenanceUpdatePhase.Failed
-                        else -> state.maintenanceUpdate.phase
-                    },
-                    statusDetail = when (status.state) {
-                        "awaiting_data", "transferring" ->
-                            strings.get(R.string.maintenance_uploading_progress, status.bytesReceived, status.totalBytes)
-                        "rebooting" -> strings.get(R.string.maintenance_rebooting_after_update)
-                        "completed" -> strings.get(R.string.maintenance_update_completed)
-                        else -> state.maintenanceUpdate.statusDetail
-                    },
-                    errorDetail = if (status.state == "failed") {
-                        status.failureReason ?: strings.get(R.string.maintenance_update_failed)
-                    } else {
-                        null
-                    },
-                ),
-            )
-        }
+        host.session.pendingCommand?.complete(result)
     }
 
     private fun resetSyncState() {
@@ -2382,7 +1207,7 @@ internal class BeetGattSessionCoordinator(
         host.resetSyncState()
     }
 
-    private fun disconnectGatt(clearSelection: Boolean, reason: String) {
+    override fun disconnectGatt(clearSelection: Boolean, reason: String) {
         BeetLog.d(TAG) { "disconnectGatt(reason=$reason, clearSelection=$clearSelection, currentAddress=${host.currentAddress}, phase=${host.state.value.connection.phase})" }
         lastGattResetAt = System.currentTimeMillis()
         connectionTimeoutJob?.cancel()
@@ -2390,18 +1215,13 @@ internal class BeetGattSessionCoordinator(
         cancelControllerInfoRetry("disconnect gatt: $reason")
         eventSyncJob?.cancel()
         eventSyncJob = null
-        pendingMoistureTests.clear()
-        maintenanceReconnectJob?.cancel()
-        maintenanceReconnectJob = null
+        runtimeCommands.clearPendingMoistureTests()
         val gatt = host.session.currentGatt
         host.session.currentGatt = null
         resetSyncState()
         host.session.pendingCommand?.cancel()
         host.session.pendingCommand = null
-        pendingMaintenanceStatus?.cancel()
-        pendingMaintenanceStatus = null
-        pendingCharacteristicWrite?.cancel()
-        pendingCharacteristicWrite = null
+        maintenanceUpdater.onSessionTeardown()
         host.updateState { state ->
             state.copy(
                 calibrationsRefreshing = false,
@@ -2452,7 +1272,7 @@ internal class BeetGattSessionCoordinator(
     private fun handleExpectedControllerActionDisconnect() {
         when (expectedControllerAction) {
             ExpectedControllerAction.Reboot -> {
-                val reconnectDevice = resolveMaintenanceReconnectDevice()
+                val reconnectDevice = maintenanceUpdater.resolveReconnectDevice()
                 if (!expectedControllerActionActive() || reconnectDevice == null) {
                     clearExpectedControllerAction()
                     host.clearSession()
@@ -2480,29 +1300,6 @@ internal class BeetGattSessionCoordinator(
         }
     }
 
-    private fun handleMoistureTestState(pairState: BeetPairState) {
-        val hasSeenActiveState = pendingMoistureTests[pairState.pairIndex] ?: return
-        when {
-            pairState.state == "MOISTURE_TEST" -> {
-                pendingMoistureTests[pairState.pairIndex] = true
-            }
-            hasSeenActiveState && pairState.state == "IDLE" -> {
-                pendingMoistureTests.remove(pairState.pairIndex)
-                host.setCommandMessage(strings.get(R.string.runtime_moisture_test_passed, pairState.pairIndex))
-            }
-            hasSeenActiveState && (pairState.blocked || pairState.state == "FAULT") -> {
-                pendingMoistureTests.remove(pairState.pairIndex)
-                host.setCommandMessage(
-                    strings.get(
-                        R.string.runtime_moisture_test_failed,
-                        pairState.pairIndex,
-                        pairBlockReasonLabel(pairState.blockReason),
-                    ),
-                )
-            }
-        }
-    }
-
     private val gattCallback = beetGattCallback(
         onConnectionStateChange = { gatt, status, newState ->
             if (!isCurrentGatt(gatt, "onConnectionStateChange")) {
@@ -2519,7 +1316,7 @@ internal class BeetGattSessionCoordinator(
                             BeetConnectionPhase.Syncing,
                             BeetConnectionPhase.MaintenanceRequired,
                         )
-                val maintenanceActive = maintenanceUploadJob?.isActive == true
+                val maintenanceActive = maintenanceUpdater.isUploadActive
                 disconnectGatt(clearSelection = false, reason = "gatt error status=$status")
                 if (expectedControllerActionActive() && !maintenanceActive) {
                     handleExpectedControllerActionDisconnect()
@@ -2527,12 +1324,12 @@ internal class BeetGattSessionCoordinator(
                 }
                 host.clearSession()
                 if (maintenanceActive) {
-                    val detail = if (maintenanceExpectedRebootDisconnect) {
+                    val detail = if (maintenanceUpdater.expectedRebootDisconnect) {
                         strings.get(R.string.maintenance_rebooting_after_update)
                     } else {
                         strings.get(
                             R.string.maintenance_reconnecting_attempt,
-                            maintenanceReconnectAttempts + 1,
+                            maintenanceUpdater.reconnectAttempts + 1,
                             MAX_MAINTENANCE_RECONNECT_ATTEMPTS,
                         )
                     }
@@ -2556,7 +1353,7 @@ internal class BeetGattSessionCoordinator(
                         },
                     )
                     @Suppress("MissingPermission")
-                    if (!gatt.requestMtu(DESIRED_MTU)) {
+                    if (!gatt.requestMtu(INITIAL_MTU)) {
                         negotiatedMtu = DEFAULT_MTU
                         host.session.serviceDiscoveryStarted = true
                         @Suppress("MissingPermission")
@@ -2564,7 +1361,7 @@ internal class BeetGattSessionCoordinator(
                     }
                 }
                 BluetoothGatt.STATE_DISCONNECTED -> {
-                    val maintenanceActive = maintenanceUploadJob?.isActive == true
+                    val maintenanceActive = maintenanceUpdater.isUploadActive
                     disconnectGatt(clearSelection = false, reason = "gatt disconnected callback")
                     if (expectedControllerActionActive() && !maintenanceActive) {
                         handleExpectedControllerActionDisconnect()
@@ -2574,12 +1371,12 @@ internal class BeetGattSessionCoordinator(
                     if (maintenanceActive) {
                         host.updateConnection(
                             BeetConnectionPhase.MaintenanceRequired,
-                            if (maintenanceExpectedRebootDisconnect) {
+                            if (maintenanceUpdater.expectedRebootDisconnect) {
                                 strings.get(R.string.maintenance_rebooting_after_update)
                             } else {
                                 strings.get(
                                     R.string.maintenance_reconnecting_attempt,
-                                    maintenanceReconnectAttempts + 1,
+                                    maintenanceUpdater.reconnectAttempts + 1,
                                     MAX_MAINTENANCE_RECONNECT_ATTEMPTS,
                                 )
                             },
@@ -2596,7 +1393,7 @@ internal class BeetGattSessionCoordinator(
             if (!isCurrentGatt(gatt, "onMtuChanged")) {
                 return@beetGattCallback
             }
-            BeetLog.d(TAG) { "onMtuChanged status=$status mtu=$mtu" }
+            BeetLog.i(TAG) { "onMtuChanged status=$status mtu=$mtu" }
             negotiatedMtu = if (status == BluetoothGatt.GATT_SUCCESS) mtu else DEFAULT_MTU
             if (host.session.serviceDiscoveryStarted) {
                 BeetLog.d(TAG, "Ignoring duplicate onMtuChanged after service discovery already started")
@@ -2637,26 +1434,7 @@ internal class BeetGattSessionCoordinator(
             }
         },
         onCharacteristicWrite = { _, characteristic, status ->
-            if (characteristic.uuid == BeetBluetoothSupport.maintenanceDataUuid) {
-                if (status == BluetoothGatt.GATT_SUCCESS) {
-                    pendingCharacteristicWrite?.complete(Unit)
-                } else {
-                    pendingCharacteristicWrite?.completeExceptionally(
-                        IllegalStateException(strings.get(R.string.maintenance_chunk_write_failed, status)),
-                    )
-                }
-                return@beetGattCallback
-            }
-            if (characteristic.uuid == BeetBluetoothSupport.maintenanceControlUuid) {
-                BeetLog.d(TAG) { "onCharacteristicWrite maintenance control status=$status" }
-                if (status == BluetoothGatt.GATT_SUCCESS) {
-                    pendingCharacteristicWrite?.complete(Unit)
-                } else {
-                    pendingCharacteristicWrite?.completeExceptionally(
-                        MaintenanceControlWriteException(strings.get(R.string.maintenance_control_write_failed, status)),
-                    )
-                }
-            }
+            maintenanceUpdater.onCharacteristicWriteComplete(characteristic.uuid, status)
         },
         onCharacteristicRead = { gatt, characteristic, status ->
             if (!isCurrentGatt(gatt, "onCharacteristicRead")) {
@@ -2664,21 +1442,7 @@ internal class BeetGattSessionCoordinator(
             }
             BeetLog.d(TAG) { "onCharacteristicRead uuid=${characteristic.uuid} status=$status" }
             if (characteristic.uuid == BeetBluetoothSupport.maintenanceInfoUuid) {
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    val pendingRead = pendingMaintenanceInfoRead
-                    if (pendingRead != null) {
-                        pendingRead.completeExceptionally(
-                            IllegalStateException(strings.get(R.string.runtime_maintenance_info_invalid)),
-                        )
-                        pendingMaintenanceInfoRead = null
-                        return@beetGattCallback
-                    }
-                    disconnectGatt(clearSelection = false, reason = "maintenance info read failed status=$status")
-                    host.clearSession()
-                    host.requestStartScan(detail = strings.get(R.string.runtime_maintenance_info_invalid))
-                    return@beetGattCallback
-                }
-                handleMaintenanceInfo(gatt, characteristic.value ?: ByteArray(0))
+                maintenanceUpdater.onMaintenanceInfoRead(gatt, status, characteristic.value ?: ByteArray(0))
                 return@beetGattCallback
             }
             if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -2696,46 +1460,58 @@ internal class BeetGattSessionCoordinator(
             when (characteristic.uuid) {
                 BeetBluetoothSupport.stateStreamUuid -> handleStatePayload(payload)
                 BeetBluetoothSupport.commandResultUuid -> handleCommandPayload(payload)
-                BeetBluetoothSupport.maintenanceStatusUuid -> handleMaintenanceStatusPayload(payload)
+                BeetBluetoothSupport.maintenanceStatusUuid -> maintenanceUpdater.onMaintenanceStatusPayload(payload)
             }
+        },
+        onPhyUpdate = { gatt, txPhy, rxPhy, status ->
+            if (!isCurrentGatt(gatt, "onPhyUpdate")) {
+                return@beetGattCallback
+            }
+            BeetLog.i(TAG) { "onPhyUpdate status=$status txPhy=$txPhy rxPhy=$rxPhy" }
         },
     )
 
     companion object {
         private const val TAG = "BeetGattSession"
         private const val COMMAND_TIMEOUT_MS = 7_000L
-        private const val MAINTENANCE_CONTROL_TIMEOUT_MS = 5_000L
-        private const val MAINTENANCE_CHUNK_TIMEOUT_MS = 10_000L
-        private const val BEET_PAIR_NAME_MAX_LEN = 15
+        private const val MAX_BURST_ATTEMPTS_PER_KIND = 4
         private const val CONNECTION_TIMEOUT_MS = 30_000L
-        private const val MAINTENANCE_RECONNECT_TIMEOUT_MS = 30_000L
-        private const val MAINTENANCE_RECONNECT_DELAY_MS = 1_000L
-        private const val MAINTENANCE_GATT_STABILITY_MS = 600L
-        private const val MAINTENANCE_WAKELOCK_TIMEOUT_MS = 20L * 60L * 1000L
-        // Reset speed baseline when progress gap exceeds this
-        // (e.g. after a mid-OTA disconnect + reconnect).
         private const val MAINTENANCE_PROGRESS_GAP_RESET_MS = 10_000L
-        private const val MAX_MAINTENANCE_RECONNECT_ATTEMPTS = 3
-        private const val MAX_REBOOT_RECONNECT_ATTEMPTS = 8
         private const val CONTROLLER_INFO_READ_RETRY_DELAY_MS = 400L
         private const val MAX_CONTROLLER_INFO_READ_ATTEMPTS = 4
+        // Kept in sync with BeetMaintenanceUpdater.MAX_MAINTENANCE_RECONNECT_ATTEMPTS for reconnect detail strings.
+        private const val MAX_MAINTENANCE_RECONNECT_ATTEMPTS = 3
         private const val DEFAULT_MTU = 23
-        // MTU is FROZEN at 247. DO NOT INCREASE.
-        // See firmware comment in beet_ble.c for rationale.
-        private const val DESIRED_MTU = 247
-        private const val MIN_MAINTENANCE_PAYLOAD_BYTES = 20
-        private const val MAX_MAINTENANCE_PAYLOAD_BYTES = 236
+        // MTU requested during initial handshake and used for maintenance budgets.
+        private const val INITIAL_MTU = 247
+        // Runtime request after Connected. The effective MTU is always min(client, server);
+        // firmware clamps to 247 because NimBLE ESP32-S3 uses 255-byte ACL buffers.
+        // If firmware buffer sizing ever increases, this upgrades automatically.
+        private const val HIGH_SPEED_MTU = 517
         private const val MAX_BACKGROUND_EVENT_DOWNLOAD = 120
+        /* Burst events per stream_events window. Large windows amortize the ack/end
+           command round trips; the pump stays cancelable and resumable either way. */
+        private const val BURST_WINDOW_EVENTS = 5000L
+        /* Safety cap on windows per kind (5000 * 40 covers both full rings). */
+        private const val MAX_BURST_WINDOWS_PER_KIND = 40
         private const val INITIAL_SYNC_BATCH_SIZE = 1
         private const val MAX_SYNC_BATCH_SIZE = 8
         private const val SYNC_BATCH_GROWTH_STEP = 1
-        private const val SYNC_BURST_DELAY_MS = 20L
+        private const val SYNC_BURST_DELAY_MS = 0L
         private const val SYNC_PAUSE_POLL_MS = 50L
         private const val SYNC_CONGESTION_DELAY_MS = 150L
         private const val SYNC_TRANSIENT_FAILURE_LIMIT = 2
         private const val SYNC_CONSECUTIVE_NOT_FOUND_LIMIT = 3
         private const val EVENT_RETENTION_SECONDS = 30L * 24L * 60L * 60L
-        private const val MAX_MANUAL_DURATION_SECONDS = 1200
+
+        /* In-memory cap for the UI event lists (newest kept). The full history
+           stays on the controller and in the per-device event cache; holding
+           multi-thousand lists in state caused recomposition storms. */
+        private const val EVENT_UI_MEMORY_CAP = 2000
+        // Batch size for coalescing bulk-sync event ingestion into repository state.
+        private const val EVENT_UI_BATCH_SIZE = 20
+        // Minimum interval between burst UI state emissions (see lastBurstUiFlushElapsedMs).
+        private const val BURST_UI_FLUSH_MIN_INTERVAL_MS = 500L
         private const val EXPECTED_CONTROLLER_ACTION_TIMEOUT_MS = 30_000L
         private const val EXPECTED_REBOOT_RECONNECT_DELAY_MS = 1_000L
         private const val POST_CONNECT_EVENT_SYNC_DELAY_MS = 3_000L
@@ -2743,13 +1519,4 @@ internal class BeetGattSessionCoordinator(
 
     private class MaintenanceAbortRequestedException : IllegalStateException("Maintenance update aborted")
 
-    private fun pairBlockReasonLabel(code: String): String = when (code) {
-        "NONE" -> strings.get(R.string.block_reason_code_none)
-        "MOISTURE_RESPONSE_TEST_FAILED" -> strings.get(R.string.block_reason_code_moisture_response_test_failed)
-        "SENSOR_READING_INVALID" -> strings.get(R.string.block_reason_code_sensor_reading_invalid)
-        "LOW_BATTERY_ABORT" -> strings.get(R.string.block_reason_code_low_battery_abort)
-        else -> strings.get(R.string.common_unknown_with_code, code)
-    }
-
-    private fun beetIsValidPairIndex(pairIndex: Int): Boolean = pairIndex in 1..8
 }

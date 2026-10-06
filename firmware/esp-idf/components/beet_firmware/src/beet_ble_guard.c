@@ -45,6 +45,8 @@ beet_ble_command_lane_t beet_ble_classify_command_lane(beet_iface_command_t comm
     case BEET_IFACE_COMMAND_GET_SYSTEM_EVENT:
     case BEET_IFACE_COMMAND_GET_WATERING_HISTORY_SUMMARY:
     case BEET_IFACE_COMMAND_GET_WATERING_EVENT:
+    case BEET_IFACE_COMMAND_STREAM_EVENTS:
+    case BEET_IFACE_COMMAND_STREAM_CANCEL:
         return BEET_BLE_COMMAND_LANE_SYNC_READ;
 
     case BEET_IFACE_COMMAND_MANUAL_START:

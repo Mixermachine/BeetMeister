@@ -10,6 +10,13 @@
 #include "beet_event_ring.h"
 
 static const char *TAG = "beet_storage";
+
+/* O(1) history summary mirrors (see ble-and-android-app.md): counts derive
+   from the append-only contiguous seq space; watering pair totals are seeded
+   by the boot scan and kept exact through append updates. */
+static uint32_t s_event_pair_totals_s[BEET_PAIR_COUNT];
+static uint64_t s_events_highest_seq;
+static uint64_t s_system_events_highest_seq;
 static const char *BOOT_EPOCH_NS = "btm";
 static const char *BOOT_EPOCH_INDEX_KEY = "idx";
 
@@ -650,6 +657,10 @@ esp_err_t beet_storage_factory_reset(const char *preserved_device_id)
     ESP_RETURN_ON_ERROR(nvs_flash_init_partition("events"), TAG, "events init failed");
     ESP_RETURN_ON_ERROR(nvs_flash_init_partition("sysevents"), TAG, "sysevents init failed");
 
+    memset(s_event_pair_totals_s, 0, sizeof(s_event_pair_totals_s));
+    s_events_highest_seq = 0U;
+    s_system_events_highest_seq = 0U;
+
     beet_default_app_config(&config);
     snprintf(config.device_id, sizeof(config.device_id), "%s", preserved_device_id);
     return beet_storage_save_config(&config);
@@ -662,6 +673,8 @@ esp_err_t beet_storage_scan_event_ring(beet_event_ring_state_t *state)
     ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
 
     beet_event_ring_reset(state);
+    memset(s_event_pair_totals_s, 0, sizeof(s_event_pair_totals_s));
+    s_events_highest_seq = 0U;
 
     for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
         beet_event_record_t record;
@@ -674,9 +687,14 @@ esp_err_t beet_storage_scan_event_ring(beet_event_ring_state_t *state)
             continue;
         }
         beet_event_ring_accept_record(state, &record);
+        if (beet_event_record_is_visible(&record, 0U)) {
+            uint16_t ignored_count = 0U;
+            beet_event_ring_accumulate_summary(&record, &ignored_count, s_event_pair_totals_s);
+        }
     }
 
     beet_event_ring_finalize(state);
+    s_events_highest_seq = state->has_valid_records ? state->highest_valid_seq_no : 0U;
 
     nvs_close(handle);
     return ESP_OK;
@@ -704,12 +722,34 @@ esp_err_t beet_storage_append_event(beet_event_ring_state_t *state, beet_event_r
 
     ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
     beet_event_key(key, sizeof(key), slot);
+
+    if (next_seq > BEET_EVENT_RING_CAPACITY) {
+        /* Wrap eviction: remove the overwritten record's contribution from the
+           pair-total mirror before the slot is rewritten. */
+        beet_event_record_t evicted;
+        size_t evicted_size = sizeof(evicted);
+        if (nvs_get_blob(handle, key, &evicted, &evicted_size) == ESP_OK &&
+            evicted_size == sizeof(evicted) &&
+            beet_event_record_is_visible(&evicted, 0U) &&
+            evicted.pair_index >= 1U &&
+            evicted.pair_index <= BEET_PAIR_COUNT) {
+            s_event_pair_totals_s[evicted.pair_index - 1U] =
+                s_event_pair_totals_s[evicted.pair_index - 1U] > evicted.actual_duration_s ?
+                s_event_pair_totals_s[evicted.pair_index - 1U] - evicted.actual_duration_s : 0U;
+        }
+    }
+
     ESP_RETURN_ON_ERROR(
         nvs_set_blob(handle, key, record, sizeof(*record)),
         TAG,
         "event write failed");
     ESP_RETURN_ON_ERROR(nvs_commit(handle), TAG, "event commit failed");
     nvs_close(handle);
+
+    if (record->pair_index >= 1U && record->pair_index <= BEET_PAIR_COUNT) {
+        s_event_pair_totals_s[record->pair_index - 1U] += record->actual_duration_s;
+    }
+    s_events_highest_seq = next_seq;
 
     state->has_valid_records = true;
     state->highest_valid_seq_no = next_seq;
@@ -724,13 +764,31 @@ esp_err_t beet_storage_read_event_by_seq_no(uint32_t current_boot_id, uint64_t s
     ESP_RETURN_ON_FALSE(record != NULL, ESP_ERR_INVALID_ARG, TAG, "record is null");
     ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
 
-    for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
-        beet_event_record_t candidate;
-        size_t required_size = sizeof(candidate);
-        char key[8];
+    // Fast-path: O(1) direct slot lookup by modulo arithmetic.
+    uint16_t primary_slot = (uint16_t)(seq_no % BEET_EVENT_RING_CAPACITY);
+    beet_event_record_t candidate;
+    size_t required_size = sizeof(candidate);
+    char key[8];
 
+    beet_event_key(key, sizeof(key), primary_slot);
+    esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+    if (err == ESP_OK &&
+        required_size == sizeof(candidate) &&
+        beet_event_record_is_visible(&candidate, current_boot_id) &&
+        candidate.seq_no == seq_no) {
+        *record = candidate;
+        nvs_close(handle);
+        return ESP_OK;
+    }
+
+    // Fallback: full ring scan only if primary slot did not match (e.g. ring corruption recovery).
+    for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
+        if (slot == primary_slot) {
+            continue;
+        }
         beet_event_key(key, sizeof(key), slot);
-        esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+        required_size = sizeof(candidate);
+        err = nvs_get_blob(handle, key, &candidate, &required_size);
         if (err != ESP_OK ||
             required_size != sizeof(candidate) ||
             !beet_event_record_is_visible(&candidate, current_boot_id)) {
@@ -749,31 +807,16 @@ esp_err_t beet_storage_read_event_by_seq_no(uint32_t current_boot_id, uint64_t s
 
 esp_err_t beet_storage_summarize_events(uint32_t current_boot_id, uint16_t *event_count, uint32_t pair_totals_s[BEET_PAIR_COUNT])
 {
-    nvs_handle_t handle = 0;
-
+    (void)current_boot_id;
     ESP_RETURN_ON_FALSE(event_count != NULL, ESP_ERR_INVALID_ARG, TAG, "event_count is null");
     ESP_RETURN_ON_FALSE(pair_totals_s != NULL, ESP_ERR_INVALID_ARG, TAG, "pair_totals_s is null");
-    ESP_RETURN_ON_ERROR(beet_open_namespace("events", "ring", NVS_READWRITE, &handle), TAG, "event namespace open failed");
 
-    *event_count = 0U;
-    memset(pair_totals_s, 0, sizeof(uint32_t) * BEET_PAIR_COUNT);
-
-    for (uint16_t slot = 0U; slot < BEET_EVENT_RING_CAPACITY; ++slot) {
-        beet_event_record_t record;
-        size_t required_size = sizeof(record);
-        char key[8];
-
-        beet_event_key(key, sizeof(key), slot);
-        if (nvs_get_blob(handle, key, &record, &required_size) != ESP_OK ||
-            required_size != sizeof(record) ||
-            !beet_event_record_is_visible(&record, current_boot_id)) {
-            continue;
-        }
-
-        beet_event_ring_accumulate_summary(&record, event_count, pair_totals_s);
-    }
-
-    nvs_close(handle);
+    /* O(1): the ring is append-only with contiguous seq 1..highest, so the live
+       record count is min(highest, capacity). Pair totals are maintained
+       incrementally by the boot scan and append path. */
+    *event_count = (uint16_t)(s_events_highest_seq < BEET_EVENT_RING_CAPACITY ?
+        s_events_highest_seq : BEET_EVENT_RING_CAPACITY);
+    memcpy(pair_totals_s, s_event_pair_totals_s, sizeof(uint32_t) * BEET_PAIR_COUNT);
     return ESP_OK;
 }
 
@@ -784,6 +827,7 @@ esp_err_t beet_storage_scan_system_event_ring(beet_event_ring_state_t *state)
     ESP_RETURN_ON_ERROR(beet_open_namespace("sysevents", "ring", NVS_READWRITE, &handle), TAG, "system event namespace open failed");
 
     beet_event_ring_reset(state);
+    s_system_events_highest_seq = 0U;
 
     for (uint16_t slot = 0U; slot < BEET_SYSTEM_EVENT_RING_CAPACITY; ++slot) {
         beet_system_event_record_t record;
@@ -799,6 +843,7 @@ esp_err_t beet_storage_scan_system_event_ring(beet_event_ring_state_t *state)
     }
 
     beet_system_event_ring_finalize(state);
+    s_system_events_highest_seq = state->has_valid_records ? state->highest_valid_seq_no : 0U;
 
     nvs_close(handle);
     return ESP_OK;
@@ -830,6 +875,8 @@ esp_err_t beet_storage_append_system_event(beet_event_ring_state_t *state, beet_
     ESP_RETURN_ON_ERROR(nvs_commit(handle), TAG, "system event commit failed");
     nvs_close(handle);
 
+    s_system_events_highest_seq = next_seq;
+
     state->has_valid_records = true;
     state->highest_valid_seq_no = next_seq;
     state->next_write_slot = (uint16_t)((next_seq + 1U) % BEET_SYSTEM_EVENT_RING_CAPACITY);
@@ -843,13 +890,31 @@ esp_err_t beet_storage_read_system_event_by_seq_no(uint32_t current_boot_id, uin
     ESP_RETURN_ON_FALSE(record != NULL, ESP_ERR_INVALID_ARG, TAG, "record is null");
     ESP_RETURN_ON_ERROR(beet_open_namespace("sysevents", "ring", NVS_READWRITE, &handle), TAG, "system event namespace open failed");
 
-    for (uint16_t slot = 0U; slot < BEET_SYSTEM_EVENT_RING_CAPACITY; ++slot) {
-        beet_system_event_record_t candidate;
-        size_t required_size = sizeof(candidate);
-        char key[8];
+    // Fast-path: O(1) direct slot lookup by modulo arithmetic.
+    uint16_t primary_slot = (uint16_t)(seq_no % BEET_SYSTEM_EVENT_RING_CAPACITY);
+    beet_system_event_record_t candidate;
+    size_t required_size = sizeof(candidate);
+    char key[8];
 
+    beet_event_key(key, sizeof(key), primary_slot);
+    esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+    if (err == ESP_OK &&
+        required_size == sizeof(candidate) &&
+        beet_system_event_record_is_visible(&candidate, current_boot_id) &&
+        candidate.seq_no == seq_no) {
+        *record = candidate;
+        nvs_close(handle);
+        return ESP_OK;
+    }
+
+    // Fallback: full ring scan only if primary slot did not match (e.g. ring corruption recovery).
+    for (uint16_t slot = 0U; slot < BEET_SYSTEM_EVENT_RING_CAPACITY; ++slot) {
+        if (slot == primary_slot) {
+            continue;
+        }
         beet_event_key(key, sizeof(key), slot);
-        esp_err_t err = nvs_get_blob(handle, key, &candidate, &required_size);
+        required_size = sizeof(candidate);
+        err = nvs_get_blob(handle, key, &candidate, &required_size);
         if (err != ESP_OK ||
             required_size != sizeof(candidate) ||
             !beet_system_event_record_is_visible(&candidate, current_boot_id)) {
@@ -868,28 +933,12 @@ esp_err_t beet_storage_read_system_event_by_seq_no(uint32_t current_boot_id, uin
 
 esp_err_t beet_storage_summarize_system_events(uint32_t current_boot_id, uint16_t *event_count)
 {
-    nvs_handle_t handle = 0;
-
+    (void)current_boot_id;
     ESP_RETURN_ON_FALSE(event_count != NULL, ESP_ERR_INVALID_ARG, TAG, "event_count is null");
-    ESP_RETURN_ON_ERROR(beet_open_namespace("sysevents", "ring", NVS_READWRITE, &handle), TAG, "system event namespace open failed");
 
-    *event_count = 0U;
-    for (uint16_t slot = 0U; slot < BEET_SYSTEM_EVENT_RING_CAPACITY; ++slot) {
-        beet_system_event_record_t record;
-        size_t required_size = sizeof(record);
-        char key[8];
-
-        beet_event_key(key, sizeof(key), slot);
-        if (nvs_get_blob(handle, key, &record, &required_size) != ESP_OK ||
-            required_size != sizeof(record) ||
-            !beet_system_event_record_is_visible(&record, current_boot_id)) {
-            continue;
-        }
-
-        (*event_count)++;
-    }
-
-    nvs_close(handle);
+    /* O(1): contiguous append-only ring, see summarize_events above. */
+    *event_count = (uint16_t)(s_system_events_highest_seq < BEET_SYSTEM_EVENT_RING_CAPACITY ?
+        s_system_events_highest_seq : BEET_SYSTEM_EVENT_RING_CAPACITY);
     return ESP_OK;
 }
 

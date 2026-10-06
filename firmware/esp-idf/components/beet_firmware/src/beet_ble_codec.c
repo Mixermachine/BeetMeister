@@ -408,6 +408,68 @@ int beet_ble_format_system_event_frame_json(
         "}");
 }
 
+int beet_ble_format_watering_event_frame_json(
+    char *buf,
+    size_t len,
+    const beet_event_record_t *event,
+    uint32_t started_unix_s,
+    uint32_t ended_unix_s)
+{
+    if (buf == NULL || event == NULL) {
+        return -1;
+    }
+    return snprintf(
+        buf,
+        len,
+        "{\"type\":\"event\",\"data\":{\"seq\":%llu,\"pair\":%u,\"boot_id\":%lu,\"src\":%u,"
+        "\"start\":%lu,\"end\":%lu,\"mb\":%u,\"ma\":%u,\"sb\":%u,\"sa\":%u,\"req\":%u,\"act\":%u,"
+        "\"stop\":%u,\"block\":%u,\"bs\":%u,\"be\":%u,\"su\":%lu,\"eu\":%lu}}",
+        (unsigned long long)event->seq_no,
+        event->pair_index,
+        (unsigned long)event->boot_id,
+        event->trigger_source,
+        (unsigned long)started_unix_s,
+        (unsigned long)ended_unix_s,
+        event->moisture_before_pct,
+        event->moisture_after_pct,
+        event->sensor_before_mv,
+        event->sensor_after_mv,
+        event->requested_duration_s,
+        event->actual_duration_s,
+        event->stop_reason,
+        event->block_reason,
+        event->battery_start_mv,
+        event->battery_end_mv,
+        (unsigned long)event->started_uptime_s,
+        (unsigned long)event->ended_uptime_s);
+}
+
+int beet_ble_format_stream_end_frame_json(
+    char *buf,
+    size_t len,
+    uint32_t stream_id,
+    uint8_t stream_kind,
+    const char *status,
+    uint32_t delivered,
+    uint64_t last_seq,
+    uint32_t gaps)
+{
+    if (buf == NULL || status == NULL) {
+        return -1;
+    }
+    return snprintf(
+        buf,
+        len,
+        "{\"type\":\"stream_end\",\"data\":{\"id\":%lu,\"kind\":\"%s\",\"status\":\"%s\","
+        "\"delivered\":%lu,\"last_seq\":%llu,\"gaps\":%lu}}",
+        (unsigned long)stream_id,
+        stream_kind == 1U ? "system" : "watering",
+        status,
+        (unsigned long)delivered,
+        (unsigned long long)last_seq,
+        (unsigned long)gaps);
+}
+
 int beet_ble_format_command_result_json(
     char *buf,
     size_t len,
@@ -466,6 +528,25 @@ int beet_ble_format_command_result_json(
             beet_iface_reason_name(response->reason),
             (unsigned long long)response->latest_system_event_seq_no,
             response->system_event_count);
+    }
+
+    if (response->command == BEET_IFACE_COMMAND_STREAM_EVENTS &&
+        response->status == BEET_IFACE_STATUS_ACCEPTED &&
+        response->has_stream_ack) {
+        return snprintf(
+            buf,
+            len,
+            "{\"cmd\":\"%s\",\"status\":\"%s\",\"reason\":\"%s\",\"data\":{\"stream_id\":%lu,\"kind\":\"%s\","
+            "\"from_seq\":%llu,\"latest_seq\":%llu,\"oldest_seq\":%llu,\"total\":%lu}}",
+            beet_iface_command_name(response->command),
+            beet_iface_status_name(response->status),
+            beet_iface_reason_name(response->reason),
+            (unsigned long)response->stream_id,
+            response->stream_kind == 1U ? "system" : "watering",
+            (unsigned long long)response->stream_from_seq,
+            (unsigned long long)response->stream_latest_seq,
+            (unsigned long long)response->stream_oldest_seq,
+            (unsigned long)response->stream_total);
     }
 
     if (response->command == BEET_IFACE_COMMAND_GET_EVENT &&
@@ -2164,6 +2245,110 @@ bool beet_ble_parse_command_json(
                         &request->pair_index,
                         &request->target_level,
                         &request->duration_multiplier)) {
+                    return false;
+                }
+            } else if (strcmp(cmd, "generate_synthetic_events") == 0) {
+                request->command = BEET_IFACE_COMMAND_GENERATE_SYNTHETIC_EVENTS;
+                uint16_t w_count = 0;
+                uint16_t s_count = 0;
+                beet_ble_skip_ws(&cursor);
+                if (!beet_ble_consume_char(&cursor, '{')) {
+                    return false;
+                }
+                while (true) {
+                    beet_ble_skip_ws(&cursor);
+                    if (*cursor == '}') {
+                        ++cursor;
+                        break;
+                    }
+                    char subkey[32];
+                    if (!beet_ble_parse_string(&cursor, subkey, sizeof(subkey)) ||
+                        !beet_ble_consume_char(&cursor, ':')) {
+                        return false;
+                    }
+                    if (strcmp(subkey, "watering_count") == 0) {
+                        if (!beet_ble_parse_u16(&cursor, &w_count)) {
+                            return false;
+                        }
+                    } else if (strcmp(subkey, "system_count") == 0) {
+                        if (!beet_ble_parse_u16(&cursor, &s_count)) {
+                            return false;
+                        }
+                    } else {
+                        if (!beet_ble_skip_json_value(&cursor)) {
+                            return false;
+                        }
+                    }
+                    beet_ble_skip_ws(&cursor);
+                    if (*cursor == ',') {
+                        ++cursor;
+                        continue;
+                    }
+                    if (*cursor == '}') {
+                        ++cursor;
+                        break;
+                    }
+                    return false;
+                }
+                request->synthetic_watering_count = w_count;
+                request->synthetic_system_count = s_count;
+            } else if (strcmp(cmd, "stream_events") == 0) {
+                request->command = BEET_IFACE_COMMAND_STREAM_EVENTS;
+                if (!beet_ble_consume_char(&cursor, '{')) {
+                    return false;
+                }
+                while (true) {
+                    beet_ble_skip_ws(&cursor);
+                    if (*cursor == '}') {
+                        ++cursor;
+                        break;
+                    }
+                    char subkey[32];
+                    if (!beet_ble_parse_string(&cursor, subkey, sizeof(subkey)) ||
+                        !beet_ble_consume_char(&cursor, ':')) {
+                        return false;
+                    }
+                    if (strcmp(subkey, "kind") == 0) {
+                        char kind[16];
+                        if (!beet_ble_parse_string(&cursor, kind, sizeof(kind))) {
+                            return false;
+                        }
+                        if (strcmp(kind, "watering") == 0) {
+                            request->stream_kind = 0U;
+                        } else if (strcmp(kind, "system") == 0) {
+                            request->stream_kind = 1U;
+                        } else {
+                            return false;
+                        }
+                    } else if (strcmp(subkey, "from_seq") == 0) {
+                        if (!beet_ble_parse_u64(&cursor, &request->seq_no)) {
+                            return false;
+                        }
+                    } else if (strcmp(subkey, "max_events") == 0) {
+                        uint64_t parsed_max = 0;
+                        if (!beet_ble_parse_u64(&cursor, &parsed_max) || parsed_max > UINT32_MAX) {
+                            return false;
+                        }
+                        request->stream_max_events = (uint32_t)parsed_max;
+                    } else {
+                        if (!beet_ble_skip_json_value(&cursor)) {
+                            return false;
+                        }
+                    }
+                    beet_ble_skip_ws(&cursor);
+                    if (*cursor == ',') {
+                        ++cursor;
+                        continue;
+                    }
+                    if (*cursor == '}') {
+                        ++cursor;
+                        break;
+                    }
+                    return false;
+                }
+            } else if (strcmp(cmd, "stream_cancel") == 0) {
+                request->command = BEET_IFACE_COMMAND_STREAM_CANCEL;
+                if (!beet_ble_parse_empty_data(&cursor)) {
                     return false;
                 }
             } else {

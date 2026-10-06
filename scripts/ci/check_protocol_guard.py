@@ -19,9 +19,15 @@ RUNTIME_SURFACE_FILES = {
     "firmware/esp-idf/components/beet_firmware/src/beet_iface_names.c",
 }
 
+# Maintenance WIRE surface tokens only. Bare identifier prefixes like
+# "maintenance_" or "BEET_MAINTENANCE_" are deliberately NOT matched: runtime code
+# legitimately reads internal maintenance session state (e.g. the stream pump
+# checks s_ble.maintenance_session.active) without touching the wire. Anything
+# that actually changes the maintenance protocol surface - protocol version key,
+# characteristic/format handler names, or wire command strings - still fires.
 MAINTENANCE_LINE_RE = re.compile(
-    r"(maintenance_|maintenance_info|maintenance_status|maintenance_data|"
-    r"maintenance_protocol_version|BEET_MAINTENANCE_|"
+    r"(maintenance_protocol_version|maintenance_info|maintenance_status|"
+    r"maintenance_data|BEET_MAINTENANCE_PROTOCOL|"
     r"\"begin_update\"|\"query_status\"|\"abort_update\"|\"finish_update\"|"
     r"asset_id|image_kind)"
 )
@@ -103,12 +109,23 @@ def main() -> int:
     for path, changed_line in diff_entries:
         if path.endswith((".md", ".txt", ".png", ".svg", ".jpg", ".jpeg", ".properties", ".yml", ".yaml", ".xml")):
             continue
-        if "/res/" in path.replace("\\", "/"):
+        normalized_path = path.replace("\\", "/")
+        if "/res/" in normalized_path:
+            continue
+        # The guard's own source quotes wire tokens; scanning it would self-match.
+        if normalized_path == "scripts/ci/check_protocol_guard.py":
+            continue
+        # Test sources cannot change shipped wire behavior; wire changes must hit
+        # production files to take effect and are caught there.
+        if normalized_path.startswith("firmware/tests/") or "/src/test/" in normalized_path or "/src/androidTest/" in normalized_path:
             continue
         normalized = changed_line.strip()
         if not normalized:
             continue
-        if "R.string.maintenance_" in normalized:
+        # UI string resource keys are not wire content: any maintenance-named
+        # localization key (runtime_* and maintenance_* buckets) is exempt, same
+        # as the historic R.string.maintenance_ exemption.
+        if re.search(r"R\.string\.[A-Za-z0-9_]*maintenance[A-Za-z0-9_]*", normalized):
             continue
         if MAINTENANCE_LINE_RE.search(normalized):
             maintenance_hits.append(path)

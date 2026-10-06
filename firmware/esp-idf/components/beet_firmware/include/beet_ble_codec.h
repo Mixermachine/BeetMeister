@@ -38,6 +38,21 @@ int beet_ble_format_system_event_frame_json(
     size_t len,
     const beet_system_event_record_t *event,
     uint32_t unix_s);
+int beet_ble_format_watering_event_frame_json(
+    char *buf,
+    size_t len,
+    const beet_event_record_t *event,
+    uint32_t started_unix_s,
+    uint32_t ended_unix_s);
+int beet_ble_format_stream_end_frame_json(
+    char *buf,
+    size_t len,
+    uint32_t stream_id,
+    uint8_t stream_kind,
+    const char *status,
+    uint32_t delivered,
+    uint64_t last_seq,
+    uint32_t gaps);
 int beet_ble_format_command_result_json(
     char *buf,
     size_t len,

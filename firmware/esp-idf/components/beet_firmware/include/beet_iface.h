@@ -45,6 +45,9 @@ typedef enum {
     BEET_IFACE_COMMAND_STORE_PAIR_COMBINED = 34,
     BEET_IFACE_COMMAND_GET_PAIR_CONFIG = 35,
     BEET_IFACE_COMMAND_STORE_PAIR_CONFIG = 36,
+    BEET_IFACE_COMMAND_GENERATE_SYNTHETIC_EVENTS = 37,
+    BEET_IFACE_COMMAND_STREAM_EVENTS = 38,
+    BEET_IFACE_COMMAND_STREAM_CANCEL = 39,
 } beet_iface_command_t;
 
 typedef enum {
@@ -126,6 +129,10 @@ typedef struct {
     uint8_t combined_mask;
     beet_target_moisture_level_t target_level;
     uint8_t duration_multiplier;
+    uint16_t synthetic_watering_count;
+    uint16_t synthetic_system_count;
+    uint8_t stream_kind;        /* 0 = watering events, 1 = system events */
+    uint32_t stream_max_events; /* 0 = no explicit cap beyond firmware bound */
 } beet_iface_command_request_t;
 
 typedef struct {
@@ -176,6 +183,13 @@ typedef struct {
     uint8_t combined_mask;
     bool has_pair_config;
     beet_pair_config_t pair_config;
+    bool has_stream_ack;
+    uint32_t stream_id;
+    uint8_t stream_kind;
+    uint64_t stream_from_seq;
+    uint64_t stream_latest_seq;
+    uint64_t stream_oldest_seq;
+    uint32_t stream_total;
 } beet_iface_command_response_t;
 
 typedef struct {
@@ -223,6 +237,16 @@ esp_err_t beet_iface_get_event(uint64_t seq_no, beet_iface_event_t *event);
 esp_err_t beet_iface_get_system_event(uint64_t seq_no, beet_iface_system_event_t *event);
 uint64_t beet_iface_get_latest_event_seq_no(void);
 uint64_t beet_iface_get_latest_system_event_seq_no(void);
+esp_err_t beet_iface_format_event_frame_json(
+    uint64_t seq_no,
+    char *buf,
+    size_t len,
+    size_t *out_len);
+esp_err_t beet_iface_format_system_event_frame_json(
+    uint64_t seq_no,
+    char *buf,
+    size_t len,
+    size_t *out_len);
 esp_err_t beet_iface_submit_command(
     const beet_iface_command_request_t *request,
     beet_iface_command_response_t *response);

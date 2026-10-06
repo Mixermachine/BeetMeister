@@ -23,6 +23,8 @@ import de.aarondietz.beetmeister.model.command.BeetPairConfigCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairNameCommandData
 import de.aarondietz.beetmeister.model.command.BeetPairCommandData
 import de.aarondietz.beetmeister.model.command.BeetSetTimeCommandData
+import de.aarondietz.beetmeister.model.command.BeetStreamAck
+import de.aarondietz.beetmeister.model.command.BeetStreamEventsCommandData
 import de.aarondietz.beetmeister.model.command.BeetValveConfigCommandData
 import de.aarondietz.beetmeister.model.command.BeetValvePreviewCommandData
 import de.aarondietz.beetmeister.model.command.BeetWateringIntervalCommandData
@@ -43,6 +45,7 @@ import de.aarondietz.beetmeister.model.event.BeetHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetSystemEvent
 import de.aarondietz.beetmeister.model.event.BeetSystemHistorySummary
 import de.aarondietz.beetmeister.model.event.BeetWateringEvent
+import de.aarondietz.beetmeister.model.stream.BeetStreamEnd
 import de.aarondietz.beetmeister.model.stream.BeetStateMessage
 import de.aarondietz.beetmeister.model.update.BeetFirmwarePackageSummary
 import de.aarondietz.beetmeister.model.update.BeetMaintenanceStatus
@@ -136,6 +139,10 @@ object BeetJsonCodec {
         runtimeMoshi.adapter(BeetSystemHistorySummary::class.java)
     private val wateringEventPayloadAdapter: JsonAdapter<BeetWateringEvent> =
         runtimeMoshi.adapter(BeetWateringEvent::class.java)
+    private val streamAckPayloadAdapter: JsonAdapter<BeetStreamAck> =
+        runtimeMoshi.adapter(BeetStreamAck::class.java)
+    private val streamEndPayloadAdapter: JsonAdapter<BeetStreamEnd> =
+        runtimeMoshi.adapter(BeetStreamEnd::class.java)
 
     private val manualStartEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetManualStartCommandData::class.java)
     private val pairRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairCommandData::class.java)
@@ -150,6 +157,7 @@ object BeetJsonCodec {
     private val pairCombinedRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairCombinedCommandData::class.java)
     private val pairConfigRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetPairConfigCommandData::class.java)
     private val emptyRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetEmptyCommandData::class.java)
+    private val streamEventsRequestEnvelopeAdapter = commandRequestEnvelopeAdapter(BeetStreamEventsCommandData::class.java)
 
     data class CommandChunkFrame(
         val id: Long,
@@ -190,6 +198,16 @@ object BeetJsonCodec {
                 BeetStateMessage.SystemEventUpdate(dto)
             }
 
+            "event" -> {
+                val dto = wateringEventPayloadAdapter.fromJson(dataJson) ?: return null
+                BeetStateMessage.WateringEventUpdate(dto)
+            }
+
+            "stream_end" -> {
+                val dto = streamEndPayloadAdapter.fromJson(dataJson) ?: return null
+                BeetStateMessage.StreamEndUpdate(dto)
+            }
+
             else -> null
         }
     }
@@ -220,6 +238,11 @@ object BeetJsonCodec {
         }
         val systemEvent = if (header.cmd == "get_system_event" && header.status == "accepted") {
             systemEventPayloadAdapter.fromJson(dataJson) ?: error("Invalid system event payload.")
+        } else {
+            null
+        }
+        val streamAck = if (header.cmd == "stream_events" && header.status == "accepted") {
+            streamAckPayloadAdapter.fromJson(dataJson) ?: error("Invalid stream ack payload.")
         } else {
             null
         }
@@ -285,6 +308,7 @@ object BeetJsonCodec {
             event = event,
             systemHistorySummary = systemHistorySummary,
             systemEvent = systemEvent,
+            streamAck = streamAck,
             valveConfig = valveConfig,
             wateringInterval = wateringInterval,
             pairWiring = pairWiring,
@@ -474,6 +498,28 @@ object BeetJsonCodec {
             CommandRequestEnvelopeDto(
                 cmd = "get_system_event",
                 data = BeetEventRequestData(sequenceNumber = sequenceNumber),
+            ),
+        )
+
+    /** Runtime v19: arm a controller-side burst stream of stored events. */
+    /** Extracts the "cmd" name from a command payload we generated (stale-result correlation). */
+    fun commandName(payload: String): String? =
+        Regex("\"cmd\":\"([a-z_]+)\"").find(payload)?.groupValues?.get(1)
+
+    fun streamEvents(kind: String, fromSeq: Long, maxEvents: Long? = null): String =
+        streamEventsRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "stream_events",
+                data = BeetStreamEventsCommandData(kind = kind, fromSeq = fromSeq, maxEvents = maxEvents),
+            ),
+        )
+
+    /** Runtime v19: stop all active burst streams without terminal frames. */
+    fun streamCancel(): String =
+        emptyRequestEnvelopeAdapter.toJson(
+            CommandRequestEnvelopeDto(
+                cmd = "stream_cancel",
+                data = BeetEmptyCommandData(),
             ),
         )
 
