@@ -11,7 +11,8 @@ import de.aarondietz.beetmeister.logging.BeetLog
 import de.aarondietz.beetmeister.BuildConfig
 import de.aarondietz.beetmeister.R
 import de.aarondietz.beetmeister.data.firmware.BeetFirmwareImagePackage
-import de.aarondietz.beetmeister.data.local.BeetEventCache
+import de.aarondietz.beetmeister.data.local.BeetEventStore
+import de.aarondietz.beetmeister.data.local.BeetEventStores
 import de.aarondietz.beetmeister.data.local.mergeRetainedSystemEvents
 import de.aarondietz.beetmeister.data.protocol.BeetJsonCodec
 import de.aarondietz.beetmeister.data.repository.BeetBacklogFetchResult
@@ -64,7 +65,7 @@ internal class BeetGattSessionCoordinator(
 
     private val strings get() = host.strings
     private val commandMutex = Mutex()
-    private val eventCache = BeetEventCache(host.appContext.getSharedPreferences("beetmeister_event_cache", android.content.Context.MODE_PRIVATE))
+    private val eventStore: BeetEventStore by lazy { BeetEventStores.get(host.appContext) }
     private val maintenanceUpdater = BeetMaintenanceUpdater(host, this)
     private var connectionTimeoutJob: Job? = null
     private var controllerInfoRetryJob: Job? = null
@@ -151,7 +152,7 @@ internal class BeetGattSessionCoordinator(
 
     private fun clearCachedControllerHistory() {
         val deviceId = host.state.value.controllerInfo?.deviceId ?: return
-        eventCache.clearDevice(deviceId)
+        eventStore.clearDevice(deviceId)
         host.updateState { state ->
             state.copy(
                 historySummary = null,
@@ -409,8 +410,8 @@ internal class BeetGattSessionCoordinator(
                 return@launch
             }
             val deviceId = host.state.value.controllerInfo?.deviceId ?: return@launch
-            val cachedWatering = eventCache.loadWateringEvents(deviceId)
-            val cachedSystem = eventCache.loadSystemEvents(deviceId)
+            val cachedWatering = eventStore.loadWateringEvents(deviceId)
+            val cachedSystem = eventStore.loadSystemEvents(deviceId)
             host.updateState {
                 it.copy(
                     recentEvents = mergeWateringEvents(it.recentEvents, cachedWatering),
@@ -492,8 +493,8 @@ internal class BeetGattSessionCoordinator(
             if (latest <= 0L || count <= 0) 1L else maxOf(1L, latest - count.toLong() + 1L)
         val oldestWatering = wateringSummary?.let { ringOldest(it.latestSequenceNumber, it.eventCount) } ?: 1L
         val oldestSystem = systemSummary?.let { ringOldest(it.latestSequenceNumber, it.eventCount) } ?: 1L
-        var startWatering = maxOf(1L, eventCache.loadSyncWatermark(deviceId, BeetStreamKind.WATERING.wireName), oldestWatering)
-        var startSystem = maxOf(1L, eventCache.loadSyncWatermark(deviceId, BeetStreamKind.SYSTEM.wireName), oldestSystem)
+        var startWatering = maxOf(1L, eventStore.loadSyncWatermark(deviceId, BeetStreamKind.WATERING.wireName), oldestWatering)
+        var startSystem = maxOf(1L, eventStore.loadSyncWatermark(deviceId, BeetStreamKind.SYSTEM.wireName), oldestSystem)
         var latestWatering = 0L
         var latestSystem = 0L
         fun pendingSince(start: Long, latest: Long): Long =
@@ -539,7 +540,7 @@ internal class BeetGattSessionCoordinator(
                         }
                         cursor = run.nextCursor
                         if (cursor > 1L) {
-                            eventCache.saveSyncWatermark(deviceId, kind.wireName, cursor - 1L)
+                            eventStore.saveSyncWatermark(deviceId, kind.wireName, cursor - 1L)
                         }
                         val latest = if (kind == BeetStreamKind.WATERING) latestWatering else latestSystem
                         if (cursor > latest || attempts >= MAX_BURST_WINDOWS_PER_KIND) {
@@ -591,8 +592,8 @@ internal class BeetGattSessionCoordinator(
                 val system = systemBuffer.toList()
                 wateringBuffer.clear()
                 systemBuffer.clear()
-                runCatching { eventCache.saveWateringEvents(deviceId, watering) }
-                runCatching { eventCache.saveSystemEvents(deviceId, system) }
+                runCatching { eventStore.saveWateringEvents(deviceId, watering) }
+                runCatching { eventStore.saveSystemEvents(deviceId, system) }
                 host.updateState { state ->
                     state.copy(
                         recentEvents = if (watering.isEmpty()) state.recentEvents else mergeWateringEvents(state.recentEvents, watering),
@@ -720,12 +721,12 @@ internal class BeetGattSessionCoordinator(
         ).let { if (it.size > EVENT_UI_MEMORY_CAP) it.take(EVENT_UI_MEMORY_CAP) else it }
 
     private fun ingestWateringEvent(deviceId: String, event: BeetWateringEvent) {
-        eventCache.saveWateringEvent(deviceId, event)
+        eventStore.saveWateringEvents(deviceId, listOf(event))
         host.updateState { state -> state.copy(recentEvents = mergeWateringEvents(state.recentEvents, listOf(event))) }
     }
 
     private fun ingestSystemEvent(deviceId: String, event: BeetSystemEvent) {
-        eventCache.saveSystemEvent(deviceId, event)
+        eventStore.saveSystemEvents(deviceId, listOf(event))
         host.updateState { state -> state.copy(systemEvents = mergeSystemEvents(state.systemEvents, listOf(event))) }
     }
 
@@ -1083,8 +1084,8 @@ internal class BeetGattSessionCoordinator(
         lastBurstUiFlushElapsedMs = SystemClock.elapsedRealtime()
         val deviceId = host.state.value.controllerInfo?.deviceId
         if (deviceId != null) {
-            runCatching { eventCache.saveWateringEvents(deviceId, watering) }
-            runCatching { eventCache.saveSystemEvents(deviceId, system) }
+            runCatching { eventStore.saveWateringEvents(deviceId, watering) }
+            runCatching { eventStore.saveSystemEvents(deviceId, system) }
         }
         host.updateState { state ->
             val transferred = (state.eventSync.transferred + watering.size + system.size).coerceAtMost(state.eventSync.total)
