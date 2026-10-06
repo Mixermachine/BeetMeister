@@ -12,6 +12,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 VERSION_FILE = "config/protocol_versions.properties"
 MAINTENANCE_OVERRIDE_MARKER = "MAINTENANCE_PROTOCOL_CHANGE_APPROVED"
 
+# Lines that provably cannot carry wire semantics: preprocessor include
+# directives and comment text (C and Kotlin forms). Exemption is start-anchored,
+# so any line with actual code - even one ending in a comment - still counts.
+# Deliberately exclusion-based: everything not in this list remains fail-closed
+# for the surface checks below.
+NON_SEMANTIC_LINE_RE = re.compile(r"^\s*(#include\b|//|/\*|\*/|\*)")
+
 RUNTIME_SURFACE_FILES = {
     "app/app/src/main/java/de/aarondietz/beetmeister/data/protocol/BeetJsonCodec.kt",
     "firmware/esp-idf/components/beet_firmware/include/beet_iface.h",
@@ -121,6 +128,8 @@ def main() -> int:
             continue
         normalized = changed_line.strip()
         if not normalized:
+            continue
+        if NON_SEMANTIC_LINE_RE.match(changed_line):
             continue
         # UI string resource keys are not wire content: any maintenance-named
         # localization key (runtime_* and maintenance_* buckets) is exempt, same
