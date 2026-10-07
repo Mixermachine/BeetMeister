@@ -286,7 +286,9 @@ private fun PairOverviewCard(
             Row(horizontalArrangement = Arrangement.spacedBy(MaterialTheme.spacing.elementGap)) {
                 Button(
                     onClick = onDetails,
-                    modifier = Modifier.testTag(OverviewTestTags.PairDetailsButton),
+                    // Per-pair tag: robots must target a specific card, not the
+                    // n-th composed instance of a shared tag (viewport-dependent).
+                    modifier = Modifier.testTag("${OverviewTestTags.PairDetailsButton}_$pairIndex"),
                 ) { Text(strings.get(R.string.common_details)) }
                 PairErrorClearButton(
                     canClearError = pair != null && pair.sensorValid && (pair.blocked || pair.state == "FAULT"),

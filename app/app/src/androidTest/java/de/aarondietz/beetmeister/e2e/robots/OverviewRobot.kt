@@ -6,12 +6,18 @@ import androidx.compose.ui.test.assertAll
 import androidx.compose.ui.test.assertAny
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import de.aarondietz.beetmeister.ui.feature.overview.OverviewTestTags
@@ -131,27 +137,42 @@ internal class OverviewRobot(
     /**
      * Taps the Details button on the n-th pair card (0-indexed). Used as the
      * entry point for [PairDetailRobot]'s flows.
+     *
+     * Uses the per-pair test tag (`pair_details_button_<pairIndex>`, 1-based
+     * pair numbers) as the scroll anchor and click target. The previous
+     * implementation mixed two index spaces — LazyColumn item index (item 0 is
+     * the system values card) and the n-th *composed* details button (which
+     * depends on the viewport) — so on narrow viewports it could click the
+     * wrong pair's button or an off-viewport node (click injected at dead
+     * coordinates, no navigation).
      */
     fun tapPairDetails(index: Int) {
+        val buttonTag = "${OverviewTestTags.PairDetailsButton}_${index + 1}"
         val listNode = composeRule.onNodeWithTag(OverviewTestTags.List)
-        listNode.performScrollToIndex(index)
+        listNode.performScrollToNode(hasTestTag(buttonTag))
         composeRule.waitForIdle()
 
         composeRule
-            .onAllNodesWithTag(OverviewTestTags.PairDetailsButton)
-            .get(index)
+            .onNodeWithTag(buttonTag)
             .performClick()
-        composeRule
-            .onNodeWithTag(de.aarondietz.beetmeister.ui.feature.pairdetail.PairDetailTestTags.Container)
-            .assertIsDisplayed()
+        try {
+            composeRule
+                .onNodeWithTag(de.aarondietz.beetmeister.ui.feature.pairdetail.PairDetailTestTags.Container)
+                .assertIsDisplayed()
+        } catch (t: Throwable) {
+            // Diagnostic: dump the semantics tree when navigation failed.
+            runCatching { android.util.Log.w("CPUI_DIAG", composeRule.onRoot().printToString()) }
+            throw t
+        }
     }
 
     /**
      * Asserts that the n-th pair card (0-indexed) displays a sensor source badge with [expectedText].
      */
     fun assertPairSensorSourceBadgeEquals(index: Int, expectedText: String) {
+        val buttonTag = "${OverviewTestTags.PairDetailsButton}_${index + 1}"
         val listNode = composeRule.onNodeWithTag(OverviewTestTags.List)
-        listNode.performScrollToIndex(index)
+        listNode.performScrollToNode(hasTestTag(buttonTag))
         composeRule.waitForIdle()
 
         composeRule.waitUntil(timeoutMillis = 10_000) {
@@ -160,9 +181,15 @@ internal class OverviewRobot(
             count > 0
         }
 
-        // Verify across cards that the expected badge text is displayed
-        composeRule.onAllNodesWithTag(OverviewTestTags.PairSensorSourceBadge)
-            .assertAny(androidx.compose.ui.test.hasText(expectedText))
+        // Target THIS pair's card only: the card that owns the pair's details
+        // button must also own a badge with the expected text. The previous
+        // assertAny-over-all-composed-badges check could match a badge on a
+        // different pair's card and scrolled to the wrong list index.
+        composeRule.onNode(
+            hasTestTag(OverviewTestTags.PairCard)
+                .and(hasAnyDescendant(hasTestTag(buttonTag)))
+                .and(hasAnyDescendant(hasTestTag(OverviewTestTags.PairSensorSourceBadge).and(hasText(expectedText)))),
+        ).assertExists("Expected card ${index + 1} to show badge '$expectedText'")
     }
 
     /**
