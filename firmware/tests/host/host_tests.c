@@ -649,18 +649,19 @@ static void test_ble_command_lane_split(void)
     beet_ble_rate_guard_t sync_guard;
 
     beet_ble_rate_guard_init(&real_guard, 1000000LL, 4U);
-    beet_ble_rate_guard_init(&sync_guard, 1000000LL, 12U);
+    beet_ble_rate_guard_init(&sync_guard, 1000000LL, 16U);
 
     TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_SYNC_READ, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_SYSTEM_EVENT));
     TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_SYNC_READ, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_HISTORY_SUMMARY));
     TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_MANUAL_STOP));
-    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_CALIBRATION));
-    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_PAIR_NAMES));
+    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_SYNC_READ, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_CALIBRATION));
+    TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_SYNC_READ, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_GET_PAIR_NAMES));
     TEST_ASSERT_U32_EQ(BEET_BLE_COMMAND_LANE_REAL, beet_ble_classify_command_lane(BEET_IFACE_COMMAND_STORE_PAIR_NAME));
     TEST_ASSERT_STR_EQ("sync_read", beet_ble_command_lane_name(BEET_BLE_COMMAND_LANE_SYNC_READ));
     TEST_ASSERT_STR_EQ("real", beet_ble_command_lane_name(BEET_BLE_COMMAND_LANE_REAL));
 
-    for (uint8_t i = 0U; i < 12U; ++i) {
+    /* SYNC_READ lane (16/window): UI/read bursts. Saturate the lane. */
+    for (uint8_t i = 0U; i < 16U; ++i) {
         TEST_ASSERT_TRUE(test_ble_allow_for_command(
             BEET_IFACE_COMMAND_GET_SYSTEM_EVENT,
             1000LL + i,
@@ -672,36 +673,58 @@ static void test_ble_command_lane_split(void)
         2000LL,
         &real_guard,
         &sync_guard));
+    /* New window: lane budget resets. */
+    TEST_ASSERT_TRUE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_GET_SYSTEM_EVENT,
+        1007000LL,
+        &real_guard,
+        &sync_guard));
 
+    /* REAL lane stays isolated from the saturated sync lane. */
     TEST_ASSERT_TRUE(test_ble_allow_for_command(
         BEET_IFACE_COMMAND_MANUAL_STOP,
+        2000LL,
+        &real_guard,
+        &sync_guard));
+
+    /* Initial-sync burst: get_pair_names + 8x get_pair_combined in one window. */
+    TEST_ASSERT_TRUE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_GET_PAIR_NAMES,
         3000LL,
         &real_guard,
         &sync_guard));
+    for (uint8_t i = 0U; i < 8U; ++i) {
+        TEST_ASSERT_TRUE(test_ble_allow_for_command(
+            BEET_IFACE_COMMAND_GET_PAIR_COMBINED,
+            3000LL + i,
+            &real_guard,
+            &sync_guard));
+    }
 
-    TEST_ASSERT_TRUE(test_ble_allow_for_command(
-        BEET_IFACE_COMMAND_GET_CALIBRATION,
-        4000LL,
+    /* REAL lane, fresh window (real lane first used at 2000; window is 1s so
+     * 1202000 starts fresh): 4 mutations allowed, 5th rejected in-window. */
+    for (uint8_t i = 0U; i < 4U; ++i) {
+        TEST_ASSERT_TRUE(test_ble_allow_for_command(
+            BEET_IFACE_COMMAND_STORE_PAIR_COMBINED,
+            1202000LL + i,
+            &real_guard,
+            &sync_guard));
+    }
+    TEST_ASSERT_FALSE(test_ble_allow_for_command(
+        BEET_IFACE_COMMAND_STORE_PAIR_COMBINED,
+        1202100LL,
         &real_guard,
         &sync_guard));
+
+    /* Lane isolation: reads do not consume the mutation budget and vice versa. */
     TEST_ASSERT_TRUE(test_ble_allow_for_command(
         BEET_IFACE_COMMAND_GET_CALIBRATION,
-        5000LL,
-        &real_guard,
-        &sync_guard));
-    TEST_ASSERT_TRUE(test_ble_allow_for_command(
-        BEET_IFACE_COMMAND_GET_CALIBRATION,
-        6000LL,
+        1300000LL,
         &real_guard,
         &sync_guard));
     TEST_ASSERT_FALSE(test_ble_allow_for_command(
-        BEET_IFACE_COMMAND_GET_CALIBRATION,
-        7000LL,
-        &real_guard,
-        &sync_guard));
-    TEST_ASSERT_TRUE(test_ble_allow_for_command(
-        BEET_IFACE_COMMAND_GET_CALIBRATION,
-        1007000LL,
+        BEET_IFACE_COMMAND_STORE_VALVE_CONFIG,
+        1300000LL,
         &real_guard,
         &sync_guard));
 }

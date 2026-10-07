@@ -67,7 +67,14 @@ internal class BeetRuntimeCommands(
                 link.withSyncPausedForCommand {
                     for (pairIndex in 1..8) {
                         runCatching { link.sendCommand(BeetJsonCodec.getCalibration(pairIndex)) }
-                            .onFailure { host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex)) }
+                            .onFailure {
+                                host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex))
+                            }
+                            .onSuccess { result ->
+                                if (result.status != "accepted") {
+                                    host.setCommandMessage(strings.get(R.string.runtime_calibration_refresh_failed, pairIndex))
+                                }
+                            }
                     }
                 }
             } finally {
