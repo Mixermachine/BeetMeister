@@ -174,7 +174,7 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="overview_label_time_valid">Time valid</string>
     <string name="overview_label_wifi" translatable="false">Wi-Fi</string>
     <string name="overview_label_mqtt" translatable="false">MQTT</string>
-    <string name="overview_label_running_since">Running since</string>
+    <string name="overview_label_running_since" localizePipeContext="Do not add second placeholder. REMOVE %s postfix. ESPECIALLY in FRENCH (Ne pas ajouter d\'espace réservé pour les secondes).">Running since</string>
     <string name="overview_label_uptime">Uptime</string>
     <string name="overview_label_valve">Valve</string>
     <string name="overview_label_moisture">Moisture</string>
@@ -285,9 +285,9 @@ Connect to your BeetMeister controller and wait for events to accumulate.</strin
     <string name="action_enable_pair">Enable pair</string>
     <string name="action_clear_error">Clear error</string>
 
-    <string name="format_duration_hours_minutes" localizePipeContext="Compact duration format using abbreviations: %1$d is hours, %2$d is minutes. Translate the unit abbreviations for the locale.">%1$dh %2$dm</string>
-    <string name="format_duration_minutes_seconds" localizePipeContext="Compact duration format using abbreviations: %1$d is minutes, %2$d is seconds. Translate the unit abbreviations for the locale.">%1$dm %2$ds</string>
-    <string name="format_duration_seconds_only" localizePipeContext="Compact duration format using abbreviation: %1$d is seconds. Translate the unit abbreviation for the locale.">%1$ds</string>
+    <string name="format_duration_hours_minutes" localizePipeContext="Compact duration format using abbreviations: %1$d is hours, %2$d is minutes. Translate the short unit abbreviations for the locale only (in English it is h for hour and m for minute).">%1$dh %2$dm</string>
+    <string name="format_duration_minutes_seconds" localizePipeContext="Compact duration format using abbreviations: %1$d is minutes, %2$d is seconds. Translate the short unit abbreviations for the locale only (in English it is m for minute and s for second).">%1$dm %2$ds</string>
+    <string name="format_duration_seconds_only" localizePipeContext="Compact duration format using abbreviation. You have to keep %1$d. ONLY translate the abbreviation for seconds (In English this is 's').">%1$ds</string>
     <string name="format_event_time_unknown">Time unknown</string>
     <string name="format_event_subject_controller_sleep">Controller sleep</string>
 
