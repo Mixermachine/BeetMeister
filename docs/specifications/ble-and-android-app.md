@@ -217,11 +217,28 @@ over a wrapped ring region delivered nothing.
 
 ## `control_point` commands
 
-The controller may apply separate rate limits for control-point traffic:
+The controller enforces two 1-second-window rate-limit lanes for control-point
+commands (runtime protocol v20):
 
-- backlog sync queries may use a higher rate limit
-- interactive and mutating commands shall keep a tighter limit
-- `get_calibration` shall remain on the tighter interactive lane rather than the backlog-sync lane
+- **`real` lane — 4 commands per second.** All mutating, actuator, and
+  NVS-write commands (`manual_start`/`stop`, `relay_test_*`, `reset_block`,
+  `store_*`, `clear_ble_bonds`, `enable/disable_pair`, `moisture_test_start`,
+  `set_time`, `open/close_valve`, `preview_valve_position`). The tight limit
+  paces flash writes and protects actuation paths.
+- **`sync_read` lane — 16 commands per second.** All pure read commands
+  (`get_calibration`, `get_valve_config`, `get_watering_interval`,
+  `get_pair_wiring`, `get_max_active_pumps`, `get_pair_names`,
+  `get_pair_combined`, `get_pair_config`) plus the event streaming commands
+  (`stream_events`, `stream_cancel`) and the backlog sync queries they back.
+  Reads must not consume the mutation budget — UI bursts (initial sync fetches
+  all pairs' combined config; the calibration refresh fetches all 8 pairs) are
+  legal read traffic.
+
+Over-limit commands are answered with `status = "rejected"` and
+`reason = "rate_limited"` (pre-v20: over-limit reads silently consumed the
+same 4-command budget as mutations, so connect-time and calibration-refresh
+read bursts dropped several reads per second). The app retries rejected
+commands across the window boundary.
 
 ### Manual start
 
