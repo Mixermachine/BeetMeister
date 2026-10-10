@@ -15,6 +15,7 @@ import de.aarondietz.beetmeister.model.repository.displayedPairCount
 import de.aarondietz.beetmeister.model.repository.isFollower
 import de.aarondietz.beetmeister.model.repository.isLead
 import de.aarondietz.beetmeister.model.repository.leadFor
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -264,6 +265,7 @@ internal class BeetRuntimeCommands(
     }
 
     fun setPairSensorSource(pairIndex: Int, leadPairIndex: Int?) {
+        BeetLog.i(TAG, "setPairSensorSource pair=$pairIndex lead=$leadPairIndex")
         host.scope.launch {
             if (!beetIsValidPairIndex(pairIndex)) {
                 return@launch
@@ -310,11 +312,15 @@ internal class BeetRuntimeCommands(
                     )
                 }
                 try {
-                    link.withSyncPausedForCommand {
+                    val result = link.withSyncPausedForCommand {
                         link.sendCommand(BeetJsonCodec.storePairCombined(currentLead, updatedOldMask))
                     }
+                    if (result.status != "accepted") {
+                        host.scope.launch { beetLoadPairCombinedWithRetry(currentLead) }
+                    }
                 } catch (_: Exception) {
-                    loadPairCombined(currentLead)
+                    BeetLog.w(TAG, "setPairSensorSource store failed lead=$currentLead")
+                    beetLoadPairCombinedWithRetry(currentLead)
                 }
             }
 
@@ -349,10 +355,10 @@ internal class BeetRuntimeCommands(
                             )
                         }
                     } else {
-                        loadPairCombined(leadPairIndex)
+                        beetLoadPairCombinedWithRetry(leadPairIndex)
                     }
                 } catch (_: Exception) {
-                    loadPairCombined(leadPairIndex)
+                    beetLoadPairCombinedWithRetry(leadPairIndex)
                 }
             }
         }
@@ -363,19 +369,41 @@ internal class BeetRuntimeCommands(
             if (!beetIsValidPairIndex(pairIndex)) {
                 return@launch
             }
-            try {
-                val result = link.withSyncPausedForCommand {
+            // Skip when the initial sync already fetched this pair's combined
+            // config. The per-detail-screen entry otherwise adds another REAL
+            // lane command to the same rate-limiter second, which can push the
+            // subsequent store_pair_combined past the 4-command/s limit and
+            // silently revert the user's selection.
+            if (host.state.value.isPairCombinedLoaded &&
+                host.state.value.pairCombined.containsKey(pairIndex)
+            ) {
+                return@launch
+            }
+            beetLoadPairCombinedWithRetry(pairIndex)
+        }
+    }
+
+    private suspend fun beetLoadPairCombinedWithRetry(pairIndex: Int) {
+        // The controller rate-limits REAL-lane commands to 4 per 1 s window.
+        // Retry through window boundaries so a rejection from a burst (e.g. a
+        // detail screen opening) converges instead of leaving the optimistic
+        // in-memory state diverged from the controller.
+        repeat(3) { attempt ->
+            val result = runCatching {
+                link.withSyncPausedForCommand {
                     link.sendCommand(BeetJsonCodec.getPairCombined(pairIndex))
                 }
-                if (result.status == "accepted" && result.pairCombined != null) {
-                    host.updateState { state ->
-                        state.copy(
-                            pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
-                        )
-                    }
+            }.getOrNull()
+            if (result != null && result.status == "accepted" && result.pairCombined != null) {
+                host.updateState { state ->
+                    state.copy(
+                        pairCombined = state.pairCombined + (pairIndex to result.pairCombined),
+                    )
                 }
-            } catch (_: Exception) {
-                // combined config is optional
+                return
+            }
+            if (attempt < 2) {
+                delay(1100L)
             }
         }
     }
@@ -406,6 +434,11 @@ internal class BeetRuntimeCommands(
     fun loadPairConfig(pairIndex: Int) {
         host.scope.launch {
             if (!beetIsValidPairIndex(pairIndex)) {
+                return@launch
+            }
+            // Skip when already loaded (mirror of loadPairWiring dedupe) to keep
+            // detail-screen entry inside the controller's REAL-lane rate limit.
+            if (host.state.value.pairConfigs.containsKey(pairIndex)) {
                 return@launch
             }
             try {
